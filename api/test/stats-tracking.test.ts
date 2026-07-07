@@ -43,13 +43,19 @@ describe('endpoints', () => {
   });
 
   it('GET /stats returns tile payload', async () => {
-    await auth(request(app).post('/samples')).send({ sample_type: 'offer', quality: 'AA', receiver: 'X', deadline: '2026-01-01' });
-    const s = await auth(request(app).post('/samples')).send({ sample_type: 'pss', quality: 'AAA', receiver: 'Y' });
-    await auth(request(app).patch(`/samples/${s.body.id}`)).send({ status: 'dispatched', courier: 'dhl', awb: 'ABC1' });
+    // /stats now aggregates over all_samples_v (specialty/bulk/forwarding), not legacy /samples.
+    await auth(request(app).post('/specialty-samples')).send({ description: 'AA', receiver_company: 'X' });
+    const b = await auth(request(app).post('/bulk-samples')).send({ quality: 'AAA', client: 'Y' });
+    await auth(request(app).patch(`/bulk-samples/${b.body.id}`)).send({ status: 'dispatched', courier_norm: 'dhl', awb: 'ABC1' });
+    const s2 = await auth(request(app).post('/specialty-samples')).send({ description: 'CC', receiver_company: 'Z' });
+    await auth(request(app).patch(`/specialty-samples/${s2.body.id}`)).send({ status: 'delivered' });
+
     const res = await auth(request(app).get('/stats'));
     expect(res.body.by_status.requested).toBe(1);
     expect(res.body.in_transit).toBe(1);
-    expect(res.body.overdue).toBe(1);
-    expect(res.body.dispatched_this_week).toBe(1);
+    expect(res.body.awaiting_results).toBe(1); // delivered specialty sample with no result_norm yet
+    expect(res.body.by_courier.dhl).toBe(1);
+    expect(res.body.dispatched_this_week).toBe(3); // counts ALL rows created this week now, not just literally-dispatched ones
+    expect(res.body.overdue).toBeUndefined(); // legacy deadline-based scalar was removed by the /stats rewrite
   });
 });
