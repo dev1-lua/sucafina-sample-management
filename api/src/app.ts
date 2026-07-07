@@ -9,6 +9,7 @@ import { chaser } from './routes/chaser.js';
 import { specialtySamples } from './routes/specialty-samples.js';
 import { bulkSamples } from './routes/bulk-samples.js';
 import { forwardingSamples } from './routes/forwarding-samples.js';
+import { traders } from './routes/traders.js';
 
 export const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -33,5 +34,6 @@ app.use('/chaser', chaser);
 app.use('/specialty-samples', specialtySamples);
 app.use('/bulk-samples', bulkSamples);
 app.use('/forwarding-samples', forwardingSamples);
+app.use('/traders', traders);
 
 app.use(errorHandler);
