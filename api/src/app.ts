@@ -2,6 +2,7 @@ import express from 'express';
 import { requireApiKey } from './auth.js';
 import { errorHandler } from './errors.js';
 import { clients } from './routes/clients.js';
+import { samples } from './routes/samples.js';
 
 export const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -19,5 +20,6 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.use(requireApiKey);
 app.use('/clients', clients);
+app.use('/samples', samples);
 
 app.use(errorHandler);
