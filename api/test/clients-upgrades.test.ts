@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app.js';
 import { resetDb, API_KEY } from './helpers.js';
+import { pool } from '../src/db.js';
 
 beforeAll(resetDb);
 const auth = (r: request.Test) => r.set('x-api-key', API_KEY).set('x-actor', 'test');
@@ -32,6 +33,10 @@ describe('clients upgrades', () => {
   });
 
   it('sorts clients by latest_order_date', async () => {
+    // create/PATCH never accept date_on, so both orders are NULL by default; backfill one
+    // directly so Beyers has a real, non-tied latest_order_date to sort on (NULLS LAST would
+    // otherwise leave both clients tied, and the id ASC tie-break is a random UUID per run).
+    await pool.query(`UPDATE specialty_samples SET date_on = CURRENT_DATE WHERE client_id = $1`, [clientId]);
     await auth(request(app).post('/clients')).send({ name: 'Nestrade' }); // no orders
     const res = await auth(request(app).get('/clients?sort=latest_order_date&order=desc'));
     expect(res.body.data[0].name).toBe('Beyers'); // has the most recent order
