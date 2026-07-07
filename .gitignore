@@ -1,0 +1,11 @@
+node_modules/
+.superpowers/
+
+# services
+api/node_modules/
+api/dist/
+dashboard/node_modules/
+dashboard/dist/
+scripts/node_modules/
+scripts/seed-report.json
+*.env

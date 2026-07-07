@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sucafina-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: sucafina
+      POSTGRES_PASSWORD: sucafina
+      POSTGRES_DB: sucafina
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./api/migrations/000_create_test_db.sql:/docker-entrypoint-initdb.d/000_create_test_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sucafina"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
