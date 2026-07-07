@@ -1,5 +1,7 @@
 node_modules/
 .superpowers/
+.DS_Store
+.lua/
 
 # services
 api/node_modules/
