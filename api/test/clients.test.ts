@@ -56,4 +56,31 @@ describe('clients', () => {
     const res = await auth(request(app).post('/clients')).send({});
     expect(res.status).toBe(400);
   });
+
+  it('returns the true match count as total', async () => {
+    await auth(request(app).post('/clients')).send({ name: 'Beyers Retail' });
+    const res = await auth(request(app).get('/clients?q=beyers'));
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(2);
+    expect(res.body.data).toHaveLength(2);
+  });
+
+  it('rejects malformed uuids with 400', async () => {
+    const requests = [
+      auth(request(app).get('/clients/not-a-uuid')),
+      auth(request(app).patch('/clients/not-a-uuid')).send({ country: 'BE' }),
+      auth(request(app).post('/clients/not-a-uuid/contacts')).send({ email: 'x@y.z' }),
+    ];
+    for (const req of requests) {
+      const res = await req;
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('returns 404 when adding a contact to a nonexistent client', async () => {
+    const res = await auth(
+      request(app).post('/clients/00000000-0000-0000-0000-000000000000/contacts')
+    ).send({ email: 'x@y.z' });
+    expect(res.status).toBe(404);
+  });
 });
