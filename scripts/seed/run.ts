@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import XLSX from 'xlsx';
 import pg from 'pg';
 import {
-  parseQtyGrams, normalizeCourier, classifySampleType, parseSheetDate, normalizeName, parseResult,
+  parseQtyGrams, normalizeCourier, classifySampleType, parseSheetDate, normalizeName, parseResult, parseNumeric,
 } from './parsers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +18,11 @@ const str = (v: unknown): string | null => {
   const s = String(v).trim();
   return s === '' ? null : s;
 };
+const fmtDate = (v: unknown): string | null => {
+  const d = parseSheetDate(v);
+  return d ? d.toISOString().slice(0, 10) : str(v);
+};
+let specialtyLoaded = 0, bulkLoaded = 0, forwardingLoaded = 0;
 
 const wb = XLSX.readFile(XLSX_PATH, { cellDates: true });
 const rowsOf = (name: string): Row[] =>
@@ -28,7 +33,8 @@ await client.connect();
 
 // wipe previously seeded data (idempotent reruns) but keep agent-created rows intact on --keep
 if (!process.argv.includes('--keep')) {
-  await client.query(`TRUNCATE sample_events, samples, client_contacts, clients RESTART IDENTITY CASCADE`);
+  await client.query(`TRUNCATE events, forwarding_samples, bulk_samples, specialty_samples,
+    sample_events, samples, client_contacts, clients, traders RESTART IDENTITY CASCADE`);
 }
 
 // ---- 1. clients -------------------------------------------------------
@@ -51,6 +57,17 @@ for (const r of clientRows) {
       [id, str(r[1]), str(r[2]), str(r[3]), str(r[4])]);
     contactCount++;
   }
+}
+
+// ---- 1b. traders (from the persona's known team; clients left unassigned) --
+const TRADERS: ReadonlyArray<readonly [string, 'trader' | 'qc']> = [
+  ['Ivo', 'trader'], ['Omar', 'trader'], ['Muki', 'trader'], ['Brian', 'trader'], ['Gloria', 'trader'],
+  ['Bernard', 'qc'], ['Brillian', 'qc'], ['Harriet', 'qc'], ['Anička', 'qc'],
+];
+for (const [name, role] of TRADERS) {
+  await client.query(
+    `INSERT INTO traders (name, role) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`,
+    [name, role]);
 }
 
 function resolveClient(receiver: string | null): string | null {
@@ -101,6 +118,75 @@ function inferStatus(result: string | null, deliveredAt: Date | null, awb: strin
   if (deliveredAt) return 'delivered';
   if (awb || courier) return 'dispatched';
   return 'requested';
+}
+
+async function insertSpecialtySample(r: Row) {
+  const d0 = parseSheetDate(r[0]); const dd = parseSheetDate(r[11]);
+  const result = parseResult(r[12]); const awb = str(r[8]);
+  const courierNorm = normalizeCourier(r[9]);
+  const st = classifySampleType(r[6]);
+  const status = inferStatus(result, dd, awb, courierNorm);
+  const { rows } = await client.query(
+    `INSERT INTO specialty_samples
+       (date, ref, outturn, name, grade, bags, description, receiver_company, awb, courier, qty,
+        delivery_date, result, comments, crop_year, crop_area_details,
+        date_on, delivery_on, qty_grams, courier_norm, result_norm, sample_type_norm, client_id, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+     RETURNING id`,
+    [fmtDate(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]),
+     typeof r[5] === 'number' ? Math.round(r[5]) : null, str(r[6]), str(r[7]), awb, str(r[9]), str(r[10]),
+     fmtDate(r[11]), str(r[12]), str(r[13]), str(r[14]), str(r[15]),
+     d0, dd, parseQtyGrams(r[10]), courierNorm, result, st.type, resolveClient(str(r[7])), status]);
+  await client.query(
+    `INSERT INTO events (entity_type, entity_id, type, note, actor, created_at)
+     VALUES ('specialty',$1,'created','imported from Sample Chaser','seed',$2)`,
+    [rows[0].id, d0 ?? new Date()]);
+  specialtyLoaded++;
+}
+
+async function insertBulkSample(r: Row) {
+  const d0 = parseSheetDate(r[0]); const dd = parseSheetDate(r[14]);
+  const result = parseResult(r[15]); const awb = str(r[9]);
+  const courierNorm = normalizeCourier(r[10]);
+  const st = classifySampleType(r[6]);
+  const status = inferStatus(result, dd, awb, courierNorm);
+  const { rows } = await client.query(
+    `INSERT INTO bulk_samples
+       (date, sample_ref, bags, quality, client_ref, ico_mark, sample_type, client, country, awb,
+        courier, qty, moisture, water_activity, delivery_date, result, comments, crop_year, crop_area_details,
+        date_on, delivery_on, qty_grams, courier_norm, result_norm, sample_type_norm,
+        moisture_pct, water_activity_num, client_id, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+     RETURNING id`,
+    [fmtDate(r[0]), str(r[1]), typeof r[2] === 'number' ? Math.round(r[2]) : null, str(r[3]), str(r[4]),
+     str(r[5]), str(r[6]), str(r[7]), str(r[8]), awb, str(r[10]), str(r[11]),
+     str(r[12]), str(r[13]), fmtDate(r[14]), str(r[15]), str(r[16]), str(r[17]), str(r[18]),
+     d0, dd, parseQtyGrams(r[11]), courierNorm, result, st.type,
+     parseNumeric(r[12]), parseNumeric(r[13]), resolveClient(str(r[7])), status]);
+  await client.query(
+    `INSERT INTO events (entity_type, entity_id, type, note, actor, created_at)
+     VALUES ('bulk',$1,'created','imported from Sample Chaser','seed',$2)`,
+    [rows[0].id, d0 ?? new Date()]);
+  bulkLoaded++;
+}
+
+async function insertForwardingSample(r: Row) {
+  const d0 = parseSheetDate(r[0]); const awb = str(r[7]);
+  const courierNorm = normalizeCourier(r[8]);
+  const status = awb || courierNorm ? 'dispatched' : 'requested';
+  const { rows } = await client.query(
+    `INSERT INTO forwarding_samples
+       (date, sender, origin, sample_ref, coffee_quality, receiver_company, id_number, awb, courier, qty,
+        date_on, qty_grams, courier_norm, client_id, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+     RETURNING id`,
+    [fmtDate(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]), str(r[6]), awb, str(r[8]), str(r[9]),
+     d0, parseQtyGrams(r[9]), courierNorm, resolveClient(str(r[5])), status]);
+  await client.query(
+    `INSERT INTO events (entity_type, entity_id, type, note, actor, created_at)
+     VALUES ('forwarding',$1,'created','imported from E A Forwarding','seed',$2)`,
+    [rows[0].id, d0 ?? new Date()]);
+  forwardingLoaded++;
 }
 
 // Specialty sheet
@@ -154,6 +240,24 @@ for (let i = 1; i < bulk.length; i++) {
   }, 'bulk', i + 1);
 }
 
+// ---- 2b. new dedicated tables (legacy `samples` load above is unchanged) ----
+for (let i = 1; i < spec.length; i++) {
+  const r = spec[i];
+  if (!r || !r.some((v) => str(v))) continue;
+  await insertSpecialtySample(r);
+}
+for (let i = 1; i < bulk.length; i++) {
+  const r = bulk[i];
+  if (!r || !r.some((v) => str(v))) continue;
+  await insertBulkSample(r);
+}
+const fwd = rowsOf('E A Forwarding 2024-2025');
+for (let i = 1; i < fwd.length; i++) {
+  const r = fwd[i];
+  if (!r || !r.some((v) => str(v))) continue;
+  await insertForwardingSample(r);
+}
+
 // ---- 3. ref counters above any seeded numeric refs --------------------
 for (const [prefix, floor] of [['SL', 8000], ['TYPE', 1000], ['SSKE', 108000]] as const) {
   const { rows } = await client.query(
@@ -163,12 +267,29 @@ for (const [prefix, floor] of [['SL', 8000], ['TYPE', 1000], ['SSKE', 108000]] a
 }
 
 // ---- 4. report --------------------------------------------------------
+const nonEmpty = (name: string): number =>
+  rowsOf(name).slice(1).filter((r) => r && r.some((v) => str(v))).length;
 const counts = await client.query(`
   SELECT (SELECT count(*)::int FROM clients) AS clients,
          (SELECT count(*)::int FROM client_contacts) AS contacts,
-         (SELECT count(*)::int FROM samples) AS samples,
-         (SELECT count(*)::int FROM samples WHERE client_id IS NOT NULL) AS resolved`);
-const report = { ...counts.rows[0], contact_rows: contactCount, loaded, warnings: warnings.length, details: warnings };
+         (SELECT count(*)::int FROM traders) AS traders,
+         (SELECT count(*)::int FROM samples) AS legacy_samples,
+         (SELECT count(*)::int FROM specialty_samples) AS specialty_samples,
+         (SELECT count(*)::int FROM bulk_samples) AS bulk_samples,
+         (SELECT count(*)::int FROM forwarding_samples) AS forwarding_samples,
+         (SELECT count(*)::int FROM events) AS events`);
+const c = counts.rows[0];
+const expected = {
+  specialty_samples: nonEmpty('Specialty Samples 2024-2025'),
+  bulk_samples: nonEmpty('BulkSamples 2024-2025'),
+  forwarding_samples: nonEmpty('E A Forwarding 2024-2025'),
+};
+const dropped = {
+  specialty_samples: expected.specialty_samples - c.specialty_samples,
+  bulk_samples: expected.bulk_samples - c.bulk_samples,
+  forwarding_samples: expected.forwarding_samples - c.forwarding_samples,
+};
+const report = { ...c, expected, dropped, warnings: warnings.length, details: warnings };
 writeFileSync(path.resolve(__dirname, '../seed-report.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ ...report, details: undefined }, null, 2));
 await client.end();
