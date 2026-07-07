@@ -600,7 +600,7 @@ Run:
 docker exec sucafina-postgres psql -U sucafina -d sucafina -c \
 "SELECT count(*) total, count(id_number) with_id, count(distinct awb) awbs FROM forwarding_samples;"
 ```
-Expected: `total=15, with_id=13, awbs=4` (two rows have a null `id_number`; the duplicate `UGF/25/028` is preserved as two rows).
+Expected: `total=15, with_id=12, awbs=4` (three rows have a null `id_number` — verified against the source sheet; the duplicate `UGF/25/028` is preserved as two rows).
 
 - [ ] **Step 10: Commit**
 
