@@ -5,7 +5,7 @@ import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
-import { parseId } from '../lib/validate.js';
+import { parseId, assertIn } from '../lib/validate.js';
 
 export const forwardingSamples = Router();
 
@@ -39,8 +39,12 @@ const patchSchema = z.object({
 
 forwardingSamples.get('/', h(async (req, res) => {
   const f = makeFilters();
-  if (req.query.status) f.add(`status = ANY (?::sample_status_t[])`, String(req.query.status).split(','));
-  if (req.query.courier_norm) f.add(`courier_norm = ?::courier_t`, String(req.query.courier_norm));
+  if (req.query.status) {
+    const values = String(req.query.status).split(',');
+    for (const v of values) assertIn(v, STATUSES, 'status');
+    f.add(`status = ANY (?::sample_status_t[])`, values);
+  }
+  if (req.query.courier_norm) f.add(`courier_norm = ?::courier_t`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
   if (req.query.origin) f.add(`origin = ?`, String(req.query.origin));
   if (req.query.sender) f.add(`sender = ?`, String(req.query.sender));
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
@@ -88,6 +92,7 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
   const cur = await pool.query(`SELECT * FROM forwarding_samples WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!cur.rows[0]) throw new HttpError(404, 'forwarding sample not found');
   const prev = cur.rows[0];
+  if (Object.keys(body).length === 0) return res.json(prev);
   const nextStatus = body.status ?? null; // NEVER results_in
 
   const eventType =
@@ -111,11 +116,12 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
        qty_grams = COALESCE($7, qty_grams),
        client_id = COALESCE($8::uuid, client_id),
        updated_at = now()
-     WHERE id = $1 RETURNING *`,
+     WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.id_number ?? null,
      body.receiver_company ?? null, body.qty_grams ?? null, body.client_id ?? null],
     { entityType: 'forwarding', type: eventType, note, actor },
   );
+  if (!row) throw new HttpError(404, 'forwarding sample not found');
   res.json(row);
 }));
 

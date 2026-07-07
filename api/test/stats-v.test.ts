@@ -26,5 +26,6 @@ describe('stats over all_samples_v', () => {
     expect(res.body.by_country).toMatchObject({ Kenya: 1 });
     expect(res.body.by_sample_type.other).toBe(2); // specialty + bulk both default to 'other'; forwarding has none
     expect(Array.isArray(res.body.volume_over_time)).toBe(true);
+    expect(res.body.dispatched_this_week).toBe(1); // events-based: only the bulk PATCH fired a `dispatched` event
   });
 });

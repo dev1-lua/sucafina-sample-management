@@ -65,6 +65,27 @@ describe('buildList', () => {
     );
     expect(res.total).toBe(2);
   });
+
+  it('does not mutate the caller-owned params array (a ?q= search push stays local)', async () => {
+    const f = makeFilters();
+    f.add(`description LIKE ?`, '%Q%');
+    const paramsBefore = [...f.params];
+    await buildList(
+      { table: 'specialty_samples', sortable: ['created_at'], defaultSort: 'created_at', searchColumns: ['description'] },
+      { q: 'Q1' }, f.where, f.params,
+    );
+    expect(f.params).toEqual(paramsBefore); // buildList must copy, not push into, the caller's array
+  });
+
+  it('falls back to the default page/pageSize on non-numeric pagination params (no NaN LIMIT)', async () => {
+    const f = makeFilters();
+    const res = await buildList(
+      { table: 'specialty_samples', sortable: ['created_at'], defaultSort: 'created_at' },
+      { page: 'abc', pageSize: 'abc' }, f.where, f.params,
+    );
+    expect(res.page).toBe(1);
+    expect(res.pageSize).toBe(25);
+  });
 });
 
 describe('runWithEvent', () => {
@@ -73,7 +94,8 @@ describe('runWithEvent', () => {
       `INSERT INTO bulk_samples (quality, client, status) VALUES ('AB','X','requested') RETURNING *`,
       [], { entityType: 'bulk', type: 'created', note: 'seed', actor: 'test' },
     );
-    const evs = await entityEvents('bulk', row.id);
+    expect(row).toBeDefined();
+    const evs = await entityEvents('bulk', row!.id as string);
     expect(evs).toHaveLength(1);
     expect(evs[0]).toMatchObject({ type: 'created', actor: 'test', entity_type: 'bulk' });
   });

@@ -1,5 +1,6 @@
 import type { Request } from 'express';
 import { pool } from '../db.js';
+import { clampInt } from './validate.js';
 
 export interface ListConfig {
   table: string;                      // trusted identifier from route code (never user input)
@@ -34,12 +35,13 @@ export async function buildList(
   params: unknown[],
 ): Promise<ListResult> {
   const w = [...where];
+  const p = [...params];
   if (!cfg.includeDeleted) w.push('deleted_at IS NULL');
 
   const q = String(query.q ?? '').trim();
   if (q && cfg.searchColumns?.length) {
-    params.push(q);
-    const i = params.length;
+    p.push(q);
+    const i = p.length;
     w.push('(' + cfg.searchColumns.map((c) => `${c} ILIKE '%'||$${i}||'%'`).join(' OR ') + ')');
   }
 
@@ -47,15 +49,15 @@ export async function buildList(
   const orderQ = String(query.order ?? '').toLowerCase();
   const order = orderQ === 'asc' ? 'ASC' : orderQ === 'desc' ? 'DESC' : (cfg.defaultOrder === 'asc' ? 'ASC' : 'DESC');
 
-  const page = Math.max(1, Number(query.page ?? 1));
-  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 25)));
+  const page = clampInt(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const pageSize = clampInt(query.pageSize, 25, 1, 100);
   const whereSql = w.length ? `WHERE ${w.join(' AND ')}` : '';
 
   const { rows } = await pool.query(
     `SELECT *, count(*) OVER ()::int AS full_count FROM ${cfg.table} ${whereSql}
-     ORDER BY ${sort} ${order} NULLS LAST
+     ORDER BY ${sort} ${order} NULLS LAST, id ASC
      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
-    params,
+    p,
   );
   const total = rows[0]?.full_count ?? 0;
   return { data: rows.map(({ full_count, ...row }) => row), total, page, pageSize };

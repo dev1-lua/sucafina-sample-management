@@ -5,7 +5,7 @@ import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
-import { parseId } from '../lib/validate.js';
+import { parseId, assertIn } from '../lib/validate.js';
 
 export const bulkSamples = Router();
 
@@ -52,10 +52,14 @@ const patchSchema = z.object({
 
 bulkSamples.get('/', h(async (req, res) => {
   const f = makeFilters();
-  if (req.query.status) f.add(`status = ANY (?::sample_status_t[])`, String(req.query.status).split(','));
-  if (req.query.sample_type_norm) f.add(`sample_type_norm = ?::sample_type_t`, String(req.query.sample_type_norm));
-  if (req.query.courier_norm) f.add(`courier_norm = ?::courier_t`, String(req.query.courier_norm));
-  if (req.query.result_norm) f.add(`result_norm = ?::result_t`, String(req.query.result_norm));
+  if (req.query.status) {
+    const values = String(req.query.status).split(',');
+    for (const v of values) assertIn(v, STATUSES, 'status');
+    f.add(`status = ANY (?::sample_status_t[])`, values);
+  }
+  if (req.query.sample_type_norm) f.add(`sample_type_norm = ?::sample_type_t`, assertIn(String(req.query.sample_type_norm), SAMPLE_TYPES, 'sample_type_norm'));
+  if (req.query.courier_norm) f.add(`courier_norm = ?::courier_t`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
+  if (req.query.result_norm) f.add(`result_norm = ?::result_t`, assertIn(String(req.query.result_norm), RESULTS, 'result_norm'));
   if (req.query.country) f.add(`country = ?`, String(req.query.country));
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
   if (req.query.date_from) f.add(`date_on >= ?::date`, String(req.query.date_from));
@@ -106,6 +110,7 @@ bulkSamples.patch('/:id', h(async (req, res) => {
   const cur = await pool.query(`SELECT * FROM bulk_samples WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!cur.rows[0]) throw new HttpError(404, 'bulk sample not found');
   const prev = cur.rows[0];
+  if (Object.keys(body).length === 0) return res.json(prev);
   const nextStatus = body.result_norm ? 'results_in' : body.status ?? null;
 
   const eventType =
@@ -132,11 +137,12 @@ bulkSamples.patch('/:id', h(async (req, res) => {
        comments = COALESCE($10, comments),
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        updated_at = now()
-     WHERE id = $1 RETURNING *`,
+     WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
      body.quality ?? null, body.country ?? null, body.qty_grams ?? null, body.client_id ?? null, body.comments ?? null],
     { entityType: 'bulk', type: eventType, note, actor },
   );
+  if (!row) throw new HttpError(404, 'bulk sample not found');
   res.json(row);
 }));
 

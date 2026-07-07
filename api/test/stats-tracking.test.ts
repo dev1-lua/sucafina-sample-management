@@ -55,7 +55,7 @@ describe('endpoints', () => {
     expect(res.body.in_transit).toBe(1);
     expect(res.body.awaiting_results).toBe(1); // delivered specialty sample with no result_norm yet
     expect(res.body.by_courier.dhl).toBe(1);
-    expect(res.body.dispatched_this_week).toBe(3); // counts ALL rows created this week now, not just literally-dispatched ones
+    expect(res.body.dispatched_this_week).toBe(1); // events-based: counts `dispatched` events fired this week, not rows created
     expect(res.body.overdue).toBeUndefined(); // legacy deadline-based scalar was removed by the /stats rewrite
   });
 });

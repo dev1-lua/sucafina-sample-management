@@ -33,4 +33,14 @@ describe('search', () => {
     expect(res.body.total).toBe(1);
     expect(res.body.data[0].tab).toBe('specialty');
   });
+
+  it('400s on an invalid status filter value instead of a 500 enum-cast error', async () => {
+    const res = await auth(request(app).get('/search?status=bogus'));
+    expect(res.status).toBe(400);
+  });
+
+  it('falls back to the default pageSize on a non-numeric pageSize (no 500)', async () => {
+    const res = await auth(request(app).get('/search?pageSize=abc'));
+    expect(res.status).toBe(200);
+  });
 });

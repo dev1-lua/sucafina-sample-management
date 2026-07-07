@@ -44,6 +44,22 @@ describe('clients upgrades', () => {
     expect(res.body.total).toBeGreaterThanOrEqual(2);
   });
 
+  it('falls back to the default page/pageSize on non-numeric pagination params (no 500)', async () => {
+    const res = await auth(request(app).get('/clients?page=abc&pageSize=abc'));
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(25);
+  });
+
+  it('empty PATCH {} is a no-op: 200, unchanged row, no new event', async () => {
+    const before = await auth(request(app).get(`/clients/${clientId}`));
+    const res = await auth(request(app).patch(`/clients/${clientId}`)).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(clientId);
+    const after = await auth(request(app).get(`/clients/${clientId}`));
+    expect(after.body.events).toHaveLength(before.body.events.length);
+  });
+
   it('soft-deletes a client and hides it from the list + logs a deleted event', async () => {
     const del = await auth(request(app).delete(`/clients/${clientId}`));
     expect(del.status).toBe(200);

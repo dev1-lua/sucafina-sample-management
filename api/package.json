@@ -6,7 +6,8 @@
     "dev": "tsx watch src/server.ts",
     "migrate": "tsx scripts/migrate.ts",
     "db:reset": "tsx scripts/migrate.ts --reset",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "express": "^4.19.0",

@@ -4,7 +4,7 @@ import { pool } from '../db.js';
 import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
-import { parseId } from '../lib/validate.js';
+import { parseId, clampInt } from '../lib/validate.js';
 
 export const clients = Router();
 
@@ -37,8 +37,8 @@ clients.get('/', h(async (req, res) => {
   const q = String(req.query.q ?? '').trim();
   const sortKey = SORTABLE[String(req.query.sort)] ?? 'c.name';
   const order = String(req.query.order ?? '').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-  const page = Math.max(1, Number(req.query.page ?? 1));
-  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 25)));
+  const page = clampInt(req.query.page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const pageSize = clampInt(req.query.pageSize, 25, 1, 100);
 
   const { rows } = await pool.query(
     `SELECT c.*,
@@ -47,7 +47,7 @@ clients.get('/', h(async (req, res) => {
        count(*) OVER ()::int AS full_count
      FROM clients c
      WHERE c.deleted_at IS NULL AND ($1 = '' OR c.name ILIKE '%' || $1 || '%')
-     ORDER BY ${sortKey} ${order} NULLS LAST
+     ORDER BY ${sortKey} ${order} NULLS LAST, c.id ASC
      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
     [q],
   );
@@ -109,6 +109,12 @@ clients.get('/:id', h(async (req, res) => {
 clients.patch('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
   const body = parseBody(patchSchema, req.body);
+  if (Object.keys(body).length === 0) {
+    const { rows } = await pool.query(`SELECT * FROM clients WHERE id = $1 AND deleted_at IS NULL`, [id]);
+    if (!rows[0]) throw new HttpError(404, 'client not found');
+    res.json(rows[0]);
+    return;
+  }
   const actor = actorFrom(req);
   const row = await runWithEvent(
     `UPDATE clients SET

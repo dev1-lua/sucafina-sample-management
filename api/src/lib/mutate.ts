@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 
 export type EntityType = 'specialty' | 'bulk' | 'forwarding' | 'client';
@@ -7,17 +8,17 @@ export type EntityType = 'specialty' | 'bulk' | 'forwarding' | 'client';
  * append one polymorphic `events` row for that row's id — in a single transaction.
  * The only sanctioned write path for the new tables (single-writer + audit trail).
  */
-export async function runWithEvent(
+export async function runWithEvent<T extends Record<string, unknown> = Record<string, unknown>>(
   sql: string,
   params: unknown[],
   ev: { entityType: EntityType; type: string; note: string | null; actor: string },
-  extraWrites?: (client: import('pg').PoolClient, row: Record<string, unknown>) => Promise<void>,
-): Promise<Record<string, unknown> | undefined> {
+  extraWrites?: (client: PoolClient, row: T) => Promise<void>,
+): Promise<T | undefined> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(sql, params);
-    const row = rows[0];
+    const row = rows[0] as T | undefined;
     if (row) {
       await client.query(
         `INSERT INTO events (entity_type, entity_id, type, note, actor)
@@ -27,12 +28,12 @@ export async function runWithEvent(
     }
     if (row && extraWrites) await extraWrites(client, row);
     await client.query('COMMIT');
+    client.release();
     return row;
   } catch (e) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
+    client.release(e as Error);
     throw e;
-  } finally {
-    client.release();
   }
 }
 
