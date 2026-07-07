@@ -3,6 +3,8 @@ import { requireApiKey } from './auth.js';
 import { errorHandler } from './errors.js';
 import { clients } from './routes/clients.js';
 import { samples } from './routes/samples.js';
+import { stats } from './routes/stats.js';
+import { tracking } from './routes/tracking.js';
 
 export const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -21,5 +23,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use(requireApiKey);
 app.use('/clients', clients);
 app.use('/samples', samples);
+app.use('/stats', stats);
+app.use('/tracking', tracking);
 
 app.use(errorHandler);
