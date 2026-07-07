@@ -1,0 +1,15 @@
+agent:
+  agentId: baseAgent_agent_1783420556773_cc6qh9f2y
+  orgId: d9764ee0-5a19-4c0d-9407-a2e2e489a827
+skills:
+  - name: sample-intake
+    skillId: c956a600-f604-419a-b3d6-4be4863fedfa
+    version: 1.0.0
+  - name: client-book
+    skillId: d4dfd7a4-2577-4839-88cf-5461847785ef
+    version: 1.0.0
+webhooks: []
+jobs: []
+preprocessors: []
+postprocessors: []
+mcpServers: []
