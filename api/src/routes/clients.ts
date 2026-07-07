@@ -58,22 +58,35 @@ clients.get('/', h(async (req, res) => {
 clients.post('/', h(async (req, res) => {
   const body = parseBody(clientSchema, req.body);
   const existing = await pool.query(`SELECT * FROM clients WHERE lower(name) = lower($1) AND deleted_at IS NULL`, [body.name]);
-  let client;
-  let created = false;
   if (existing.rows[0]) {
-    client = existing.rows[0];
-  } else {
-    const ins = await pool.query(`INSERT INTO clients (name, country) VALUES ($1, $2) RETURNING *`, [body.name.trim(), body.country ?? null]);
-    client = ins.rows[0];
-    created = true;
+    const client = existing.rows[0];
+    if (body.contact) {
+      await pool.query(
+        `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email) VALUES ($1, $2, $3, $4, $5)`,
+        [client.id, body.contact.attention_to ?? null, body.contact.full_address ?? null, body.contact.phone ?? null, body.contact.email ?? null],
+      );
+    }
+    res.status(200).json(client);
+    return;
   }
-  if (body.contact) {
-    await pool.query(
-      `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email) VALUES ($1, $2, $3, $4, $5)`,
-      [client.id, body.contact.attention_to ?? null, body.contact.full_address ?? null, body.contact.phone ?? null, body.contact.email ?? null],
-    );
-  }
-  res.status(created ? 201 : 200).json(client);
+
+  const actor = actorFrom(req);
+  const client = await runWithEvent(
+    `INSERT INTO clients (name, country) VALUES ($1, $2) RETURNING *`,
+    [body.name.trim(), body.country ?? null],
+    { entityType: 'client', type: 'created', note: `client created: ${body.name.trim()}`, actor },
+    body.contact
+      ? async (db, row) => {
+          await db.query(
+            `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [row.id, body.contact!.attention_to ?? null, body.contact!.full_address ?? null,
+             body.contact!.phone ?? null, body.contact!.email ?? null],
+          );
+        }
+      : undefined,
+  );
+  res.status(201).json(client);
 }));
 
 clients.get('/:id', h(async (req, res) => {

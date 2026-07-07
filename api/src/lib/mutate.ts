@@ -11,6 +11,7 @@ export async function runWithEvent(
   sql: string,
   params: unknown[],
   ev: { entityType: EntityType; type: string; note: string | null; actor: string },
+  extraWrites?: (client: import('pg').PoolClient, row: Record<string, unknown>) => Promise<void>,
 ): Promise<Record<string, unknown> | undefined> {
   const client = await pool.connect();
   try {
@@ -24,6 +25,7 @@ export async function runWithEvent(
         [ev.entityType, row.id, ev.type, ev.note, ev.actor],
       );
     }
+    if (row && extraWrites) await extraWrites(client, row);
     await client.query('COMMIT');
     return row;
   } catch (e) {
