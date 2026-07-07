@@ -8,6 +8,15 @@ skills:
   - name: client-book
     skillId: d4dfd7a4-2577-4839-88cf-5461847785ef
     version: 1.0.0
+  - name: dispatch-logging
+    skillId: 7d224af8-424d-4606-9c08-9bfc28c1e1f7
+    version: 1.0.0
+  - name: status-and-tracking
+    skillId: 7e0234a6-d3c6-48a0-8023-c3f8de47ccf4
+    version: 1.0.0
+  - name: results-capture
+    skillId: efcd6fde-e46a-462a-a0ce-b02aaae0567f
+    version: 1.0.0
 webhooks: []
 jobs: []
 preprocessors: []

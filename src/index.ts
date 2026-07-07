@@ -1,6 +1,9 @@
 import { LuaAgent } from 'lua-cli';
 import { sampleIntakeSkill } from './skills/sample-intake.skill';
 import { clientBookSkill } from './skills/client-book.skill';
+import { dispatchLoggingSkill } from './skills/dispatch-logging.skill';
+import { statusTrackingSkill } from './skills/status-and-tracking.skill';
+import { resultsCaptureSkill } from './skills/results-capture.skill';
 
 /**
  * Your Lua AI Agent
@@ -68,7 +71,7 @@ Feel free to add, remove, or rename sections. Your persona can be a single parag
 `, // Set during lua init
     model: 'anthropic/claude-sonnet-5',
     // Add your skills here
-  skills: [sampleIntakeSkill, clientBookSkill],
+  skills: [sampleIntakeSkill, clientBookSkill, dispatchLoggingSkill, statusTrackingSkill, resultsCaptureSkill],
 
   // Optional: Add webhooks for external integrations
   // webhooks: [],
