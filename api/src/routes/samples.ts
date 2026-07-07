@@ -79,14 +79,14 @@ samples.get('/', h(async (req, res) => {
   const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 25)));
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  const count = await pool.query(`SELECT count(*)::int AS n FROM samples ${whereSql}`, params);
   const { rows } = await pool.query(
-    `SELECT * FROM samples ${whereSql}
+    `SELECT *, count(*) OVER ()::int AS full_count FROM samples ${whereSql}
      ORDER BY coalesce(requested_at, created_at) DESC
      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
     params
   );
-  res.json({ data: rows, total: count.rows[0].n, page, pageSize });
+  const total = rows[0]?.full_count ?? 0;
+  res.json({ data: rows.map(({ full_count, ...row }) => row), total, page, pageSize });
 }));
 
 samples.post('/', h(async (req, res) => {

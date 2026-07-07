@@ -5,6 +5,7 @@ process.env.API_KEY ??= 'dev-key-sucafina';
 
 export default defineConfig({
   test: {
+    fileParallelism: false,
     poolOptions: { threads: { singleThread: true } },
   },
 });

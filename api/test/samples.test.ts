@@ -42,6 +42,12 @@ describe('samples', () => {
     expect(res.body.total).toBe(2);
   });
 
+  it('reports the true total count (windowed count) even when pageSize limits the page', async () => {
+    const res = await auth(request(app).get('/samples?pageSize=1'));
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.total).toBeGreaterThanOrEqual(2);
+  });
+
   it('dispatch via PATCH writes dispatched event and timestamps', async () => {
     const res = await auth(request(app).patch(`/samples/${id}`)).send({
       status: 'dispatched', courier: 'dhl', awb: '9620551651',
