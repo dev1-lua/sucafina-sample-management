@@ -23,12 +23,25 @@ describe('chaser over all_samples_v', () => {
   });
 
   it('excludes forwarding from awaiting_results', async () => {
+    // Make this row a genuine awaiting_results candidate on every predicate except
+    // `tab <> 'forwarding'`: status='delivered', result_norm IS NULL (always true for
+    // forwarding), and coalesce(delivery_on, date_on) < now() - 7d. forwarding_samples has
+    // no delivery_on column — the view projects it as NULL, so back-date date_on instead.
     const fwd = await auth(request(app).post('/forwarding-samples')).send({
       sender: 'Kenyacof', origin: 'Uganda', sample_ref: 'S2', coffee_quality: 'AA', receiver_company: 'Beyers',
     });
-    await pool.query(`UPDATE forwarding_samples SET status='delivered' WHERE id=$1`, [fwd.body.id]);
-    const digest = await auth(request(app).get('/chaser/digest'));
-    const ids = digest.body.buckets.awaiting_results.items.map((i: { id: string }) => i.id);
+    await pool.query(
+      `UPDATE forwarding_samples SET status='delivered', date_on = CURRENT_DATE - 30 WHERE id=$1`,
+      [fwd.body.id],
+    );
+
+    // Run this test's own digest AFTER back-dating, so the forwarding row is actually
+    // evaluated as a candidate (a digest from an earlier run would predate the row entirely).
+    const run = await auth(request(app).post('/chaser/run'));
+    expect(run.status).toBe(200);
+    const ids = run.body.buckets.awaiting_results.items.map((i: { id: string }) => i.id);
+    // Every other predicate is satisfied here — this can only pass because of the
+    // `tab <> 'forwarding'` exclusion in digest.ts.
     expect(ids).not.toContain(fwd.body.id);
   });
 
