@@ -1,5 +1,8 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
 import SamplesPage from './pages/SamplesPage';
+import SampleDetailPage from './pages/SampleDetailPage';
+import ClientsPage from './pages/ClientsPage';
+import ChaserPage from './pages/ChaserPage';
 
 export default function App() {
   return (
@@ -13,6 +16,9 @@ export default function App() {
       <main>
         <Routes>
           <Route path="/" element={<SamplesPage />} />
+          <Route path="/samples/:id" element={<SampleDetailPage />} />
+          <Route path="/clients" element={<ClientsPage />} />
+          <Route path="/chaser" element={<ChaserPage />} />
         </Routes>
       </main>
     </>
