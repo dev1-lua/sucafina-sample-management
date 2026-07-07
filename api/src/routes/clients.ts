@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { HttpError, parseBody, h } from '../errors.js';
+import { actorFrom } from '../auth.js';
+import { runWithEvent, entityEvents } from '../lib/mutate.js';
+import { parseId } from '../lib/validate.js';
 
 export const clients = Router();
 
@@ -18,49 +21,56 @@ const clientSchema = z.object({
   contact: contactSchema.nullish(),
 });
 
-const uuidSchema = z.string().uuid();
+const patchSchema = z.object({
+  name: z.string().nullish(),
+  country: z.string().nullish(),
+  account_owner_id: z.string().uuid().nullish(),
+});
 
-function parseId(id: string): string {
-  const r = uuidSchema.safeParse(id);
-  if (!r.success) throw new HttpError(400, 'invalid id');
-  return r.data;
-}
+const SORTABLE: Record<string, string> = {
+  name: 'c.name',
+  country: 'c.country',
+  latest_order_date: 'latest_order_date',
+};
 
 clients.get('/', h(async (req, res) => {
   const q = String(req.query.q ?? '').trim();
+  const sortKey = SORTABLE[String(req.query.sort)] ?? 'c.name';
+  const order = String(req.query.order ?? '').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+  const page = Math.max(1, Number(req.query.page ?? 1));
+  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 25)));
+
   const { rows } = await pool.query(
-    `SELECT c.*, (SELECT count(*)::int FROM client_contacts cc WHERE cc.client_id = c.id) AS contact_count,
+    `SELECT c.*,
+       (SELECT count(*)::int FROM client_contacts cc WHERE cc.client_id = c.id) AS contact_count,
+       (SELECT max(v.date_on) FROM all_samples_v v WHERE v.client_id = c.id AND v.deleted_at IS NULL) AS latest_order_date,
        count(*) OVER ()::int AS full_count
      FROM clients c
-     WHERE ($1 = '' OR c.name ILIKE '%' || $1 || '%')
-     ORDER BY c.name LIMIT 50`,
-    [q]
+     WHERE c.deleted_at IS NULL AND ($1 = '' OR c.name ILIKE '%' || $1 || '%')
+     ORDER BY ${sortKey} ${order} NULLS LAST
+     LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
+    [q],
   );
   const total = rows[0]?.full_count ?? 0;
-  res.json({ data: rows.map(({ full_count, ...row }) => row), total });
+  res.json({ data: rows.map(({ full_count, ...row }) => row), total, page, pageSize });
 }));
 
 clients.post('/', h(async (req, res) => {
   const body = parseBody(clientSchema, req.body);
-  const existing = await pool.query(`SELECT * FROM clients WHERE lower(name) = lower($1)`, [body.name]);
+  const existing = await pool.query(`SELECT * FROM clients WHERE lower(name) = lower($1) AND deleted_at IS NULL`, [body.name]);
   let client;
   let created = false;
   if (existing.rows[0]) {
     client = existing.rows[0];
   } else {
-    const ins = await pool.query(
-      `INSERT INTO clients (name, country) VALUES ($1, $2) RETURNING *`,
-      [body.name.trim(), body.country ?? null]
-    );
+    const ins = await pool.query(`INSERT INTO clients (name, country) VALUES ($1, $2) RETURNING *`, [body.name.trim(), body.country ?? null]);
     client = ins.rows[0];
     created = true;
   }
   if (body.contact) {
     await pool.query(
-      `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [client.id, body.contact.attention_to ?? null, body.contact.full_address ?? null,
-       body.contact.phone ?? null, body.contact.email ?? null]
+      `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email) VALUES ($1, $2, $3, $4, $5)`,
+      [client.id, body.contact.attention_to ?? null, body.contact.full_address ?? null, body.contact.phone ?? null, body.contact.email ?? null],
     );
   }
   res.status(created ? 201 : 200).json(client);
@@ -70,37 +80,56 @@ clients.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
   const { rows } = await pool.query(`SELECT * FROM clients WHERE id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'client not found');
-  const contacts = await pool.query(
-    `SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY created_at`,
-    [id]
+  const contacts = await pool.query(`SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY created_at`, [id]);
+  const owner = rows[0].account_owner_id
+    ? (await pool.query(`SELECT id, name, role, email FROM traders WHERE id = $1`, [rows[0].account_owner_id])).rows[0] ?? null
+    : null;
+  const orders = await pool.query(
+    `SELECT tab, id, ref, title, status, courier_norm, awb, date_on, delivery_on, result_norm
+     FROM all_samples_v WHERE client_id = $1 AND deleted_at IS NULL
+     ORDER BY date_on DESC NULLS LAST LIMIT 200`,
+    [id],
   );
-  res.json({ ...rows[0], contacts: contacts.rows });
+  res.json({ ...rows[0], contacts: contacts.rows, account_owner: owner, orders: orders.rows, events: await entityEvents('client', id) });
 }));
 
 clients.patch('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
-  const body = parseBody(clientSchema.partial(), req.body);
-  const { rows } = await pool.query(
+  const body = parseBody(patchSchema, req.body);
+  const actor = actorFrom(req);
+  const row = await runWithEvent(
     `UPDATE clients SET
        name = COALESCE($2, name),
        country = COALESCE($3, country),
+       account_owner_id = COALESCE($4::uuid, account_owner_id),
        updated_at = now()
-     WHERE id = $1 RETURNING *`,
-    [id, body.name ?? null, body.country ?? null]
+     WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
+    [id, body.name ?? null, body.country ?? null, body.account_owner_id ?? null],
+    { entityType: 'client', type: 'edited', note: `fields updated: ${Object.keys(body).join(', ')}`, actor },
   );
-  if (!rows[0]) throw new HttpError(404, 'client not found');
-  res.json(rows[0]);
+  if (!row) throw new HttpError(404, 'client not found');
+  res.json(row);
+}));
+
+clients.delete('/:id', h(async (req, res) => {
+  const id = parseId(req.params.id);
+  const actor = actorFrom(req);
+  const row = await runWithEvent(
+    `UPDATE clients SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
+    [id], { entityType: 'client', type: 'deleted', note: 'soft-deleted', actor },
+  );
+  if (!row) throw new HttpError(404, 'client not found');
+  res.json({ ok: true, id });
 }));
 
 clients.post('/:id/contacts', h(async (req, res) => {
   const id = parseId(req.params.id);
   const body = parseBody(contactSchema, req.body);
-  const existing = await pool.query(`SELECT 1 FROM clients WHERE id = $1`, [id]);
+  const existing = await pool.query(`SELECT 1 FROM clients WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!existing.rows[0]) throw new HttpError(404, 'client not found');
   const { rows } = await pool.query(
-    `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [id, body.attention_to ?? null, body.full_address ?? null, body.phone ?? null, body.email ?? null]
+    `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [id, body.attention_to ?? null, body.full_address ?? null, body.phone ?? null, body.email ?? null],
   );
   res.status(201).json(rows[0]);
 }));
