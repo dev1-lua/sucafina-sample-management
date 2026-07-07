@@ -7,6 +7,7 @@ import { stats } from './routes/stats.js';
 import { tracking } from './routes/tracking.js';
 import { chaser } from './routes/chaser.js';
 import { specialtySamples } from './routes/specialty-samples.js';
+import { bulkSamples } from './routes/bulk-samples.js';
 
 export const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -29,5 +30,6 @@ app.use('/stats', stats);
 app.use('/tracking', tracking);
 app.use('/chaser', chaser);
 app.use('/specialty-samples', specialtySamples);
+app.use('/bulk-samples', bulkSamples);
 
 app.use(errorHandler);
