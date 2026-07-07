@@ -8,7 +8,7 @@ describe('parseQtyGrams', () => {
     ['200', 200], ['1KG', 1000], ['1 KG', 1000], ['2KG', 2000], ['500g', 500],
     ['350G', 350], ['60+ROAST', 60], ['201', 201], [300, 300],
   ])('%s -> %s', (raw, expected) => expect(parseQtyGrams(raw)).toBe(expected));
-  it.each([[null, null], ['', null], ['HD', null]])('%s -> null', (raw, expected) =>
+  it.each([[null, null], ['', null], ['HD', null], [NaN, null], [Infinity, null]])('%s -> null', (raw, expected) =>
     expect(parseQtyGrams(raw)).toBe(expected));
 });
 
@@ -58,6 +58,7 @@ describe('parseSheetDate', () => {
   it('parses dd/mm/yyyy strings', () => {
     expect(parseSheetDate('14/1/2025')?.toISOString().slice(0, 10)).toBe('2025-01-14');
     expect(parseSheetDate('31/07/2025')?.toISOString().slice(0, 10)).toBe('2025-07-31');
+    expect(parseSheetDate('14/1/2025 00:00:00')?.toISOString().slice(0, 10)).toBe('2025-01-14');
   });
   it('parses iso-ish strings', () => {
     expect(parseSheetDate('2025-09-01 00:00:00')?.toISOString().slice(0, 10)).toBe('2025-09-01');
