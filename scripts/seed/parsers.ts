@@ -63,3 +63,11 @@ export function parseResult(raw: unknown): string | null {
   if (s === 'rejected') return 'rejected';
   return null;
 }
+
+export function parseNumeric(raw: unknown): number | null {
+  if (raw == null) return null;
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  const s = String(raw).trim();
+  const m = s.match(/^(\d+(?:\.\d+)?)\s*%?$/);
+  return m ? parseFloat(m[1]) : null;
+}

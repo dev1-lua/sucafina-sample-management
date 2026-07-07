@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parseQtyGrams, normalizeCourier, classifySampleType, parseSheetDate, normalizeName, parseResult,
+  parseQtyGrams, normalizeCourier, classifySampleType, parseSheetDate, normalizeName, parseResult, parseNumeric,
 } from './parsers.js';
 
 describe('parseQtyGrams', () => {
@@ -79,4 +79,14 @@ describe('parseResult', () => {
   it.each([
     ['Approved', 'approved'], ['Rejected', 'rejected'], ['300', null], [null, null],
   ])('%s -> %s', (raw, expected) => expect(parseResult(raw)).toBe(expected));
+});
+
+describe('parseNumeric', () => {
+  it.each([
+    ['12', 12], ['0.43', 0.43], ['300', 300], ['10.5%', 10.5], ['  7 ', 7], [12, 12],
+  ])('%s -> %s', (raw, expected) => expect(parseNumeric(raw)).toBe(expected));
+  it.each([
+    ['PD,61', null], ['SD172', null], ['SD,213', null], ['', null], ['abc', null],
+    [null, null], [NaN, null], [Infinity, null],
+  ])('%s -> null', (raw) => expect(parseNumeric(raw as unknown)).toBeNull());
 });
