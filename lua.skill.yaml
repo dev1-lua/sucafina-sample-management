@@ -18,7 +18,10 @@ skills:
     skillId: efcd6fde-e46a-462a-a0ce-b02aaae0567f
     version: 1.0.0
 webhooks: []
-jobs: []
+jobs:
+  - jobId: c2436eb0-0a8a-4653-8124-ee40d3254c79
+    name: daily-chaser
+    version: 1.0.0
 preprocessors: []
 postprocessors: []
 mcpServers: []
