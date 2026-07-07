@@ -9,3 +9,4 @@ dashboard/dist/
 scripts/node_modules/
 scripts/seed-report.json
 *.env
+dist-v2/
