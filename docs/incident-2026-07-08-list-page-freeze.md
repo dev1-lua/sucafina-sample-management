@@ -3,11 +3,50 @@
 - **Date:** 2026-07-08
 - **Component:** `dashboard-v2` (Vite + React 18 frontend)
 - **Severity:** High — the four core list pages were unusable once a user touched a filter.
-- **Status:** **Mitigated (shipped stopgap). Root cause localized but not fully confirmed.**
-- **Fix commit:** `d84f164` — `fix(fe): remove filter bar + disable column sort on list pages to stop page-freeze`
-- **Diagnostics commit:** same (`dashboard-v2/src/lib/freeze-diag.ts`, installed in `main.tsx`)
+- **Status:** **RESOLVED.** Root cause confirmed by reproduction; permanent fix applied and verified with a real pointer click; filter bar + column sorting re-enabled on all four list pages.
+- **Stopgap commit:** `d84f164` — `fix(fe): remove filter bar + disable column sort on list pages to stop page-freeze`
+- **Permanent fix:** `placeholderData: keepPreviousData` added to `useRecords` (`dashboard-v2/src/lib/query.ts`); stopgap reverted on `SamplesPage`, `BulkPage`, `ForwardingPage`, `ClientsPage`.
+- **Diagnostics commit:** `d84f164` (`dashboard-v2/src/lib/freeze-diag.ts`, installed in `main.tsx`)
 
 ---
+
+## 0. Resolution (2026-07-08, confirmed)
+
+The leading hypothesis in §4.2 was **confirmed** and fixed. Sequence of evidence:
+
+1. **Reproduced deterministically.** With the filter bar re-enabled locally (API + Vite +
+   real Playwright pointer click), clicking Status → "dispatched" hung at *"performing
+   click action"* and wedged the whole page — matching the original report exactly.
+2. **The wedge is synchronous and native, not a JS loop and not an async DOM block.**
+   While frozen, even out-of-band CDP calls (`Runtime.evaluate`, console read) timed out
+   after 30 s, yet the V8 JS sampler shows CPU idle. A blocked main thread + idle *JS*
+   sampler ⇒ the busy work is in **Blink layout / ResizeObserver delivery**, not JS. This
+   also **rules out** all three async block mechanisms (stuck `pointer-events`, swallowing
+   overlay, leaked pointer capture) — every one of those leaves the event loop alive, so
+   `freeze-diag`'s 400 ms auto-probe would have fired. It did **not** fire during the
+   freeze (see finding below), which is only possible under a synchronous main-thread wedge.
+3. **Confirmed shared trigger.** Sorting a column (which mounts **no** popover at all)
+   reproduces the identical wedge, so the cause is the query-key change → virtualized
+   `<tbody>` swap, not the filter popover.
+4. **Fix applied:** `placeholderData: keepPreviousData` on `useRecords`. This keeps the
+   previous page's rows mounted across the key change, so the query never flips to
+   `isLoading` on interaction, the skeleton swap never happens, the virtualizer's row
+   `count` (and the scroll-container height) stay stable, and there is no re-measure storm.
+5. **Verified with a real pointer click.** Post-fix, the same click returns instantly;
+   Status → "dispatched" filters 1063 → 692 rows; Ref-column sort applies on top; and
+   `freeze-diag` now prints `state after filter:patch (+400ms) — no obvious block detected`
+   (the clean verdict §7 called for — the probe fires because the main thread is alive).
+   Also verified: Bulk filtering, Clients search (270 → 77 over 6 rapid keystrokes),
+   Forwarding renders. `tsc -b && vite build` ✅, `vitest run` → 46/46 ✅.
+
+**New finding for future debugging:** `freeze-diag`'s auto-probe is a `setTimeout` and its
+overlay/pointer-events watchers are `MutationObserver` microtasks — **none of these can run
+during a synchronous main-thread wedge**, so the tool cannot self-report *this* class of
+freeze while it is happening (its console stays silent, which is itself a tell). It reports
+correctly only for freezes that leave the event loop alive. The decisive signal for a
+synchronous/native wedge is "real click hangs **and** CDP calls hang, while the JS profiler
+shows idle." If `freeze-diag` ever goes silent during a freeze, suspect a layout/RO wedge,
+not one of its three tracked DOM mechanisms.
 
 ## 1. Summary
 
@@ -131,9 +170,9 @@ The console will print one of:
 
 Paste that snapshot into the investigation before attempting the permanent fix.
 
-## 8. Proposed permanent fix
+## 8. Permanent fix — ✅ APPLIED (see §0)
 
-Most likely a one-liner in the records query (`dashboard-v2/src/lib/query.ts`):
+Done exactly as proposed below — a one-liner in the records query (`dashboard-v2/src/lib/query.ts`):
 
 ```ts
 import { keepPreviousData } from '@tanstack/react-query';
@@ -146,7 +185,9 @@ virtualized `<tbody>` never unmounts/re-measures mid-interaction — which shoul
 trigger entirely. **Must be verified with a real pointer click** (see §3 caveat) and a
 clean `freeze-diag` verdict before re-enabling the filter bar and sorting.
 
-## 9. How to re-enable the filter bar / sorting (once fixed)
+## 9. How to re-enable the filter bar / sorting — ✅ DONE
+
+Completed on all four pages (the steps below are kept for the record):
 
 1. On each list page (`SamplesPage`, `BulkPage`, `ForwardingPage`, `ClientsPage`):
    restore the `filters` `useState` and the `<FilterBar defs={cfg.filters} value={filters}

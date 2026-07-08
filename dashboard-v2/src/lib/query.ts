@@ -1,4 +1,4 @@
-import { QueryClient, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from './api';
 import { buildListParams } from './params';
 import type { ListResult, ListQuery, EventRow, Digest } from '@/types';
@@ -12,6 +12,15 @@ export function useRecords(endpoint: string, q: ListQuery) {
   return useQuery({
     queryKey: [endpoint, 'list', qs],
     queryFn: () => api<ListResult<Record<string, unknown>>>(`${endpoint}?${qs}`),
+    // Keep the previous page's rows mounted while a filter/sort/page change fetches the
+    // next set. Without this the query drops to `isLoading`, `rows` empties, and the
+    // virtualized <tbody> (count N) is swapped for skeleton rows (count 0) and back —
+    // which makes @tanstack/react-virtual's ResizeObserver re-measure a scroll height
+    // that collapses then re-expands, wedging the main thread in a synchronous Blink
+    // layout storm (the "CPU-idle, page-dead, reload-required" freeze; see
+    // docs/incident-2026-07-08-list-page-freeze.md). Holding the rows keeps `count`
+    // (and the scroll height) stable across the key change, so no re-measure storm.
+    placeholderData: keepPreviousData,
   });
 }
 
