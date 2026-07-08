@@ -4,16 +4,23 @@ import { apiFetch } from '../../lib/api';
 
 export default class ListAwaitingResultsTool implements LuaTool {
   name = 'list_awaiting_results';
-  description = 'List delivered samples that still have no recorded result/feedback.';
+  description =
+    'List delivered specialty/bulk samples that still have no recorded result. Forwarding never reaches a result stage and is excluded.';
 
   inputSchema = z.object({});
 
   async execute() {
-    const res = await apiFetch('/samples?awaiting_results=true&pageSize=25');
+    const res = await apiFetch('/search?status=delivered&pageSize=100');
+    const items = res.data.filter((s: any) => s.tab !== 'forwarding' && !s.result_norm);
     return {
-      total: res.total,
-      samples: res.data.map((s: any) => ({
-        id: s.id, ref: s.ref ?? s.ref_raw, quality: s.quality, receiver: s.receiver, delivered_at: s.delivered_at,
+      total: items.length,
+      samples: items.slice(0, 25).map((s: any) => ({
+        tab: s.tab,
+        id: s.id,
+        ref: s.ref,
+        title: s.title,
+        receiver: s.receiver,
+        delivery_date: s.delivery_on,
       })),
     };
   }

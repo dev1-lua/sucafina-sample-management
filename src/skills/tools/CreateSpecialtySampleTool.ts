@@ -1,0 +1,88 @@
+import { LuaTool } from 'lua-cli';
+import { z } from 'zod';
+import { apiFetch } from '../../lib/api';
+import {
+  DEFAULT_QTY_GRAMS,
+  extractPssNote,
+  normalizeAwb,
+  normalizeCourier,
+  normalizeSampleType,
+} from '../../lib/normalize';
+
+export default class CreateSpecialtySampleTool implements LuaTool {
+  name = 'create_specialty_sample';
+  description =
+    'Create one Specialty-book sample record (single specialty-position lot). Hard-requires description, sample type, and receiver — the API rejects an incomplete record. Returns the server-issued ref.';
+
+  inputSchema = z.object({
+    description: z
+      .string()
+      .min(1)
+      .describe('What is being sent / why, e.g. "AA Sangalai — WOC samples", "AB FAQ retention". This is the coffee/quality text for the row.'),
+    sample_type: z
+      .string()
+      .min(1)
+      .describe(
+        'Sample purpose as stated or inferred: offer, type, pss (may include "PSS June Shipment" or "(replacement)"), woc, retention, flavor_mapping, marketing, calibration, or other.',
+      ),
+    receiver_company: z.string().min(1).describe('Who receives it — client or internal office, e.g. "Geneva", "Key Coffee".'),
+    ref: z.string().optional().describe('Explicit lot ref like "SL-7346" if stated; omit to let the desk auto-issue one.'),
+    outturn: z.string().optional().describe('Milling outturn / warehouse mark, e.g. "17KN0076".'),
+    name: z.string().optional().describe('Estate/station/mark name, e.g. "KABINGARA/KIRINYAGA", "AA Swara".'),
+    grade: z.string().optional().describe('Screen/quality grade, e.g. AA, AB, PB.'),
+    bags: z.number().int().optional().describe('Number of bags in the source lot.'),
+    awb: z.string().optional().describe('AWB/tracking number if already known (rare at request time).'),
+    courier: z.string().optional().describe('Courier as stated, e.g. DHL, Fedex, Kiptoo, HD.'),
+    qty: z.string().optional().describe('Quantity as stated, e.g. "300g", "1kg".'),
+    qty_grams: z
+      .number()
+      .int()
+      .optional()
+      .describe('Quantity in grams; defaults by sample type if omitted (offer 200, type 300, pss 1000).'),
+    comments: z.string().optional(),
+    crop_year: z.string().optional().describe('Harvest year, e.g. "2025/2026".'),
+    client_id: z.string().optional().describe('Client id from find_client, when resolved.'),
+  });
+
+  async execute(input: z.infer<typeof this.inputSchema>) {
+    const sampleType = normalizeSampleType(input.sample_type) ?? 'other';
+    const courier = normalizeCourier(input.courier);
+    const awb = normalizeAwb(input.awb);
+    const qtyGrams = input.qty_grams ?? DEFAULT_QTY_GRAMS[sampleType];
+    const pssNote = sampleType === 'pss' ? extractPssNote(input.sample_type) : undefined;
+    const comments = [input.comments, pssNote].filter(Boolean).join(' — ') || undefined;
+
+    const row = await apiFetch('/specialty-samples', {
+      method: 'POST',
+      body: JSON.stringify({
+        description: input.description,
+        receiver_company: input.receiver_company,
+        sample_type_norm: sampleType,
+        ref: input.ref ?? null,
+        outturn: input.outturn ?? null,
+        name: input.name ?? null,
+        grade: input.grade ?? null,
+        bags: input.bags ?? null,
+        awb: awb ?? null,
+        courier_norm: courier ?? null,
+        qty: input.qty ?? null,
+        qty_grams: qtyGrams ?? null,
+        comments: comments ?? null,
+        crop_year: input.crop_year ?? null,
+        client_id: input.client_id ?? null,
+      }),
+    });
+
+    return {
+      tab: 'specialty',
+      id: row.id,
+      ref: row.ref,
+      description: row.description,
+      receiver_company: row.receiver_company,
+      sample_type: row.sample_type_norm,
+      grade: row.grade,
+      qty_grams: row.qty_grams,
+      status: row.status,
+    };
+  }
+}
