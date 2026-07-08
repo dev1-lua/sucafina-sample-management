@@ -11,7 +11,7 @@
     --card-foreground: 222 20% 18%;
     --popover: 0 0% 100%;
     --popover-foreground: 222 20% 18%;
-    --primary: 217 91% 60%; /* the single blue accent */
+    --primary: 217 91% 50%; /* the single blue accent */
     --primary-foreground: 0 0% 100%;
     --secondary: 220 14% 96%;
     --secondary-foreground: 222 20% 18%;
@@ -23,7 +23,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 220 13% 91%; /* hairline */
     --input: 220 13% 88%;
-    --ring: 217 91% 60%;
+    --ring: 217 91% 50%;
     --radius: 0.5rem; /* 8px cards; controls use rounded-[4px] */
   }
 
@@ -34,7 +34,7 @@
     --card-foreground: 220 14% 90%;
     --popover: 222 20% 13%;
     --popover-foreground: 220 14% 90%;
-    --primary: 217 91% 60%;
+    --primary: 217 91% 50%;
     --primary-foreground: 0 0% 100%;
     --secondary: 220 14% 18%;
     --secondary-foreground: 220 14% 90%;
@@ -46,7 +46,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 220 13% 22%;
     --input: 220 13% 24%;
-    --ring: 217 91% 60%;
+    --ring: 217 91% 50%;
   }
 
   * {
