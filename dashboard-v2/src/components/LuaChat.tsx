@@ -8,12 +8,32 @@ const LUA_POP_SRC = 'https://lua-ai-global.github.io/lua-pop/lua-pop.umd.js';
 const AGENT_ID =
   import.meta.env.VITE_LUA_AGENT_ID ?? 'baseAgent_agent_1783420556773_cc6qh9f2y';
 
+// LuaPop persists the active conversation by stashing a session id in localStorage
+// under this key. Our srcdoc iframe is same-origin with the app, so this is the
+// app's own localStorage — clearing the key and remounting the iframe starts a
+// brand-new thread. (Key name comes from the LuaPop bundle: SESSION_ID_STORAGE_KEY.)
+export const LUA_SESSION_STORAGE_KEY = 'lua_pop_session_id';
+
+/** Forget the current conversation so the next widget mount begins a fresh thread. */
+export function resetLuaChatSession(): void {
+  try {
+    localStorage.removeItem(LUA_SESSION_STORAGE_KEY);
+  } catch {
+    /* private-mode / storage disabled — nothing to clear */
+  }
+}
+
 // `environment: "production"` bypasses the widget's domain-whitelist check (so it
 // runs on localhost too) and points it at the live agent — chat here writes to
 // PROD data, regardless of the frontend's VITE_API_BASE.
 const CONFIG = {
   agentId: AGENT_ID,
   environment: 'production',
+  // Pin the widget to light. Without this it defaults to `theme: 'auto'`, which
+  // follows the OS via `prefers-color-scheme` — so on a dark-mode machine the chat
+  // rendered black and clashed with our light-pinned app. (Undocumented but real:
+  // the bundle's ThemeScope reads `dark = theme === 'dark' || (theme === 'auto' && systemDark)`.)
+  theme: 'light',
   displayMode: 'embedded',
   embeddedDisplayConfig: { targetContainerId: 'lua-chat-embedded-root', useContainerHeight: true },
   chatTitle: 'Sucafina Sample Chaser',
