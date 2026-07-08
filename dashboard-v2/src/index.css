@@ -1,3 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 20% 18%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 20% 18%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 20% 18%;
+    --primary: 217 91% 60%; /* the single blue accent */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 20% 18%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 214 95% 96%; /* faint blue selection */
+    --accent-foreground: 217 91% 40%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%; /* hairline */
+    --input: 220 13% 88%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem; /* 8px cards; controls use rounded-[4px] */
+  }
+
+  .dark {
+    --background: 222 22% 11%;
+    --foreground: 220 14% 90%;
+    --card: 222 20% 13%;
+    --card-foreground: 220 14% 90%;
+    --popover: 222 20% 13%;
+    --popover-foreground: 220 14% 90%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 18%;
+    --secondary-foreground: 220 14% 90%;
+    --muted: 220 14% 16%;
+    --muted-foreground: 220 9% 60%;
+    --accent: 217 40% 20%;
+    --accent-foreground: 214 95% 85%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 22%;
+    --input: 220 13% 24%;
+    --ring: 217 91% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Scrollbars restrained to the Twenty low-chrome language. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--background));
+  }
+}
