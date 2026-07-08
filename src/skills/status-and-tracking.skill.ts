@@ -13,6 +13,10 @@ Beyers types?", "what's pending for Zoegas?", "any forwarding parcels for Itochu
 - get_sample_status when they name a specific ref/AWB/receiver and want full detail + timeline.
 - If the record has an AWB and they ask where it is / will it arrive, call track_awb and give status
   + ETA. Say tracking is simulated in this prototype if asked.
-- Answer with facts from the records only. If nothing is found, say so plainly — never guess.`,
+- Answer with facts from the records only. If nothing is found, say so plainly — never guess.
+- COUNTS & BIG LISTS: search_samples returns the TRUE \`total\` plus a page of up to 100 rows. For
+  "how many …" answer with \`total\`. For "list all …" when \`has_more\` is true, state the total, show
+  this page, and offer to narrow (status/tab/date/AWB) or fetch the next \`page\` — never call a
+  partial page "the full list" or imply the shown rows are everything.`,
   tools: [new SearchSamplesTool(), new GetSampleStatusTool(), new TrackAwbTool()],
 });
