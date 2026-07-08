@@ -1,3 +1,5 @@
+import type * as React from 'react';
+
 export type ListResult<T> = {
   data: T[];
   total: number;
@@ -26,4 +28,13 @@ export type ListQuery = {
   filters: FilterState;
   page: number;
   pageSize: number;
+};
+
+export type ColumnDef = {
+  key: string; // row field to display (source column)
+  header: string; // column header label
+  sortKey?: string; // API sort value; omit => not sortable
+  width?: number; // px
+  render?: (row: Record<string, unknown>) => React.ReactNode; // custom cell (e.g. StatusBadge)
+  edit?: { field: string; type: 'text' | 'select'; options?: string[] }; // inline edit → PATCH {field: value}
 };
