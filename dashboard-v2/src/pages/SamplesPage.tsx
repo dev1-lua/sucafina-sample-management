@@ -2,21 +2,20 @@ import { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { IconPlus } from '@tabler/icons-react';
 
-import { FilterBar } from '@/components/FilterBar';
 import { RecordTable } from '@/components/RecordTable';
 import { ColumnMenu, useColumnVisibility } from '@/components/ColumnMenu';
 import { CreateRecordDialog } from '@/components/CreateRecordDialog';
 import { Button } from '@/components/ui/button';
 import { TAB_REGISTRY } from '@/tabs/registry';
-import type { FilterState } from '@/types';
+import { useRowHighlight } from '@/lib/highlight';
 
 const cfg = TAB_REGISTRY.specialty;
 
 export default function SamplesPage() {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<FilterState>({});
   const [visibility, setVisibility] = useColumnVisibility(`sucafina-cols-${cfg.endpoint}`, cfg.columns);
   const [createOpen, setCreateOpen] = useState(false);
+  const highlightId = useRowHighlight(cfg.path);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -28,13 +27,14 @@ export default function SamplesPage() {
           </Button>
         )}
       </div>
-      <FilterBar defs={cfg.filters} value={filters} onChange={setFilters} />
       <RecordTable
         endpoint={cfg.endpoint}
         columns={cfg.columns}
-        filters={filters}
+        filters={{}}
         onRowClick={(row) => navigate(`${cfg.path}/${String(row.id)}`)}
         columnVisibility={visibility}
+        highlightId={highlightId}
+        sortable={false}
       />
       {cfg.createFields && (
         <CreateRecordDialog

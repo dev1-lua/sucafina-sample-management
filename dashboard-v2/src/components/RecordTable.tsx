@@ -33,6 +33,11 @@ export type RecordTableProps = {
   // Controlled column show/hide (see ColumnMenu.useColumnVisibility). Omitted => every
   // column renders, matching pre-Phase-4 behavior and RecordTable.test.tsx's usage.
   columnVisibility?: VisibilityState;
+  // Record id to flash once when landing from an agent deep-link (see useRowHighlight).
+  highlightId?: string;
+  // Whether column headers are clickable to sort. Defaults to true. Temporarily set
+  // false by the list pages while the filter/sort-triggered page-freeze is investigated.
+  sortable?: boolean;
 };
 
 const columnHelper = createColumnHelper<RowData>();
@@ -44,10 +49,21 @@ function displayValue(value: unknown): React.ReactNode {
   return String(value);
 }
 
-export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility }: RecordTableProps) {
+export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true }: RecordTableProps) {
   const [sort, setSort] = React.useState<SortState>(null);
   const [page, setPage] = React.useState(1);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // One-shot row flash when landing from an agent deep-link. The internal timer
+  // makes the pulse independent of the URL/virtualizer — the class is applied for
+  // one animation cycle then cleared, even if the row remounts.
+  const [flashId, setFlashId] = React.useState<string>();
+  React.useEffect(() => {
+    if (!highlightId) return;
+    setFlashId(highlightId);
+    const t = setTimeout(() => setFlashId(undefined), 1300);
+    return () => clearTimeout(t);
+  }, [highlightId]);
 
   // Reset to page 1 whenever the caller's filters change (stable serialization
   // so equivalent filter objects with a new reference don't churn pagination).
@@ -137,7 +153,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
               <TableRow key={headerGroup.id} className="hover:bg-transparent">
                 {headerGroup.headers.map((header) => {
                   const col = colByKey.get(header.column.id)!;
-                  const isSortable = !!col.sortKey;
+                  const isSortable = !!col.sortKey && sortable;
                   const isActive = isSortable && sort?.sort === col.sortKey;
                   return (
                     <TableHead
@@ -209,7 +225,11 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
                 {virtualItems.map((virtualItem) => {
                   const row = tableRows[virtualItem.index]!;
                   return (
-                    <TableRow key={row.id} className="cursor-pointer" onClick={() => onRowClick(row.original)}>
+                    <TableRow
+                      key={row.id}
+                      className={cn('cursor-pointer', row.id === flashId && 'animate-row-flash')}
+                      onClick={() => onRowClick(row.original)}
+                    >
                       {row.getVisibleCells().map((cell) => {
                         const col = colByKey.get(cell.column.id)!;
                         return (
