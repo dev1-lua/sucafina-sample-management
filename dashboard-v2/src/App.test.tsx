@@ -24,7 +24,15 @@ it('renders the shell with the Dashboard route by default', () => {
   expect(screen.getByText('Sucafina')).toBeInTheDocument();
 });
 
-it('renders the matching page and header title for a nav route', () => {
+it('renders the merged Sample Management section with its three tabs', () => {
   renderApp('/samples');
-  expect(screen.getByRole('heading', { name: 'Sample' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Sample Management' })).toBeInTheDocument();
+  ['Speciality Samples', 'Bulk Samples', 'EA Forwarding'].forEach((l) =>
+    expect(screen.getByRole('tab', { name: l })).toBeInTheDocument(),
+  );
+});
+
+it('shows the Sample Management header title on the Bulk and Forwarding tab routes', () => {
+  renderApp('/bulk');
+  expect(screen.getByRole('heading', { name: 'Sample Management' })).toBeInTheDocument();
 });

@@ -4,11 +4,18 @@ import { IconSearch } from '@tabler/icons-react';
 
 import { cn } from '@/lib/cn';
 import { CommandMenu } from './CommandMenu';
-import { ThemeToggle } from './ThemeToggle';
+// Dark mode disabled for now (feedback #4) — theme toggle removed from the header.
+// import { ThemeToggle } from './ThemeToggle';
 import { NAV_ITEMS } from './Sidebar';
 import { NAV_ICON_COLORS } from './nav-icon-colors';
+import { SAMPLE_PATHS } from '@/tabs/sample-tabs';
 
 function activeNavItem(pathname: string) {
+  // /bulk and /forwarding no longer have their own nav item — they're tabs under
+  // Sample Management (at /samples), so resolve any sample route back to it.
+  if (SAMPLE_PATHS.some((p) => pathname.startsWith(p))) {
+    return NAV_ITEMS.find((item) => item.path === '/samples') ?? NAV_ITEMS[0];
+  }
   return NAV_ITEMS.find((item) => item.path !== '/' && pathname.startsWith(item.path)) ?? NAV_ITEMS[0];
 }
 
@@ -37,7 +44,7 @@ export function Header() {
           <span className="flex-1 text-left">Search…</span>
           <kbd className="rounded-[4px] border border-border bg-muted px-1 py-0.5 font-mono text-2xs leading-none">⌘K</kbd>
         </button>
-        <ThemeToggle />
+        {/* <ThemeToggle /> — dark mode disabled for now (feedback #4) */}
       </div>
 
       <CommandMenu open={commandOpen} onOpenChange={setCommandOpen} />

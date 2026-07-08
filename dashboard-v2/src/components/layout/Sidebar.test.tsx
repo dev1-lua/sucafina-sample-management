@@ -9,7 +9,9 @@ it('renders all nav destinations', () => {
       <Sidebar />
     </MemoryRouter>,
   );
-  ['Dashboard', 'Sample', 'Bulk', 'Forwarding', 'Clients', 'Chaser', 'Assistant'].forEach((l) =>
+  ['Dashboard', 'Sample Management', 'Clients', 'Chaser', 'Assistant'].forEach((l) =>
     expect(screen.getByText(l)).toBeInTheDocument(),
   );
+  // Bulk/Forwarding are now tabs inside Sample Management, not standalone nav items.
+  ['Bulk', 'Forwarding'].forEach((l) => expect(screen.queryByText(l)).not.toBeInTheDocument());
 });

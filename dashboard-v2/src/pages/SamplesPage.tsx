@@ -1,3 +1,9 @@
+// SUPERSEDED by the merged "Sample Management" section — this view is now rendered
+// by SampleListView (tab="specialty") under SampleManagementLayout. Kept (commented
+// out) for reference/rollback rather than deleted.
+export {};
+
+/*
 import { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { IconPlus } from '@tabler/icons-react';
@@ -52,3 +58,4 @@ export default function SamplesPage() {
     </div>
   );
 }
+*/

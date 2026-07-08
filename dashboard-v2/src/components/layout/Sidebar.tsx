@@ -4,8 +4,6 @@ import { NavLink } from 'react-router-dom';
 import {
   IconLayoutDashboard,
   IconFlask2,
-  IconBox,
-  IconTruckDelivery,
   IconUsers,
   IconBellRinging,
   IconMessageChatbot,
@@ -25,9 +23,10 @@ const COLLAPSE_KEY = 'sucafina-sidebar-collapsed';
 // stays intact.
 export const NAV_ITEMS = [
   { label: 'Dashboard', path: '/', icon: IconLayoutDashboard, color: 'slate' },
-  { label: 'Sample', path: '/samples', icon: IconFlask2, color: 'violet' },
-  { label: 'Bulk', path: '/bulk', icon: IconBox, color: 'amber' },
-  { label: 'Forwarding', path: '/forwarding', icon: IconTruckDelivery, color: 'blue' },
+  // Merged section — the three sample views (specialty/bulk/forwarding) now live
+  // under one nav item, switched via the top tab strip. Points at /samples (the
+  // default tab); Header maps all three sample routes back to this item.
+  { label: 'Sample Management', path: '/samples', icon: IconFlask2, color: 'violet' },
   { label: 'Clients', path: '/clients', icon: IconUsers, color: 'teal' },
   { label: 'Chaser', path: '/chaser', icon: IconBellRinging, color: 'rose' },
   { label: 'Assistant', path: '/assistant', icon: IconMessageChatbot, color: 'indigo' },

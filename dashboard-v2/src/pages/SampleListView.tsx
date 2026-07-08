@@ -1,9 +1,3 @@
-// SUPERSEDED by the merged "Sample Management" section — this view is now rendered
-// by SampleListView (tab="forwarding") under SampleManagementLayout. Kept (commented
-// out) for reference/rollback rather than deleted.
-export {};
-
-/*
 import { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { IconPlus } from '@tabler/icons-react';
@@ -15,11 +9,15 @@ import { CreateRecordDialog } from '@/components/CreateRecordDialog';
 import { Button } from '@/components/ui/button';
 import { TAB_REGISTRY } from '@/tabs/registry';
 import { useRowHighlight } from '@/lib/highlight';
-import type { FilterState } from '@/types';
+import type { FilterState, TabKey } from '@/types';
 
-const cfg = TAB_REGISTRY.forwarding;
-
-export default function ForwardingPage() {
+/** The list body shared by all three Sample Management tabs (specialty / bulk /
+ * forwarding). Formerly three byte-identical page files that differed only in which
+ * TAB_REGISTRY config they loaded — now one component parameterized by `tab`. The
+ * top tab strip is rendered once by SampleManagementLayout; this renders the
+ * table + its own <Outlet/> for the row-drawer child route (`/:id`). */
+export default function SampleListView({ tab }: { tab: TabKey }) {
+  const cfg = TAB_REGISTRY[tab];
   const navigate = useNavigate();
   const [filters, setFilters] = useState<FilterState>({});
   const [visibility, setVisibility] = useColumnVisibility(`sucafina-cols-${cfg.endpoint}`, cfg.columns);
@@ -27,7 +25,7 @@ export default function ForwardingPage() {
   const highlightId = useRowHighlight(cfg.path);
 
   return (
-    <div className="flex flex-col gap-3 p-4">
+    <>
       <div className="flex items-center justify-end gap-2">
         <ColumnMenu columns={cfg.columns} value={visibility} onChange={setVisibility} />
         {cfg.createFields && (
@@ -55,7 +53,6 @@ export default function ForwardingPage() {
         />
       )}
       <Outlet />
-    </div>
+    </>
   );
 }
-*/

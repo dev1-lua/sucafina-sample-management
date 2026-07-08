@@ -4,9 +4,8 @@ import { Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import DashboardPage from '@/pages/DashboardPage';
-import SamplesPage from '@/pages/SamplesPage';
-import BulkPage from '@/pages/BulkPage';
-import ForwardingPage from '@/pages/ForwardingPage';
+import SampleManagementLayout from '@/pages/SampleManagementLayout';
+import SampleListView from '@/pages/SampleListView';
 import ClientsPage from '@/pages/ClientsPage';
 import ClientDetailPage from '@/pages/ClientDetailPage';
 import ChaserPage from '@/pages/ChaserPage';
@@ -50,14 +49,19 @@ export default function App() {
         <main className="min-h-0 flex-1 overflow-auto">
           <Routes>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/samples" element={<SamplesPage />}>
-              <Route path=":id" element={<TabDrawerRoute tab="specialty" />} />
-            </Route>
-            <Route path="/bulk" element={<BulkPage />}>
-              <Route path=":id" element={<TabDrawerRoute tab="bulk" />} />
-            </Route>
-            <Route path="/forwarding" element={<ForwardingPage />}>
-              <Route path=":id" element={<TabDrawerRoute tab="forwarding" />} />
+            {/* Sample Management: one section, three tabs. The layout renders the tab
+                strip once; each tab keeps its own route (and `/:id` drawer child) so
+                deep-links, highlights and record-search results are unaffected. */}
+            <Route element={<SampleManagementLayout />}>
+              <Route path="/samples" element={<SampleListView tab="specialty" />}>
+                <Route path=":id" element={<TabDrawerRoute tab="specialty" />} />
+              </Route>
+              <Route path="/bulk" element={<SampleListView tab="bulk" />}>
+                <Route path=":id" element={<TabDrawerRoute tab="bulk" />} />
+              </Route>
+              <Route path="/forwarding" element={<SampleListView tab="forwarding" />}>
+                <Route path=":id" element={<TabDrawerRoute tab="forwarding" />} />
+              </Route>
             </Route>
             {/* Clients drill-down is a full deep-linkable show-page (Phase 4), not a drawer
                 overlaid on the list — so, unlike the three sample tabs above, `:id` is a
