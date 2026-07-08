@@ -9,7 +9,7 @@ it('renders all nav destinations', () => {
       <Sidebar />
     </MemoryRouter>,
   );
-  ['Dashboard', 'Sample', 'Bulk', 'Forwarding', 'Clients'].forEach((l) =>
+  ['Dashboard', 'Sample', 'Bulk', 'Forwarding', 'Clients', 'Chaser', 'Assistant'].forEach((l) =>
     expect(screen.getByText(l)).toBeInTheDocument(),
   );
 });

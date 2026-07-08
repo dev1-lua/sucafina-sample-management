@@ -19,6 +19,26 @@ export type EventRow = {
 
 export type TabKey = 'specialty' | 'bulk' | 'forwarding' | 'clients';
 
+// --- Chaser digest ------------------------------------------------------------
+// Shape mirrors the API's computeDigest (api/src/lib/digest.ts): each bucket item
+// selects `tab, id, ref, title AS quality, receiver, awb, date_on, delivery_on`.
+export type DigestItem = {
+  tab: string; // 'specialty' | 'bulk' | 'forwarding' — which sample table the row lives in
+  id: string | number;
+  ref?: string | null;
+  quality?: string | null;
+  receiver?: string | null;
+  awb?: string | null;
+  date_on?: string | null; // scheduled/dispatch date
+  delivery_on?: string | null;
+};
+export type DigestBucketKey = 'not_dispatched' | 'no_delivery_confirmation' | 'awaiting_results';
+export type DigestBucket = { count: number; items: DigestItem[] };
+export type Digest = {
+  generated_at: string;
+  buckets: Record<DigestBucketKey, DigestBucket>;
+};
+
 export type SortState = { sort: string; order: 'asc' | 'desc' } | null;
 
 export type FilterState = Record<string, string | string[]>;

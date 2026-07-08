@@ -11,6 +11,8 @@ export const NAV_ICON_COLORS = {
   amber: 'text-amber-500 dark:text-amber-400',
   blue: 'text-blue-500 dark:text-blue-400',
   teal: 'text-teal-500 dark:text-teal-400',
+  rose: 'text-rose-500 dark:text-rose-400',
+  indigo: 'text-indigo-500 dark:text-indigo-400',
 } as const;
 
 export type NavIconColor = keyof typeof NAV_ICON_COLORS;

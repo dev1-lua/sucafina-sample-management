@@ -28,10 +28,15 @@ export default {
       keyframes: {
         'slide-in-right': { from: { transform: 'translateX(100%)' }, to: { transform: 'translateX(0)' } },
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        // Agent deep-link landing: pulse the target row's background from the
+        // faint-blue selection tint back to transparent so it settles into its
+        // normal/hover state.
+        'row-flash': { '0%': { backgroundColor: 'hsl(var(--accent))' }, '100%': { backgroundColor: 'transparent' } },
       },
       animation: {
         'slide-in-right': 'slide-in-right 180ms ease-out',
         'fade-in': 'fade-in 150ms ease-out',
+        'row-flash': 'row-flash 1.2s ease-out',
       },
     },
   },

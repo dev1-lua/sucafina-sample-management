@@ -1,7 +1,7 @@
 import { QueryClient, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { buildListParams } from './params';
-import type { ListResult, ListQuery, EventRow } from '@/types';
+import type { ListResult, ListQuery, EventRow, Digest } from '@/types';
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } },
@@ -95,6 +95,38 @@ export function useTraders() {
   return useQuery({
     queryKey: ['/traders'],
     queryFn: () => api<{ data: Trader[]; total: number }>('/traders').then((r) => r.data),
+  });
+}
+
+// --- Chaser digest ------------------------------------------------------------
+// GET /chaser/digest returns 404 ("no digest yet") until the job/`Run now` has
+// produced one. api() throws on non-2xx, so we swallow that specific 404 and
+// resolve `null` — a clean "nothing yet" state instead of an error/retry spin.
+export function useDigest() {
+  return useQuery<Digest | null>({
+    queryKey: ['/chaser/digest'],
+    queryFn: async () => {
+      try {
+        return await api<Digest>('/chaser/digest');
+      } catch (e) {
+        if (e instanceof Error && e.message.startsWith('404')) return null;
+        throw e;
+      }
+    },
+    retry: false,
+  });
+}
+
+// POST /chaser/run recomputes + persists a digest (and audits each flagged row);
+// it returns the fresh digest. Refresh the digest + dashboard stats on settle.
+export function useRunChaser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<Digest>('/chaser/run', { method: 'POST' }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['/chaser/digest'] });
+      qc.invalidateQueries({ queryKey: ['/stats'] });
+    },
   });
 }
 

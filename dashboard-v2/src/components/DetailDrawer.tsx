@@ -19,6 +19,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Timeline } from '@/components/Timeline';
+import { HighlightBanner } from '@/components/HighlightBanner';
+import { useRecordHighlight } from '@/lib/highlight';
 
 export type DetailDrawerProps = {
   endpoint: string;
@@ -116,6 +118,7 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields }: DetailDraw
   const query = useRecord(endpoint, id);
   const { mutate: patchRecord } = usePatchRecord(endpoint);
   const { mutate: deleteRecord, isPending: isDeleting, isError: deleteFailed } = useDeleteRecord(endpoint);
+  const event = useRecordHighlight(id);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   // A fresh record (new `id`) should never inherit a stale confirm dialog from
@@ -179,6 +182,12 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields }: DetailDraw
               )}
             </div>
           </SheetHeader>
+
+          {event && (
+            <div className="px-5 pt-3">
+              <HighlightBanner event={event} />
+            </div>
+          )}
 
           <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col">
             <TabsList className="mx-5 mt-3 w-fit">

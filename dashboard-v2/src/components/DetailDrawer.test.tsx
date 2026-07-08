@@ -2,6 +2,7 @@ import * as React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 
 import { DetailDrawer } from './DetailDrawer';
 import type { DetailField } from '@/types';
@@ -37,7 +38,14 @@ const fields: DetailField[] = [
   { key: 'status', label: 'Status', edit: { field: 'status', type: 'text' } },
 ];
 
-const wrap = (ui: React.ReactNode) => <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>;
+// DetailDrawer now reads router state (useRecordHighlight) as it always does in
+// the app (mounted under BrowserRouter via TabDrawerRoute) — so tests render it
+// inside a MemoryRouter. Default location '/' carries no ?hl, so no banner shows.
+const wrap = (ui: React.ReactNode) => (
+  <MemoryRouter>
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>
+  </MemoryRouter>
+);
 
 it('renders the ref, shows timeline events on tab switch, and PATCHes on inline edit commit', async () => {
   const user = userEvent.setup();

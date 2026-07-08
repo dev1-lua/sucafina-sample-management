@@ -12,6 +12,8 @@ import { ClientDeleteDialog } from '@/components/client-delete-dialog';
 import { ClientOwnerChip } from '@/components/client-owner-chip';
 import { ClientOrdersTable } from '@/components/client-orders-table';
 import type { ClientContact, ClientDetail } from '@/components/client-types';
+import { HighlightBanner } from '@/components/HighlightBanner';
+import { useRecordHighlight } from '@/lib/highlight';
 
 // Sentinel Select value for "no owner" — Radix Select can't carry an empty-string item value.
 const UNASSIGNED = '__unassigned__';
@@ -58,6 +60,7 @@ export default function ClientDetailPage() {
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [ownerError, setOwnerError] = React.useState<string | null>(null);
+  const event = useRecordHighlight(id);
 
   if (query.isLoading) return <DetailSkeleton />;
 
@@ -96,6 +99,8 @@ export default function ClientDetailPage() {
       >
         <IconArrowLeft className="size-3.5" /> Back to clients
       </Link>
+
+      {event && <HighlightBanner event={event} />}
 
       {/* Header: identity + account-owner chip + primary actions */}
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between">

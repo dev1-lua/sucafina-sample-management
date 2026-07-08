@@ -9,6 +9,8 @@ import BulkPage from '@/pages/BulkPage';
 import ForwardingPage from '@/pages/ForwardingPage';
 import ClientsPage from '@/pages/ClientsPage';
 import ClientDetailPage from '@/pages/ClientDetailPage';
+import ChaserPage from '@/pages/ChaserPage';
+import AssistantPage from '@/pages/AssistantPage';
 import { TAB_REGISTRY } from '@/tabs/registry';
 import type { TabKey } from '@/types';
 
@@ -63,6 +65,10 @@ export default function App() {
                 Navigating here fully replaces the list instead of stacking a panel on it. */}
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/clients/:id" element={<ClientDetailPage />} />
+            <Route path="/chaser" element={<ChaserPage />} />
+            {/* Conversational data-in surface — the (heavy) Lua widget lives on
+                this one route so its bundle only loads when the tab is opened. */}
+            <Route path="/assistant" element={<AssistantPage />} />
           </Routes>
         </main>
       </div>

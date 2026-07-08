@@ -1,4 +1,5 @@
 import { KpiTile } from '@/components/KpiTile';
+import { ChaserSummaryCard } from '@/components/ChaserSummaryCard';
 import { CountryBarChart } from '@/components/charts/CountryBarChart';
 import { CourierBarChart } from '@/components/charts/CourierBarChart';
 import { SampleTypeBarChart } from '@/components/charts/SampleTypeBarChart';
@@ -59,6 +60,9 @@ export default function DashboardPage() {
           motionDelayMs={4 * KPI_STAGGER_MS}
         />
       </div>
+
+      {/* Chaser follow-ups at a glance — links to the full Chaser tab. */}
+      <ChaserSummaryCard />
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
