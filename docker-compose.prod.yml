@@ -1,0 +1,53 @@
+# Production stack for the Contabo VPS: Postgres + API + Caddy (auto-HTTPS).
+# Usage on the VPS:
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# Postgres and the API are NOT published to the host — only Caddy (80/443) is public.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sucafina-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sucafina
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.prod}
+      POSTGRES_DB: sucafina
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sucafina"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./api
+    container_name: sucafina-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://sucafina:${DB_PASSWORD}@postgres:5432/sucafina
+      API_KEY: ${API_KEY:?set API_KEY in .env.prod}
+      PORT: 4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: sucafina-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env.prod}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

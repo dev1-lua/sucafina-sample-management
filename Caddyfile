@@ -1,0 +1,6 @@
+# Caddy auto-provisions a Let's Encrypt cert for $API_DOMAIN and reverse-proxies
+# HTTPS traffic to the API container. Requires ports 80 + 443 reachable on the VPS
+# and $API_DOMAIN resolving to the VPS IP (nip.io/sslip.io/DuckDNS all work).
+{$API_DOMAIN} {
+	reverse_proxy api:4000
+}
