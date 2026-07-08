@@ -45,3 +45,13 @@ export type ColumnDef = {
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom cell (e.g. StatusBadge)
   edit?: { field: string; type: 'text' | 'select'; options?: string[] }; // inline edit → PATCH {field: value}
 };
+
+// Sibling to ColumnDef (RecordTable) / FilterDef (FilterBar): describes one row in
+// DetailDrawer's Details tab. Same render/edit shape as ColumnDef by design, but scoped
+// to a single detail record rather than a table row.
+export type DetailField = {
+  key: string; // detail-row field to display
+  label: string; // field label
+  render?: (row: Record<string, unknown>) => React.ReactNode; // custom read-only rendering (e.g. StatusBadge)
+  edit?: { field: string; type: 'text' | 'select'; options?: string[] }; // inline edit → PATCH {field: value}
+};
