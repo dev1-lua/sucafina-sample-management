@@ -14,4 +14,6 @@ it('renders all nav destinations', () => {
   );
   // Bulk/Forwarding are now tabs inside Sample Management, not standalone nav items.
   ['Bulk', 'Forwarding'].forEach((l) => expect(screen.queryByText(l)).not.toBeInTheDocument());
+  // Favorites section was removed (feedback #1).
+  ['Favorites', 'No favorites yet'].forEach((l) => expect(screen.queryByText(l)).not.toBeInTheDocument());
 });

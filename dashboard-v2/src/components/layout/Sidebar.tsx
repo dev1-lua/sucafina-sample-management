@@ -9,7 +9,6 @@ import {
   IconMessageChatbot,
   IconChevronLeft,
   IconChevronDown,
-  IconStar,
 } from '@tabler/icons-react';
 
 import { cn } from '@/lib/cn';
@@ -119,22 +118,6 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-1 flex-col gap-4 overflow-y-auto p-2">
-        {/* Favorites — Tier-3 (per-user favorites) is out of scope; this is a
-            tasteful, honest empty state rather than a faked list. */}
-        <div>
-          {!collapsed && <SectionLabel>Favorites</SectionLabel>}
-          <div
-            className={cn(
-              'flex items-center gap-2.5 rounded-[4px] px-2.5 py-1.5 text-muted-foreground/60',
-              collapsed && 'justify-center px-0',
-            )}
-            title={collapsed ? 'No favorites yet' : undefined}
-          >
-            <IconStar className="size-4 shrink-0" />
-            {!collapsed && <span className="truncate text-xs italic">No favorites yet</span>}
-          </div>
-        </div>
-
         <div className="flex flex-1 flex-col gap-0.5">
           {!collapsed && <SectionLabel>Workspace</SectionLabel>}
           {NAV_ITEMS.map(({ label, path, icon: Icon, color }) => (
