@@ -18,6 +18,10 @@ import { Button } from '@/components/ui/button';
 const PAGE_SIZE = 50;
 const ROW_HEIGHT = 32;
 const SKELETON_ROWS = 8;
+// Every column gets a real px width so the grid stops splitting the viewport into
+// unreadable slivers (the AWB-column bug); when the total exceeds the viewport the
+// scroll container pans horizontally, like Twenty's spreadsheet grid.
+const DEFAULT_COL_WIDTH = 150;
 
 type RowData = Record<string, unknown>;
 
@@ -114,6 +118,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
   }
 
   const colCount = visibleColumns.length;
+  const tableWidth = visibleColumns.reduce((sum, c) => sum + (c.width ?? DEFAULT_COL_WIDTH), 0);
   const isLoading = query.isLoading;
   const isEmpty = !isLoading && !query.isError && rows.length === 0;
 
@@ -126,7 +131,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
           query.isFetching && !isLoading && 'opacity-60',
         )}
       >
-        <table className="w-full caption-bottom text-sm">
+        <table className="min-w-full table-fixed caption-bottom text-sm" style={{ width: tableWidth }}>
           <TableHeader className="sticky top-0 z-10 bg-background">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="hover:bg-transparent">
@@ -137,9 +142,9 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
                   return (
                     <TableHead
                       key={header.id}
-                      style={col.width ? { width: col.width, minWidth: col.width } : undefined}
+                      style={{ width: col.width ?? DEFAULT_COL_WIDTH }}
                       className={cn(
-                        'text-xs uppercase tracking-wide text-muted-foreground',
+                        'whitespace-nowrap text-xs uppercase tracking-wide text-muted-foreground',
                         isSortable && 'cursor-pointer select-none hover:text-foreground',
                       )}
                       onClick={isSortable ? () => handleSort(col) : undefined}
@@ -210,7 +215,8 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
                         return (
                           <TableCell
                             key={cell.id}
-                            style={col.width ? { width: col.width, minWidth: col.width } : undefined}
+                            style={{ width: col.width ?? DEFAULT_COL_WIDTH }}
+                            className="truncate"
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </TableCell>
