@@ -4,7 +4,7 @@ import { IconPlus } from '@tabler/icons-react';
 
 import { FilterBar } from '@/components/FilterBar';
 import { RecordTable } from '@/components/RecordTable';
-import { ColumnMenu, useColumnVisibility } from '@/components/ColumnMenu';
+import { useColumnVisibility } from '@/components/ColumnMenu';
 import { CreateRecordDialog } from '@/components/CreateRecordDialog';
 import { Button } from '@/components/ui/button';
 import { TAB_REGISTRY } from '@/tabs/registry';
@@ -20,14 +20,16 @@ export default function SampleListView({ tab }: { tab: TabKey }) {
   const cfg = TAB_REGISTRY[tab];
   const navigate = useNavigate();
   const [filters, setFilters] = useState<FilterState>({});
-  const [visibility, setVisibility] = useColumnVisibility(`sucafina-cols-${cfg.endpoint}`, cfg.columns);
+  // Column show/hide UI was removed (feedback #7); we still resolve the default
+  // visibility so the table keeps hiding the defaultHidden columns — it's just no
+  // longer user-toggleable.
+  const [visibility] = useColumnVisibility(`sucafina-cols-${cfg.endpoint}`, cfg.columns);
   const [createOpen, setCreateOpen] = useState(false);
   const highlightId = useRowHighlight(cfg.path);
 
   return (
     <>
       <div className="flex items-center justify-end gap-2">
-        <ColumnMenu columns={cfg.columns} value={visibility} onChange={setVisibility} />
         {cfg.createFields && (
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <IconPlus className="size-3.5" /> New

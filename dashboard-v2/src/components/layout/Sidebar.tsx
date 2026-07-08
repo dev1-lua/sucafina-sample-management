@@ -28,7 +28,7 @@ export const NAV_ITEMS = [
   { label: 'Sample Management', path: '/samples', icon: IconFlask2, color: 'violet' },
   { label: 'Clients', path: '/clients', icon: IconUsers, color: 'teal' },
   { label: 'Chaser', path: '/chaser', icon: IconBellRinging, color: 'rose' },
-  { label: 'Assistant', path: '/assistant', icon: IconMessageChatbot, color: 'indigo' },
+  { label: 'Chat Agent', path: '/assistant', icon: IconMessageChatbot, color: 'indigo' },
 ] as const satisfies ReadonlyArray<{
   label: string;
   path: string;
