@@ -1,6 +1,7 @@
 import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
+import { dashboardUrl } from '../../lib/links';
 import { TAB_ENDPOINT } from '../../lib/normalize';
 
 const RESULT_TABS = ['specialty', 'bulk'] as const; // Forwarding has no results/cupping step
@@ -29,6 +30,7 @@ export default class RecordResultTool implements LuaTool {
       status: row.status,
       result: row.result_norm,
       comments: row.comments,
+      url: dashboardUrl(input.tab, row.id, 'updated'),
     };
   }
 }

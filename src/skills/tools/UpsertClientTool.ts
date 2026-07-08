@@ -1,6 +1,7 @@
 import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
+import { dashboardUrl } from '../../lib/links';
 
 export default class UpsertClientTool implements LuaTool {
   name = 'upsert_client';
@@ -19,9 +20,10 @@ export default class UpsertClientTool implements LuaTool {
     const contact = input.attention_to || input.full_address || input.phone || input.email
       ? { attention_to: input.attention_to, full_address: input.full_address, phone: input.phone, email: input.email }
       : null;
-    return apiFetch('/clients', {
+    const client = await apiFetch('/clients', {
       method: 'POST',
       body: JSON.stringify({ name: input.name, country: input.country ?? null, contact }),
     });
+    return { tab: 'clients', ...client, url: dashboardUrl('clients', client.id, 'updated') };
   }
 }

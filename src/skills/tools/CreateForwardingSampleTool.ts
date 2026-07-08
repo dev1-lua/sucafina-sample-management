@@ -1,6 +1,7 @@
 import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
+import { dashboardUrl } from '../../lib/links';
 import { normalizeAwb, normalizeCountry, normalizeCourier } from '../../lib/normalize';
 
 export default class CreateForwardingSampleTool implements LuaTool {
@@ -53,6 +54,7 @@ export default class CreateForwardingSampleTool implements LuaTool {
       receiver_company: row.receiver_company,
       id_number: row.id_number,
       status: row.status,
+      url: dashboardUrl('forwarding', row.id, 'created'),
     };
   }
 }

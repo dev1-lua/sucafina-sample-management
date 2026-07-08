@@ -1,6 +1,7 @@
 import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
+import { dashboardUrl } from '../../lib/links';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
@@ -91,6 +92,7 @@ export default class CreateBulkSampleTool implements LuaTool {
       sample_type: row.sample_type_norm,
       qty_grams: row.qty_grams,
       status: row.status,
+      url: dashboardUrl('bulk', row.id, 'created'),
     };
   }
 }

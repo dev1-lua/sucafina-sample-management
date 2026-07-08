@@ -1,6 +1,7 @@
 import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
+import { dashboardUrl } from '../../lib/links';
 import { normalizeAwb, normalizeCourier, TABS, TAB_ENDPOINT } from '../../lib/normalize';
 
 const item = z.object({
@@ -35,6 +36,7 @@ export default class RecordDispatchTool implements LuaTool {
         status: row.status,
         courier: row.courier_norm,
         awb: row.awb,
+        url: dashboardUrl(it.tab, row.id, 'updated'),
       });
     }
     return { updated };

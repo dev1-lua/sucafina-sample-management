@@ -4,28 +4,28 @@ agent:
 skills:
   - name: sample-intake
     skillId: c956a600-f604-419a-b3d6-4be4863fedfa
-    version: 1.0.3
+    version: 1.0.4
   - name: client-book
     skillId: d4dfd7a4-2577-4839-88cf-5461847785ef
-    version: 1.0.3
+    version: 1.0.4
   - name: dispatch-logging
     skillId: 7d224af8-424d-4606-9c08-9bfc28c1e1f7
-    version: 1.0.3
+    version: 1.0.4
   - name: status-and-tracking
     skillId: 7e0234a6-d3c6-48a0-8023-c3f8de47ccf4
-    version: 1.0.3
+    version: 1.0.4
   - name: results-capture
     skillId: efcd6fde-e46a-462a-a0ce-b02aaae0567f
-    version: 1.0.3
+    version: 1.0.4
 webhooks: []
 jobs:
   - jobId: c2436eb0-0a8a-4653-8124-ee40d3254c79
     name: daily-chaser
-    version: 1.0.3
+    version: 1.0.4
 preprocessors: []
 postprocessors: []
 mcpServers: []
 backup:
-  activeVersion: 1
-  lastHash: 747c0bcc06e37601d86a66baf74e514f41f584bf8a75749b2ce7eea2e933e161
-  lastPushedAt: '2026-07-07T14:09:15.861Z'
+  activeVersion: 2
+  lastHash: 8cd55a08358f74ed6cfcb11082d4abe7e8b1ed13a94d63e8fa5d3c99f0861640
+  lastPushedAt: '2026-07-08T13:52:47.163Z'

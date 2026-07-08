@@ -1,6 +1,7 @@
 import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
+import { dashboardUrl } from '../../lib/links';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
@@ -83,6 +84,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       grade: row.grade,
       qty_grams: row.qty_grams,
       status: row.status,
+      url: dashboardUrl('specialty', row.id, 'created'),
     };
   }
 }
