@@ -1,7 +1,12 @@
-# Production stack for the Contabo VPS: Postgres + API + Caddy (auto-HTTPS).
-# Usage on the VPS:
+# Production stack for the Contabo VPS — INTEGRATES WITH the existing edge Caddy.
+# 80/443 are already owned by the `caddy` container on the `lua-edge` network, so we do
+# NOT run our own Caddy and publish NO ports. The existing Caddy reaches this API by the
+# container name `sucafina-api` on `lua-edge`; Postgres stays on a private network.
+#
+# Usage on the VPS (in /opt/sucafina):
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d postgres
+#   docker compose -f docker-compose.prod.yml exec -T postgres psql -U sucafina sucafina < sucafina-seed.sql
 #   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
-# Postgres and the API are NOT published to the host — only Caddy (80/443) is public.
 services:
   postgres:
     image: postgres:16-alpine
@@ -13,6 +18,8 @@ services:
       POSTGRES_DB: sucafina
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - sucafina-internal
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sucafina"]
       interval: 5s
@@ -24,30 +31,21 @@ services:
     container_name: sucafina-api
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://sucafina:${DB_PASSWORD}@postgres:5432/sucafina
+      DATABASE_URL: postgres://sucafina:${DB_PASSWORD}@sucafina-postgres-prod:5432/sucafina
       API_KEY: ${API_KEY:?set API_KEY in .env.prod}
       PORT: 4000
+    networks:
+      - sucafina-internal   # private link to Postgres
+      - lua-edge            # so the existing edge Caddy can reverse_proxy to us
     depends_on:
       postgres:
         condition: service_healthy
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: sucafina-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env.prod}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - api
+networks:
+  sucafina-internal:
+    driver: bridge
+  lua-edge:
+    external: true   # created by your existing edge stack; we just join it
 
 volumes:
   pgdata:
-  caddy_data:
-  caddy_config:
