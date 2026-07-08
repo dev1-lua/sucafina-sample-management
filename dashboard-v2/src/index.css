@@ -4,49 +4,59 @@
 @tailwind utilities;
 
 @layer base {
+  /* Calibrated against Twenty CRM's own token values (twentyhq/twenty
+     `twenty-ui` theme constants — read for reference only, no code lifted):
+     its gray scale is a *true* neutral (R=G=B, zero hue) from white to a
+     charcoal foreground, and its accent is Radix `indigo9` (~#3E63DD, which
+     converts to ~226° 70% 55%). We match that neutrality + hue here instead
+     of the previous blue-tinted gray scale, so "one blue accent used
+     sparingly" is actually true: neutrals stay hue-less, and 226° shows up
+     only on `--primary`/`--ring` and the deliberately-faint `--accent`
+     selection tint (kept blue per the parent spec's "hover + subtle blue
+     selection" requirement for tables — everything else uses `--muted`). */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 20% 18%;
+    --background: 0 0% 99%;
+    --foreground: 0 0% 20%;
     --card: 0 0% 100%;
-    --card-foreground: 222 20% 18%;
+    --card-foreground: 0 0% 20%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 20% 18%;
-    --primary: 217 91% 50%; /* the single blue accent */
+    --popover-foreground: 0 0% 20%;
+    --primary: 226 70% 55%; /* the single blue accent (Twenty indigo9-inspired) */
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 222 20% 18%;
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 214 95% 96%; /* faint blue selection */
-    --accent-foreground: 217 91% 40%;
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 0 0% 20%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 226 100% 97%; /* faint blue selection */
+    --accent-foreground: 226 70% 40%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%; /* hairline */
-    --input: 220 13% 88%;
-    --ring: 217 91% 50%;
+    --border: 0 0% 90%; /* hairline */
+    --input: 0 0% 87%;
+    --ring: 226 70% 55%;
     --radius: 0.5rem; /* 8px cards; controls use rounded-[4px] */
   }
 
   .dark {
-    --background: 222 22% 11%;
-    --foreground: 220 14% 90%;
-    --card: 222 20% 13%;
-    --card-foreground: 220 14% 90%;
-    --popover: 222 20% 13%;
-    --popover-foreground: 220 14% 90%;
-    --primary: 217 91% 50%;
+    --background: 0 0% 9%;
+    --foreground: 0 0% 92%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 92%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 92%;
+    --primary: 226 70% 63%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 14% 18%;
-    --secondary-foreground: 220 14% 90%;
-    --muted: 220 14% 16%;
-    --muted-foreground: 220 9% 60%;
-    --accent: 217 40% 20%;
-    --accent-foreground: 214 95% 85%;
-    --destructive: 0 62% 50%;
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 0 0% 92%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 63%;
+    --accent: 226 35% 22%;
+    --accent-foreground: 226 85% 82%;
+    --destructive: 0 65% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 22%;
-    --input: 220 13% 24%;
-    --ring: 217 91% 50%;
+    --border: 0 0% 27%;
+    --input: 0 0% 27%;
+    --ring: 226 70% 63%;
   }
 
   * {

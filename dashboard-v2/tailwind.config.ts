@@ -21,7 +21,9 @@ export default {
       },
       borderRadius: { lg: 'var(--radius)', md: '6px', sm: '4px' },
       fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
-      fontSize: { xs: ['11px', '16px'], sm: ['13px', '18px'], base: ['13px', '18px'] },
+      // '2xs' formalizes the micro-copy step Twenty uses for things like kbd
+      // hints and pill timestamps — smaller than the 11px column-header size.
+      fontSize: { '2xs': ['10px', '14px'], xs: ['11px', '16px'], sm: ['13px', '18px'], base: ['13px', '18px'] },
       spacing: { '4.5': '18px' },
       keyframes: {
         'slide-in-right': { from: { transform: 'translateX(100%)' }, to: { transform: 'translateX(0)' } },

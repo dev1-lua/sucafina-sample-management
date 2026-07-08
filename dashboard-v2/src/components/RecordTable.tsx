@@ -4,15 +4,14 @@ import {
   flexRender,
   getCoreRowModel,
   useReactTable,
+  type VisibilityState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
-import { usePatchRecord, useRecords } from '@/lib/query';
+import { useRecords } from '@/lib/query';
 import { cn } from '@/lib/cn';
 import type { ColumnDef, FilterState, SortState } from '@/types';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 
@@ -27,6 +26,9 @@ export type RecordTableProps = {
   columns: ColumnDef[];
   filters: FilterState;
   onRowClick: (row: RowData) => void;
+  // Controlled column show/hide (see ColumnMenu.useColumnVisibility). Omitted => every
+  // column renders, matching pre-Phase-4 behavior and RecordTable.test.tsx's usage.
+  columnVisibility?: VisibilityState;
 };
 
 const columnHelper = createColumnHelper<RowData>();
@@ -38,73 +40,10 @@ function displayValue(value: unknown): React.ReactNode {
   return String(value);
 }
 
-function InlineEditCell({
-  editDef,
-  row,
-  onCommit,
-}: {
-  editDef: NonNullable<ColumnDef['edit']>;
-  row: RowData;
-  onCommit: (field: string, value: string) => void;
-}) {
-  const initial = row[editDef.field];
-  const initialStr = initial === null || initial === undefined ? '' : String(initial);
-  const [value, setValue] = React.useState(initialStr);
-
-  React.useEffect(() => {
-    setValue(initialStr);
-  }, [initialStr]);
-
-  function commit(next: string) {
-    if (next !== initialStr) onCommit(editDef.field, next);
-  }
-
-  if (editDef.type === 'select') {
-    return (
-      <div onClick={(e) => e.stopPropagation()}>
-        <Select
-          value={value}
-          onValueChange={(next) => {
-            setValue(next);
-            commit(next);
-          }}
-        >
-          <SelectTrigger className="h-7 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(editDef.options ?? []).map((opt) => (
-              <SelectItem key={opt} value={opt}>
-                {opt}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    );
-  }
-
-  return (
-    <div onClick={(e) => e.stopPropagation()}>
-      <Input
-        className="h-7 text-xs"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={() => commit(value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        }}
-      />
-    </div>
-  );
-}
-
-export function RecordTable({ endpoint, columns, filters, onRowClick }: RecordTableProps) {
+export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility }: RecordTableProps) {
   const [sort, setSort] = React.useState<SortState>(null);
   const [page, setPage] = React.useState(1);
   const scrollRef = React.useRef<HTMLDivElement>(null);
-
-  const { mutate: patchRecord } = usePatchRecord(endpoint);
 
   // Reset to page 1 whenever the caller's filters change (stable serialization
   // so equivalent filter objects with a new reference don't churn pagination).
@@ -120,11 +59,12 @@ export function RecordTable({ endpoint, columns, filters, onRowClick }: RecordTa
 
   const colByKey = React.useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
 
-  const commitEdit = React.useCallback(
-    (id: unknown, field: string, value: string) => {
-      patchRecord({ id: String(id), body: { [field]: value } });
-    },
-    [patchRecord],
+  // Same visibility predicate TanStack Table applies internally — kept in sync here so
+  // the loading-skeleton and empty/error colSpans match the actually-rendered column
+  // count instead of always assuming every column is shown.
+  const visibleColumns = React.useMemo(
+    () => columns.filter((c) => columnVisibility?.[c.key] !== false),
+    [columns, columnVisibility],
   );
 
   const tableColumns = React.useMemo(
@@ -136,20 +76,11 @@ export function RecordTable({ endpoint, columns, filters, onRowClick }: RecordTa
           cell: (ctx) => {
             const rowData = ctx.row.original;
             if (col.render) return col.render(rowData);
-            if (col.edit) {
-              return (
-                <InlineEditCell
-                  editDef={col.edit}
-                  row={rowData}
-                  onCommit={(field, value) => commitEdit(rowData.id, field, value)}
-                />
-              );
-            }
             return displayValue(rowData[col.key]);
           },
         }),
       ),
-    [columns, commitEdit],
+    [columns],
   );
 
   const table = useReactTable({
@@ -157,6 +88,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick }: RecordTa
     columns: tableColumns,
     getCoreRowModel: getCoreRowModel(),
     getRowId: (row) => String(row.id),
+    state: { columnVisibility: columnVisibility ?? {} },
   });
 
   const tableRows = table.getRowModel().rows;
@@ -181,7 +113,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick }: RecordTa
     });
   }
 
-  const colCount = columns.length;
+  const colCount = visibleColumns.length;
   const isLoading = query.isLoading;
   const isEmpty = !isLoading && !query.isError && rows.length === 0;
 
@@ -238,7 +170,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick }: RecordTa
             {isLoading &&
               Array.from({ length: SKELETON_ROWS }).map((_, i) => (
                 <TableRow key={`skeleton-${i}`} className="hover:bg-transparent">
-                  {columns.map((col) => (
+                  {visibleColumns.map((col) => (
                     <TableCell key={col.key}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>

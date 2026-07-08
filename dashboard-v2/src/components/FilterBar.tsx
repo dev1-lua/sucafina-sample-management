@@ -34,8 +34,9 @@ function asArray(v: string | string[] | undefined): string[] {
   return Array.isArray(v) ? v : [];
 }
 
-/** Shared pill shell: rounded-[4px] outline, `bg-accent text-accent-foreground` when active,
- * with a trailing × clear control once a value is set. */
+/** Shared pill shell — fully rounded (Twenty's soft chip look), hairline
+ * border, `bg-accent text-accent-foreground` (the one sparing use of the blue
+ * accent) once a value is set, with a trailing × clear control. */
 function Chip({
   active,
   onClear,
@@ -50,8 +51,8 @@ function Chip({
   return (
     <div
       className={cn(
-        'inline-flex h-7 items-center rounded-[4px] border border-border text-xs transition-colors duration-150',
-        active && 'border-transparent bg-accent text-accent-foreground',
+        'inline-flex h-7 items-center rounded-full border border-border bg-background text-xs text-foreground/80 transition-colors duration-150 hover:border-foreground/20',
+        active && 'border-transparent bg-accent text-accent-foreground hover:border-transparent',
       )}
     >
       {children}
@@ -60,7 +61,7 @@ function Chip({
           type="button"
           aria-label={clearLabel}
           onClick={onClear}
-          className="flex h-full items-center rounded-r-[4px] px-1.5 hover:bg-accent-foreground/10"
+          className="flex h-full items-center rounded-r-full py-0 pl-1 pr-2.5 hover:bg-accent-foreground/10"
         >
           <IconX className="size-3.5" />
         </button>
@@ -71,7 +72,7 @@ function Chip({
 
 const TriggerLabel = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
   ({ children, className, ...props }, ref) => (
-    <button ref={ref} type="button" className={cn('flex h-full items-center gap-1 px-2.5', className)} {...props}>
+    <button ref={ref} type="button" className={cn('flex h-full items-center gap-1 px-3', className)} {...props}>
       <span className="max-w-[12rem] truncate">{children}</span>
       <IconChevronDown className="size-3.5 shrink-0 opacity-60" />
     </button>
@@ -155,7 +156,7 @@ function BoolPill({
       <button
         type="button"
         onClick={() => onPatch({ [def.key]: active ? undefined : trueValue })}
-        className="flex h-full items-center px-2.5"
+        className="flex h-full items-center px-3"
       >
         {def.label}
       </button>

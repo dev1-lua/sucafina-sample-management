@@ -1,13 +1,23 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
+import { IconTrash } from '@tabler/icons-react';
 
-import { useRecord, usePatchRecord } from '@/lib/query';
+import { useRecord, usePatchRecord, useDeleteRecord } from '@/lib/query';
 import type { DetailField, EventRow } from '@/types';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Timeline } from '@/components/Timeline';
 
 export type DetailDrawerProps = {
@@ -105,6 +115,14 @@ function DetailsSkeleton() {
 export function DetailDrawer({ endpoint, id, open, onClose, fields }: DetailDrawerProps) {
   const query = useRecord(endpoint, id);
   const { mutate: patchRecord } = usePatchRecord(endpoint);
+  const { mutate: deleteRecord, isPending: isDeleting, isError: deleteFailed } = useDeleteRecord(endpoint);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+
+  // A fresh record (new `id`) should never inherit a stale confirm dialog from
+  // whatever was previously open in the drawer.
+  React.useEffect(() => {
+    setConfirmOpen(false);
+  }, [id]);
 
   const isLoading = query.isLoading;
   const data = (query.data ?? {}) as RowData & { events?: EventRow[] };
@@ -112,6 +130,15 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields }: DetailDraw
 
   function commitEdit(field: string, value: string) {
     patchRecord({ id, body: { [field]: value } });
+  }
+
+  function confirmDelete() {
+    deleteRecord(id, {
+      onSuccess: () => {
+        setConfirmOpen(false);
+        onClose();
+      },
+    });
   }
 
   return (
@@ -132,7 +159,25 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields }: DetailDraw
           className="flex h-full min-h-0 flex-col"
         >
           <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
-            {isLoading ? <Skeleton className="h-5 w-32" /> : <SheetTitle className="text-base">{title}</SheetTitle>}
+            <div className="flex items-center justify-between gap-2 pr-6">
+              {isLoading ? (
+                <Skeleton className="h-5 w-32" />
+              ) : (
+                <SheetTitle className="text-base">{title}</SheetTitle>
+              )}
+              {!isLoading && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={`Delete ${title}`}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  <IconTrash className="size-4" />
+                </Button>
+              )}
+            </div>
           </SheetHeader>
 
           <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col">
@@ -188,6 +233,29 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields }: DetailDraw
           </Tabs>
         </motion.div>
       </SheetContent>
+
+      {/* Nested inside the Sheet's own Dialog-based root — Radix supports nested
+          dialogs, and there's no separate alert-dialog primitive in this app, so the
+          delete confirm reuses ui/dialog per the design spec. */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete {title}?</DialogTitle>
+            <DialogDescription>
+              This removes the record from the list. It can&rsquo;t be undone from the dashboard.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteFailed && <p className="text-sm text-destructive">Failed to delete. Please try again.</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
+              {isDeleting ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }

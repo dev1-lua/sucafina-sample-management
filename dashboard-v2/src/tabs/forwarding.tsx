@@ -1,4 +1,5 @@
 import { StatusBadge } from '@/components/StatusBadge';
+import { CellValue } from '@/components/CellValue';
 import type { TabConfig } from './registry';
 
 // Enums verbatim from the API's forwarding-samples router / global constraints.
@@ -10,6 +11,7 @@ export const forwardingConfig: TabConfig = {
   endpoint: '/forwarding-samples',
   path: '/forwarding',
   entityLabel: 'Forwarding Sample',
+  // Only 11 columns total — no curation needed, all ship visible by default.
   columns: [
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     { key: 'sender', header: 'Sender', sortKey: 'sender' },
@@ -18,8 +20,10 @@ export const forwardingConfig: TabConfig = {
     { key: 'coffee_quality', header: 'Coffee Quality' },
     { key: 'receiver_company', header: 'Receiver', sortKey: 'receiver_company' },
     { key: 'id_number', header: 'ID Number', sortKey: 'id_number' },
-    { key: 'awb', header: 'AWB', edit: { field: 'awb', type: 'text' } },
-    { key: 'courier', header: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS } },
+    { key: 'awb', header: 'AWB' },
+    // Display source is `courier_norm` — the only courier field the API ever writes
+    // (the raw `courier` column is legacy-import-only and always empty for app data).
+    { key: 'courier', header: 'Courier', render: (r) => <CellValue value={r.courier_norm} humanize /> },
     { key: 'qty', header: 'Qty', sortKey: 'qty_grams' },
     {
       key: 'status',
@@ -41,5 +45,25 @@ export const forwardingConfig: TabConfig = {
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
     { key: 'awb', label: 'AWB', edit: { field: 'awb', type: 'text' } },
     { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS } },
+    { key: 'id_number', label: 'ID Number', edit: { field: 'id_number', type: 'text' } },
+    { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
+  ],
+  // Exact field names from forwarding-samples' POST createSchema
+  // (api/src/routes/forwarding-samples.ts). Unlike specialty's `ref`, forwarding's
+  // `sample_ref` has NO server-side issuance and is a hard-required (min length 1) field
+  // — omitting it here (as the generic "server issues the ref" guidance would suggest)
+  // would make every forwarding create request fail validation, so it's deliberately
+  // included. Omits `qty_grams` (typed sort-only companion of `qty`) and `client_id`
+  // (uuid FK — no client picker in this track's scope).
+  createFields: [
+    { key: 'sender', label: 'Sender', type: 'text', required: true },
+    { key: 'origin', label: 'Origin', type: 'text', required: true },
+    { key: 'sample_ref', label: 'Sample Ref', type: 'text', required: true },
+    { key: 'coffee_quality', label: 'Coffee Quality', type: 'text', required: true },
+    { key: 'receiver_company', label: 'Receiver', type: 'text', required: true },
+    { key: 'id_number', label: 'ID Number', type: 'text' },
+    { key: 'awb', label: 'AWB', type: 'text' },
+    { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS },
+    { key: 'qty', label: 'Qty', type: 'text' },
   ],
 };

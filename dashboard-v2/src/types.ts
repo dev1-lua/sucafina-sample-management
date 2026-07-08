@@ -43,7 +43,7 @@ export type ColumnDef = {
   sortKey?: string; // API sort value; omit => not sortable
   width?: number; // px
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom cell (e.g. StatusBadge)
-  edit?: { field: string; type: 'text' | 'select'; options?: string[] }; // inline edit → PATCH {field: value}
+  defaultHidden?: boolean; // hidden by default in the Columns show/hide menu (still user-toggleable, still persisted)
 };
 
 // Sibling to ColumnDef (RecordTable) / FilterDef (FilterBar): describes one row in
@@ -54,4 +54,19 @@ export type DetailField = {
   label: string; // field label
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom read-only rendering (e.g. StatusBadge)
   edit?: { field: string; type: 'text' | 'select'; options?: string[] }; // inline edit → PATCH {field: value}
+};
+
+// Drives CreateRecordDialog's form. `key` must be the EXACT field name accepted by the
+// table's POST body zod schema (see api/src/routes/{specialty,bulk,forwarding}-samples.ts)
+// — not necessarily the same as a ColumnDef.key, since some columns display a normalized
+// companion field (e.g. `courier_norm`) that IS the POST field, while others display a
+// column that has no create-time equivalent at all.
+export type CreateFieldDef = {
+  key: string; // POST body field name
+  label: string;
+  type: 'text' | 'select' | 'number' | 'date';
+  options?: string[]; // for type: 'select'
+  required?: boolean;
+  defaultValue?: string | number;
+  placeholder?: string;
 };

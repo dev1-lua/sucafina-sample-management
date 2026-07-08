@@ -1,4 +1,4 @@
-import type { ColumnDef, DetailField, FilterDef, TabKey } from '@/types';
+import type { ColumnDef, CreateFieldDef, DetailField, FilterDef, TabKey } from '@/types';
 
 import { specialtyConfig } from './specialty';
 import { bulkConfig } from './bulk';
@@ -12,6 +12,7 @@ export type TabConfig = {
   columns: ColumnDef[];
   filters: FilterDef[];
   detailFields: DetailField[];
+  createFields?: CreateFieldDef[]; // drives CreateRecordDialog; omit for tabs with no create flow (e.g. clients)
 };
 
 export const TAB_REGISTRY: Record<TabKey, TabConfig> = {

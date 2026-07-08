@@ -8,6 +8,7 @@ import SamplesPage from '@/pages/SamplesPage';
 import BulkPage from '@/pages/BulkPage';
 import ForwardingPage from '@/pages/ForwardingPage';
 import ClientsPage from '@/pages/ClientsPage';
+import ClientDetailPage from '@/pages/ClientDetailPage';
 import { TAB_REGISTRY } from '@/tabs/registry';
 import type { TabKey } from '@/types';
 
@@ -56,9 +57,12 @@ export default function App() {
             <Route path="/forwarding" element={<ForwardingPage />}>
               <Route path=":id" element={<TabDrawerRoute tab="forwarding" />} />
             </Route>
-            <Route path="/clients" element={<ClientsPage />}>
-              <Route path=":id" element={<TabDrawerRoute tab="clients" />} />
-            </Route>
+            {/* Clients drill-down is a full deep-linkable show-page (Phase 4), not a drawer
+                overlaid on the list — so, unlike the three sample tabs above, `:id` is a
+                sibling top-level route rather than nested under ClientsPage's <Outlet/>.
+                Navigating here fully replaces the list instead of stacking a panel on it. */}
+            <Route path="/clients" element={<ClientsPage />} />
+            <Route path="/clients/:id" element={<ClientDetailPage />} />
           </Routes>
         </main>
       </div>
