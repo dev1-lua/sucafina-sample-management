@@ -1,5 +1,10 @@
+import { useMemo, useState } from 'react';
+import { IconX } from '@tabler/icons-react';
+
 import { KpiTile } from '@/components/KpiTile';
 import { ChaserSummaryCard } from '@/components/ChaserSummaryCard';
+import { FilterBar } from '@/components/FilterBar';
+import { Button } from '@/components/ui/button';
 import { CountryBarChart } from '@/components/charts/CountryBarChart';
 import { CourierBarChart } from '@/components/charts/CourierBarChart';
 import { SampleTypeBarChart } from '@/components/charts/SampleTypeBarChart';
@@ -7,13 +12,27 @@ import { StatusBarChart } from '@/components/charts/StatusBarChart';
 import { TabDonutChart } from '@/components/charts/TabDonutChart';
 import { VolumeAreaChart } from '@/components/charts/VolumeAreaChart';
 import { useStats } from '@/lib/query';
+import { dashboardFilterDefs } from '@/lib/dashboard-filters';
+import { cn } from '@/lib/cn';
+import type { FilterState } from '@/types';
 
 const KPI_STAGGER_MS = 40;
 const CHART_STAGGER_MS = 60;
 const CHART_BASE_DELAY_MS = 5 * KPI_STAGGER_MS; // charts settle in just after the KPI row finishes
 
 export default function DashboardPage() {
-  const { data: stats, isLoading, isError } = useStats();
+  const [filters, setFilters] = useState<FilterState>({});
+  // `isLoading` is only true on the very first load — with keepPreviousData it stays
+  // false across filter changes, so the charts never unmount (freeze safeguard). We
+  // use `isFetching` purely to dim the stats-driven blocks while a re-filter loads.
+  const { data: stats, isLoading, isFetching, isError } = useStats(filters);
+
+  const filterDefs = useMemo(
+    () => dashboardFilterDefs(stats?.months ?? [], stats?.countries ?? []),
+    [stats?.months, stats?.countries],
+  );
+  const hasFilters = Object.keys(filters).length > 0;
+  const refetching = isFetching && !isLoading;
 
   const totalSamples = stats ? Object.values(stats.by_tab).reduce((sum, n) => sum + n, 0) : 0;
 
@@ -26,8 +45,19 @@ export default function DashboardPage() {
         {isError && <span className="ml-1 text-destructive">Couldn't load the latest stats — showing what's cached.</span>}
       </p>
 
+      {/* Filter toolbar — slices every KPI + chart below. Reuses the list pages'
+          FilterBar (no-Radix popover); search box hidden (no `q` on /stats). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <FilterBar defs={filterDefs} value={filters} onChange={setFilters} showSearch={false} />
+        {hasFilters && (
+          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground" onClick={() => setFilters({})}>
+            <IconX className="size-3.5" /> Clear all
+          </Button>
+        )}
+      </div>
+
       {/* KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 transition-opacity duration-150', refetching && 'opacity-60')}>
         <KpiTile
           label="Total samples"
           value={totalSamples.toLocaleString()}
@@ -65,7 +95,7 @@ export default function DashboardPage() {
       <ChaserSummaryCard />
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className={cn('grid grid-cols-1 lg:grid-cols-2 gap-3 transition-opacity duration-150', refetching && 'opacity-60')}>
         <StatusBarChart data={stats?.by_status} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 0 * CHART_STAGGER_MS} />
         <VolumeAreaChart data={stats?.volume_over_time} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 1 * CHART_STAGGER_MS} />
         <TabDonutChart data={stats?.by_tab} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 2 * CHART_STAGGER_MS} />

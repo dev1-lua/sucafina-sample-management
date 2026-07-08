@@ -7,6 +7,7 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { IconChevronUp, IconChevronDown, IconSelector } from '@tabler/icons-react';
 
 import { useRecords } from '@/lib/query';
 import { cn } from '@/lib/cn';
@@ -22,6 +23,19 @@ const SKELETON_ROWS = 8;
 // unreadable slivers (the AWB-column bug); when the total exceeds the viewport the
 // scroll container pans horizontally, like Twenty's spreadsheet grid.
 const DEFAULT_COL_WIDTH = 150;
+
+/** Header sort affordance. Every sortable column shows a faint up/down hint so it
+ * reads as sortable at a glance; the active column shows a solid single chevron in
+ * the current direction. Icons are aria-hidden — <TableHead aria-sort> conveys the
+ * state to assistive tech. Purely presentational; lives in the sticky header, never
+ * the virtualized body, so it's outside the freeze vector. */
+function SortIndicator({ active, order }: { active: boolean; order?: 'asc' | 'desc' }) {
+  if (active) {
+    const Icon = order === 'asc' ? IconChevronUp : IconChevronDown;
+    return <Icon className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />;
+  }
+  return <IconSelector className="size-3.5 shrink-0 opacity-40" aria-hidden="true" />;
+}
 
 type RowData = Record<string, unknown>;
 
@@ -120,6 +134,21 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
     overscan: 10,
   });
 
+  // Bring the deep-linked row into view. The virtualizer won't render (let alone
+  // scroll to) an off-screen row on its own, so a match below the fold — or anywhere
+  // past the initial overscan — would flash invisibly. No-op when the row isn't on the
+  // current page (the opened drawer + banner still convey the change). Runs once rows
+  // arrive: on a fresh deep-link `highlightId` is set before the query resolves, so we
+  // also key on the row count so it fires when the data lands.
+  React.useEffect(() => {
+    if (!highlightId) return;
+    const index = tableRows.findIndex((r) => r.id === highlightId);
+    if (index >= 0) rowVirtualizer.scrollToIndex(index, { align: 'center' });
+    // rowVirtualizer is stable; the meaningful inputs are the target id and whether the
+    // current page's rows are loaded yet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId, tableRows.length]);
+
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
   const paddingTop = virtualItems.length > 0 ? virtualItems[0]!.start : 0;
@@ -179,7 +208,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
                     >
                       <span className="inline-flex items-center gap-1">
                         {flexRender(header.column.columnDef.header, header.getContext())}
-                        {isActive && <span aria-hidden="true">{sort?.order === 'asc' ? '↑' : '↓'}</span>}
+                        {isSortable && <SortIndicator active={!!isActive} order={sort?.order} />}
                       </span>
                     </TableHead>
                   );

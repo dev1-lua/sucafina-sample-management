@@ -1,7 +1,7 @@
 import { QueryClient, useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from './api';
 import { buildListParams } from './params';
-import type { ListResult, ListQuery, EventRow, Digest } from '@/types';
+import type { ListResult, ListQuery, EventRow, Digest, FilterState } from '@/types';
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } },
@@ -94,9 +94,37 @@ export type StatsResult = {
   awaiting_results: number;
   awaiting_results_aging: number;
   dispatched_this_week: number;
+  // Full-domain option lists for the dashboard filter dropdowns (server computes
+  // these WITHOUT the active filters, so they never collapse). See stats.ts.
+  months: string[];
+  countries: string[];
 };
-export function useStats() {
-  return useQuery({ queryKey: ['/stats'], queryFn: () => api<StatsResult>('/stats') });
+
+/** Serialize dashboard filter state into a `/stats` query string. Mirrors the
+ * filter half of buildListParams (arrays → comma-joined; empty values dropped),
+ * so multi-selects arrive as the CSV the API's buildStatsFilter expects. */
+function buildStatsQuery(filters: FilterState): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v == null) continue;
+    if (Array.isArray(v)) { if (v.length) p.set(k, v.join(',')); }
+    else if (v !== '') p.set(k, v);
+  }
+  return p.toString();
+}
+
+export function useStats(filters: FilterState = {}) {
+  const qs = buildStatsQuery(filters);
+  return useQuery({
+    queryKey: ['/stats', qs],
+    queryFn: () => api<StatsResult>(qs ? `/stats?${qs}` : '/stats'),
+    // Same freeze safeguard as useRecords: hold the previous stats while a filter
+    // change refetches, so `isLoading` never flips true mid-interaction. That keeps
+    // the charts (Recharts ResponsiveContainer + ResizeObserver) mounted instead of
+    // being torn out for a skeleton and re-measured — the layout-storm wedge from
+    // docs/incident-2026-07-08-list-page-freeze.md.
+    placeholderData: keepPreviousData,
+  });
 }
 
 export type Trader = { id: string; name: string; role: string | null; email: string | null };

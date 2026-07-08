@@ -10,6 +10,10 @@ export type FilterBarProps = {
   defs: FilterDef[];
   value: FilterState;
   onChange: (next: FilterState) => void;
+  // The list pages want the free-text `q` search box; the Dashboard doesn't (its
+  // /stats endpoint has no `q` param — "Quality" is the text filter there), so it
+  // opts out. Defaults to showing the box to preserve existing list behavior.
+  showSearch?: boolean;
 };
 
 type Patch = Record<string, string | string[] | undefined>;
@@ -386,7 +390,7 @@ function FilterPill({ def, value, onPatch }: { def: FilterDef; value: FilterStat
   }
 }
 
-export function FilterBar({ defs, value, onChange }: FilterBarProps) {
+export function FilterBar({ defs, value, onChange, showSearch = true }: FilterBarProps) {
   const q = asString(value.q);
 
   const onPatch = React.useCallback(
@@ -399,16 +403,18 @@ export function FilterBar({ defs, value, onChange }: FilterBarProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <div className="relative">
-        <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={q}
-          onChange={(e) => onPatch({ q: e.target.value })}
-          placeholder="Search…"
-          aria-label="Search"
-          className="h-7 w-48 pl-7 text-xs"
-        />
-      </div>
+      {showSearch && (
+        <div className="relative">
+          <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={q}
+            onChange={(e) => onPatch({ q: e.target.value })}
+            placeholder="Search…"
+            aria-label="Search"
+            className="h-7 w-48 pl-7 text-xs"
+          />
+        </div>
+      )}
       {defs.map((def) => (
         <FilterPill key={def.key} def={def} value={value} onPatch={onPatch} />
       ))}

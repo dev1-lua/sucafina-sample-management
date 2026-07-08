@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import type { Request } from 'express';
 import { pool } from '../db.js';
 import { h } from '../errors.js';
+import { makeFilters } from '../lib/list.js';
 
 export const stats = Router();
 
@@ -10,33 +12,79 @@ const groupToMap = (rows: { k: string | null; n: number }[]): Record<string, num
   return m;
 };
 
-stats.get('/', h(async (_req, res) => {
-  const base = `FROM all_samples_v WHERE deleted_at IS NULL`;
-  const [byStatus, byTab, bySampleType, byResult, byCourier, byCountry, volume, scalars, dispatchedThisWeek] = await Promise.all([
-    pool.query(`SELECT status AS k, count(*)::int AS n ${base} GROUP BY status`),
-    pool.query(`SELECT tab AS k, count(*)::int AS n ${base} GROUP BY tab`),
-    // sample_type_norm is not projected by the view (Forwarding has none); source it from the two tables that carry it
-    pool.query(`
-      SELECT sample_type_norm::text AS k, count(*)::int AS n FROM (
-        SELECT sample_type_norm, deleted_at FROM specialty_samples
-        UNION ALL
-        SELECT sample_type_norm, deleted_at FROM bulk_samples
-      ) t WHERE deleted_at IS NULL AND sample_type_norm IS NOT NULL GROUP BY sample_type_norm`),
-    pool.query(`SELECT result_norm::text AS k, count(*)::int AS n ${base} AND result_norm IS NOT NULL GROUP BY result_norm`),
-    pool.query(`SELECT courier_norm::text AS k, count(*)::int AS n ${base} AND courier_norm IS NOT NULL GROUP BY courier_norm`),
-    pool.query(`SELECT country AS k, count(*)::int AS n ${base} AND country IS NOT NULL GROUP BY country ORDER BY n DESC LIMIT 15`),
-    pool.query(`SELECT to_char(date_trunc('month', date_on), 'YYYY-MM') AS month, count(*)::int AS n
-                ${base} AND date_on IS NOT NULL GROUP BY 1 ORDER BY 1`),
-    pool.query(`
-      SELECT
-        (SELECT count(*)::int ${base} AND status = 'dispatched') AS in_transit,
-        (SELECT count(*)::int ${base} AND status = 'delivered' AND result_norm IS NULL AND tab <> 'forwarding') AS awaiting_results,
-        (SELECT count(*)::int ${base} AND status = 'delivered' AND result_norm IS NULL AND tab <> 'forwarding'
-              AND coalesce(delivery_on, date_on) < CURRENT_DATE - interval '7 days') AS awaiting_results_aging
-    `),
-    pool.query(`SELECT count(*)::int AS n FROM events
-                WHERE type = 'dispatched' AND created_at >= date_trunc('week', now())`),
-  ]);
+// Dashboard filters. Column names come from this fixed whitelist (never user input),
+// so interpolating them is injection-safe; values are always bound as $n params.
+// Enum columns are compared as ::text = ANY(?::text[]) so an unknown value simply
+// fails to match instead of raising an "invalid input value for enum" 500.
+const CSV_FILTERS: Record<string, string> = {
+  tab: 'tab',
+  status: 'status::text',
+  sample_type: 'sample_type_norm::text',
+  country: 'country',
+  courier: 'courier_norm::text',
+  result: 'result_norm::text',
+};
+
+/** Build the parameterized filter fragment shared by every view-based aggregate.
+ * Returns a clause that begins with ' AND …' (or '' when no filters are set) plus
+ * the positional params. All aggregate queries reference the same $1..$n, so they
+ * are handed the same `params` array. */
+function buildStatsFilter(query: Request['query']): { clause: string; params: unknown[] } {
+  const f = makeFilters();
+
+  for (const [param, col] of Object.entries(CSV_FILTERS)) {
+    const raw = query[param];
+    if (raw == null) continue;
+    const values = String(raw)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (values.length) f.add(`${col} = ANY (?::text[])`, values);
+  }
+
+  const month = String(query.month ?? '').trim();
+  if (month) f.add(`to_char(date_trunc('month', date_on), 'YYYY-MM') = ?`, month);
+
+  const quality = String(query.quality ?? '').trim();
+  if (quality) f.add(`title ILIKE '%'||?||'%'`, quality);
+
+  return { clause: f.where.length ? ` AND ${f.where.join(' AND ')}` : '', params: f.params };
+}
+
+stats.get('/', h(async (req, res) => {
+  const { clause, params } = buildStatsFilter(req.query);
+  const base = `FROM all_samples_v WHERE deleted_at IS NULL${clause}`;
+  // Full-domain option lists for the dashboard filter dropdowns — deliberately
+  // computed WITHOUT `clause` so the Month/Country choices never collapse to just
+  // whatever the current filter leaves behind.
+  const optBase = `FROM all_samples_v WHERE deleted_at IS NULL`;
+
+  const [byStatus, byTab, bySampleType, byResult, byCourier, byCountry, volume, scalars, dispatchedThisWeek, months, countries] =
+    await Promise.all([
+      pool.query(`SELECT status AS k, count(*)::int AS n ${base} GROUP BY status`, params),
+      pool.query(`SELECT tab AS k, count(*)::int AS n ${base} GROUP BY tab`, params),
+      // sample_type_norm is now projected by all_samples_v (migration 003), so this
+      // aggregate runs off the same filtered `base` as everything else.
+      pool.query(`SELECT sample_type_norm::text AS k, count(*)::int AS n ${base} AND sample_type_norm IS NOT NULL GROUP BY sample_type_norm`, params),
+      pool.query(`SELECT result_norm::text AS k, count(*)::int AS n ${base} AND result_norm IS NOT NULL GROUP BY result_norm`, params),
+      pool.query(`SELECT courier_norm::text AS k, count(*)::int AS n ${base} AND courier_norm IS NOT NULL GROUP BY courier_norm`, params),
+      pool.query(`SELECT country AS k, count(*)::int AS n ${base} AND country IS NOT NULL GROUP BY country ORDER BY n DESC LIMIT 15`, params),
+      pool.query(`SELECT to_char(date_trunc('month', date_on), 'YYYY-MM') AS month, count(*)::int AS n
+                  ${base} AND date_on IS NOT NULL GROUP BY 1 ORDER BY 1`, params),
+      pool.query(`
+        SELECT
+          (SELECT count(*)::int ${base} AND status = 'dispatched') AS in_transit,
+          (SELECT count(*)::int ${base} AND status = 'delivered' AND result_norm IS NULL AND tab <> 'forwarding') AS awaiting_results,
+          (SELECT count(*)::int ${base} AND status = 'delivered' AND result_norm IS NULL AND tab <> 'forwarding'
+                AND coalesce(delivery_on, date_on) < CURRENT_DATE - interval '7 days') AS awaiting_results_aging
+      `, params),
+      // Events-based "this week" activity metric — intentionally global (not scoped
+      // by the sample-dimension filters, which don't map onto the event log).
+      pool.query(`SELECT count(*)::int AS n FROM events
+                  WHERE type = 'dispatched' AND created_at >= date_trunc('week', now())`),
+      pool.query(`SELECT to_char(date_trunc('month', date_on), 'YYYY-MM') AS m ${optBase} AND date_on IS NOT NULL GROUP BY 1 ORDER BY 1 DESC`),
+      pool.query(`SELECT country AS c ${optBase} AND country IS NOT NULL GROUP BY 1 ORDER BY 1`),
+    ]);
   res.json({
     by_status: groupToMap(byStatus.rows),
     by_tab: groupToMap(byTab.rows),
@@ -47,5 +95,7 @@ stats.get('/', h(async (_req, res) => {
     volume_over_time: volume.rows,
     ...scalars.rows[0],
     dispatched_this_week: dispatchedThisWeek.rows[0].n,
+    months: months.rows.map((r) => r.m),
+    countries: countries.rows.map((r) => r.c),
   });
 }));
