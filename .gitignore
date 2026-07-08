@@ -17,3 +17,7 @@ dist-v2/
 .env.prod
 sucafina-seed.sql
 sucafina-deploy.tar.gz
+.vercel
+.env*
+Plugin-test/
+.playwright-mcp/ 

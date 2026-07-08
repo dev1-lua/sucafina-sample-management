@@ -1,0 +1,6 @@
+# Vercel builds only dashboard-v2 (project Root Directory = dashboard-v2).
+# Deploys run from the repo root, so exclude everything except that folder —
+# critically keeps .env.prod, sucafina-seed.sql, and the deploy tarball out of
+# the upload. .vercelignore does NOT honor .gitignore, so this is explicit.
+/*
+!/dashboard-v2
