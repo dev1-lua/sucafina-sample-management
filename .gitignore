@@ -16,3 +16,4 @@ dist-v2/
 # deploy: real prod env + DB dumps (templates/artifacts stay tracked)
 .env.prod
 sucafina-seed.sql
+sucafina-deploy.tar.gz

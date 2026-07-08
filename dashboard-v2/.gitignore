@@ -4,3 +4,10 @@ dist
 .env.local
 *.local
 .DS_Store
+
+# TS build cache + compiled config outputs
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+vitest.config.js
+vitest.config.d.ts
