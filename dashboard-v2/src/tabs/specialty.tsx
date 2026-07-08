@@ -26,20 +26,22 @@ export const specialtyConfig: TabConfig = {
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     { key: 'ref', header: 'Ref', sortKey: 'ref' },
     { key: 'outturn', header: 'Outturn', defaultHidden: true },
-    { key: 'name', header: 'Name' },
-    { key: 'grade', header: 'Grade' },
+    { key: 'name', header: 'Name', sortKey: 'name' },
+    { key: 'grade', header: 'Grade', sortKey: 'grade' },
     { key: 'bags', header: 'Bags', defaultHidden: true },
     { key: 'description', header: 'Description', sortKey: 'description', defaultHidden: true },
     { key: 'receiver_company', header: 'Receiver', sortKey: 'receiver_company' },
-    { key: 'awb', header: 'AWB' },
+    { key: 'awb', header: 'AWB', sortKey: 'awb' },
     // Display source is `courier_norm` — the only courier field the API ever writes
     // (the raw `courier` column is legacy-import-only and always empty for app data).
-    { key: 'courier', header: 'Courier', render: (r) => <CellValue value={r.courier_norm} humanize /> },
+    // Sort by that same normalized column.
+    { key: 'courier', header: 'Courier', sortKey: 'courier_norm', render: (r) => <CellValue value={r.courier_norm} humanize /> },
     { key: 'qty', header: 'Qty', sortKey: 'qty_grams', defaultHidden: true },
     { key: 'delivery_date', header: 'Delivery Date', sortKey: 'delivery_on' },
     {
       key: 'result',
       header: 'Result',
+      sortKey: 'result_norm',
       render: (r) => <StatusBadge kind="result" value={r.result_norm as string | null} />,
     },
     { key: 'comments', header: 'Comments', defaultHidden: true },

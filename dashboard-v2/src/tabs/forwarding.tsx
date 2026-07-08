@@ -17,13 +17,14 @@ export const forwardingConfig: TabConfig = {
     { key: 'sender', header: 'Sender', sortKey: 'sender' },
     { key: 'origin', header: 'Origin', sortKey: 'origin' },
     { key: 'sample_ref', header: 'Sample Ref', sortKey: 'sample_ref' },
-    { key: 'coffee_quality', header: 'Coffee Quality' },
+    { key: 'coffee_quality', header: 'Coffee Quality', sortKey: 'coffee_quality' },
     { key: 'receiver_company', header: 'Receiver', sortKey: 'receiver_company' },
     { key: 'id_number', header: 'ID Number', sortKey: 'id_number' },
-    { key: 'awb', header: 'AWB' },
+    { key: 'awb', header: 'AWB', sortKey: 'awb' },
     // Display source is `courier_norm` — the only courier field the API ever writes
     // (the raw `courier` column is legacy-import-only and always empty for app data).
-    { key: 'courier', header: 'Courier', render: (r) => <CellValue value={r.courier_norm} humanize /> },
+    // Sort by that same normalized column.
+    { key: 'courier', header: 'Courier', sortKey: 'courier_norm', render: (r) => <CellValue value={r.courier_norm} humanize /> },
     { key: 'qty', header: 'Qty', sortKey: 'qty_grams' },
     {
       key: 'status',

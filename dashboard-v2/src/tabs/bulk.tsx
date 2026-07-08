@@ -32,14 +32,16 @@ export const bulkConfig: TabConfig = {
     {
       key: 'sample_type',
       header: 'Sample Type',
+      sortKey: 'sample_type_norm',
       render: (r) => <StatusBadge kind="sample_type" value={r.sample_type_norm as string | null} />,
     },
     { key: 'client', header: 'Client', sortKey: 'client' },
     { key: 'country', header: 'Country', sortKey: 'country' },
-    { key: 'awb', header: 'AWB' },
+    { key: 'awb', header: 'AWB', sortKey: 'awb' },
     // Display source is `courier_norm` — the only courier field the API ever writes
     // (the raw `courier` column is legacy-import-only and always empty for app data).
-    { key: 'courier', header: 'Courier', render: (r) => <CellValue value={r.courier_norm} humanize /> },
+    // Sort by that same normalized column.
+    { key: 'courier', header: 'Courier', sortKey: 'courier_norm', render: (r) => <CellValue value={r.courier_norm} humanize /> },
     { key: 'qty', header: 'Qty', sortKey: 'qty_grams', defaultHidden: true },
     { key: 'moisture', header: 'Moisture', sortKey: 'moisture_pct', defaultHidden: true },
     { key: 'water_activity', header: 'Water Activity', sortKey: 'water_activity_num', defaultHidden: true },
@@ -47,6 +49,7 @@ export const bulkConfig: TabConfig = {
     {
       key: 'result',
       header: 'Result',
+      sortKey: 'result_norm',
       render: (r) => <StatusBadge kind="result" value={r.result_norm as string | null} />,
     },
     { key: 'comments', header: 'Comments', defaultHidden: true },
