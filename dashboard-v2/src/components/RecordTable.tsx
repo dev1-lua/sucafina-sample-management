@@ -68,17 +68,6 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
   const [page, setPage] = React.useState(1);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
-  // One-shot row flash when landing from an agent deep-link. The internal timer
-  // makes the pulse independent of the URL/virtualizer — the class is applied for
-  // one animation cycle then cleared, even if the row remounts.
-  const [flashId, setFlashId] = React.useState<string>();
-  React.useEffect(() => {
-    if (!highlightId) return;
-    setFlashId(highlightId);
-    const t = setTimeout(() => setFlashId(undefined), 1300);
-    return () => clearTimeout(t);
-  }, [highlightId]);
-
   // Reset to page 1 whenever the caller's filters change (stable serialization
   // so equivalent filter objects with a new reference don't churn pagination).
   const filtersKey = React.useMemo(() => JSON.stringify(filters), [filters]);
@@ -90,6 +79,20 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
   const rows = query.data?.data ?? [];
   const total = query.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // One-shot row flash when landing from an agent deep-link. Armed only once the
+  // target row is actually in the loaded page — otherwise a cold deep-link load
+  // (list still fetching) would burn the whole animation window before the row ever
+  // renders. The scroll-into-view effect below runs off the same signal, so the row
+  // is on-screen while it pulses.
+  const [flashId, setFlashId] = React.useState<string>();
+  const highlightPresent = !!highlightId && rows.some((r) => (r as RowData).id === highlightId);
+  React.useEffect(() => {
+    if (!highlightId || !highlightPresent) return;
+    setFlashId(highlightId);
+    const t = setTimeout(() => setFlashId(undefined), 2200);
+    return () => clearTimeout(t);
+  }, [highlightId, highlightPresent]);
 
   const colByKey = React.useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
 
@@ -154,11 +157,15 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
   const paddingTop = virtualItems.length > 0 ? virtualItems[0]!.start : 0;
   const paddingBottom = virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1]!.end : 0;
 
+  // Three-state cycle per column: unsorted → ascending → descending → unsorted.
+  // The third click clears the sort back to the API default (date_on desc), so a
+  // column sort is dismissable without reloading the page.
   function handleSort(col: ColumnDef) {
     if (!col.sortKey) return;
     setSort((prev) => {
       if (!prev || prev.sort !== col.sortKey) return { sort: col.sortKey!, order: 'asc' };
-      return { sort: col.sortKey!, order: prev.order === 'asc' ? 'desc' : 'asc' };
+      if (prev.order === 'asc') return { sort: col.sortKey!, order: 'desc' };
+      return null; // was descending → clear
     });
   }
 

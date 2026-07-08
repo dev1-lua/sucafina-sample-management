@@ -1,6 +1,7 @@
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
 import type { TabConfig } from './registry';
+import { followupColumns, followupDetailFields } from './followup-fields';
 
 // Enums verbatim from the API's forwarding-samples router / global constraints.
 // Forwarding's lifecycle omits `results_in` (no result_norm on this table).
@@ -26,6 +27,7 @@ export const forwardingConfig: TabConfig = {
     // Sort by that same normalized column.
     { key: 'courier', header: 'Courier', sortKey: 'courier_norm', render: (r) => <CellValue value={r.courier_norm} humanize /> },
     { key: 'qty', header: 'Qty', sortKey: 'qty_grams' },
+    ...followupColumns,
     {
       key: 'status',
       header: 'Status',
@@ -45,9 +47,10 @@ export const forwardingConfig: TabConfig = {
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
     { key: 'awb', label: 'AWB', edit: { field: 'awb', type: 'text' } },
-    { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS } },
+    { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'id_number', label: 'ID Number', edit: { field: 'id_number', type: 'text' } },
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
+    ...followupDetailFields,
   ],
   // Exact field names from forwarding-samples' POST createSchema
   // (api/src/routes/forwarding-samples.ts). Unlike specialty's `ref`, forwarding's
@@ -64,7 +67,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'receiver_company', label: 'Receiver', type: 'text', required: true },
     { key: 'id_number', label: 'ID Number', type: 'text' },
     { key: 'awb', label: 'AWB', type: 'text' },
-    { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS },
+    { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS, allowCustom: true },
     { key: 'qty', label: 'Qty', type: 'text' },
   ],
 };

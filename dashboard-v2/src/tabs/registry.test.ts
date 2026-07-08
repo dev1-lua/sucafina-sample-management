@@ -2,10 +2,11 @@ import { TAB_REGISTRY } from './registry';
 
 // Mirror of each route's server-side SORTABLE whitelist (api/src/routes/*.ts). Keep
 // in sync — this test's whole job is to catch a FE sortKey that the API would reject.
+const FOLLOWUP = ['feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample'];
 const WL = {
-  specialty: ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm'],
-  bulk: ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm'],
-  forwarding: ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm'],
+  specialty: ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country',...FOLLOWUP],
+  bulk: ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm',...FOLLOWUP],
+  forwarding: ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm',...FOLLOWUP],
   clients: ['name','country','latest_order_date'],
 } as Record<string, string[]>;
 

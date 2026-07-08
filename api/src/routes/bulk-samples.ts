@@ -14,19 +14,21 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample'] as const;
 
+// `sample_type`/`courier_norm` are free text (migration 004) so operators can enter
+// values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
 const createSchema = z.object({
   quality: z.string().min(1),
   client: z.string().min(1),
-  sample_type: z.enum(SAMPLE_TYPES).default('other'),
+  sample_type: z.string().default('other'),
   sample_ref: z.string().nullish(),
   bags: z.number().int().nullish(),
   client_ref: z.string().nullish(),
   ico_mark: z.string().nullish(),
   country: z.string().nullish(),
   awb: z.string().nullish(),
-  courier_norm: z.enum(COURIERS).nullish(),
+  courier_norm: z.string().nullish(),
   qty: z.string().nullish(),
   qty_grams: z.number().int().nullish(),
   moisture: z.string().nullish(),
@@ -40,7 +42,7 @@ const createSchema = z.object({
 
 const patchSchema = z.object({
   status: z.enum(STATUSES).nullish(),
-  courier_norm: z.enum(COURIERS).nullish(),
+  courier_norm: z.string().nullish(),
   awb: z.string().nullish(),
   result_norm: z.enum(RESULTS).nullish(),
   quality: z.string().nullish(),
@@ -48,6 +50,12 @@ const patchSchema = z.object({
   qty_grams: z.number().int().nullish(),
   client_id: z.string().uuid().nullish(),
   comments: z.string().nullish(),
+  // Free-form chaser follow-up fields (migration 004): "Yes"/"No", a date, or free text.
+  feedback_requested: z.string().nullish(),
+  feedback_received: z.string().nullish(),
+  order_placed: z.string().nullish(),
+  new_sample_requested: z.string().nullish(),
+  new_sample: z.string().nullish(),
 });
 
 bulkSamples.get('/', h(async (req, res) => {
@@ -57,8 +65,8 @@ bulkSamples.get('/', h(async (req, res) => {
     for (const v of values) assertIn(v, STATUSES, 'status');
     f.add(`status = ANY (?::sample_status_t[])`, values);
   }
-  if (req.query.sample_type_norm) f.add(`sample_type_norm = ?::sample_type_t`, assertIn(String(req.query.sample_type_norm), SAMPLE_TYPES, 'sample_type_norm'));
-  if (req.query.courier_norm) f.add(`courier_norm = ?::courier_t`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
+  if (req.query.sample_type_norm) f.add(`sample_type_norm = ?`, assertIn(String(req.query.sample_type_norm), SAMPLE_TYPES, 'sample_type_norm'));
+  if (req.query.courier_norm) f.add(`courier_norm = ?`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
   if (req.query.result_norm) f.add(`result_norm = ?::result_t`, assertIn(String(req.query.result_norm), RESULTS, 'result_norm'));
   if (req.query.country) f.add(`country = ?`, String(req.query.country));
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
@@ -91,7 +99,7 @@ bulkSamples.post('/', h(async (req, res) => {
        (sample_ref, quality, client, sample_type_norm, bags, client_ref, ico_mark, country, awb,
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
         comments, crop_year, client_id, status)
-     VALUES ($1,$2,$3,$4::sample_type_t,$5,$6,$7,$8,$9,$10::courier_t,$11,$12,$13,$14,$15,$16,$17,$18,$19,'requested')
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'requested')
      RETURNING *`,
     [body.sample_ref ?? null, body.quality, body.client, body.sample_type, body.bags ?? null,
      body.client_ref ?? null, body.ico_mark ?? null, body.country ?? null, body.awb ?? null,
@@ -127,7 +135,7 @@ bulkSamples.patch('/:id', h(async (req, res) => {
   const row = await runWithEvent(
     `UPDATE bulk_samples SET
        status = COALESCE($2::sample_status_t, status),
-       courier_norm = COALESCE($3::courier_t, courier_norm),
+       courier_norm = COALESCE($3, courier_norm),
        awb = COALESCE($4, awb),
        result_norm = COALESCE($5::result_t, result_norm),
        quality = COALESCE($6, quality),
@@ -135,11 +143,18 @@ bulkSamples.patch('/:id', h(async (req, res) => {
        qty_grams = COALESCE($8, qty_grams),
        client_id = COALESCE($9::uuid, client_id),
        comments = COALESCE($10, comments),
+       feedback_requested = COALESCE($11, feedback_requested),
+       feedback_received = COALESCE($12, feedback_received),
+       order_placed = COALESCE($13, order_placed),
+       new_sample_requested = COALESCE($14, new_sample_requested),
+       new_sample = COALESCE($15, new_sample),
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
-     body.quality ?? null, body.country ?? null, body.qty_grams ?? null, body.client_id ?? null, body.comments ?? null],
+     body.quality ?? null, body.country ?? null, body.qty_grams ?? null, body.client_id ?? null, body.comments ?? null,
+     body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
+     body.new_sample_requested ?? null, body.new_sample ?? null],
     { entityType: 'bulk', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');

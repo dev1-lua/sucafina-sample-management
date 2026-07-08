@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EditableSelect } from '@/components/EditableSelect';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -66,6 +67,12 @@ function InlineEditField({
   }
 
   if (editDef.type === 'select') {
+    if (editDef.allowCustom) {
+      // Editable select: pick a preset or choose "Other…" to type a custom value.
+      // EditableSelect manages its own select/input state and re-syncs from `value`
+      // (the committed server value) after each PATCH.
+      return <EditableSelect value={initialStr} options={editDef.options ?? []} onCommit={commit} />;
+    }
     return (
       <Select
         value={value}

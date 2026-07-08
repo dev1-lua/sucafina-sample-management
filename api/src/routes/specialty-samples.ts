@@ -15,29 +15,32 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample'] as const;
 
+// `sample_type_norm`/`courier_norm` are free text (migration 004) so operators can
+// enter values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
 const createSchema = z.object({
   description: z.string().min(1),
   receiver_company: z.string().min(1),
-  sample_type_norm: z.enum(SAMPLE_TYPES).default('other'),
+  sample_type_norm: z.string().default('other'),
   ref: z.string().nullish(),
   outturn: z.string().nullish(),
   name: z.string().nullish(),
   grade: z.string().nullish(),
   bags: z.number().int().nullish(),
   awb: z.string().nullish(),
-  courier_norm: z.enum(COURIERS).nullish(),
+  courier_norm: z.string().nullish(),
   qty: z.string().nullish(),
   qty_grams: z.number().int().nullish(),
   comments: z.string().nullish(),
   crop_year: z.string().nullish(),
+  country: z.string().nullish(),
   client_id: z.string().uuid().nullish(),
 });
 
 const patchSchema = z.object({
   status: z.enum(STATUSES).nullish(),
-  courier_norm: z.enum(COURIERS).nullish(),
+  courier_norm: z.string().nullish(),
   awb: z.string().nullish(),
   result_norm: z.enum(RESULTS).nullish(),
   description: z.string().nullish(),
@@ -46,6 +49,13 @@ const patchSchema = z.object({
   client_id: z.string().uuid().nullish(),
   receiver_company: z.string().nullish(),
   comments: z.string().nullish(),
+  country: z.string().nullish(),
+  // Free-form chaser follow-up fields (migration 004): "Yes"/"No", a date, or free text.
+  feedback_requested: z.string().nullish(),
+  feedback_received: z.string().nullish(),
+  order_placed: z.string().nullish(),
+  new_sample_requested: z.string().nullish(),
+  new_sample: z.string().nullish(),
 });
 
 specialtySamples.get('/', h(async (req, res) => {
@@ -55,9 +65,10 @@ specialtySamples.get('/', h(async (req, res) => {
     for (const v of values) assertIn(v, STATUSES, 'status');
     f.add(`status = ANY (?::sample_status_t[])`, values);
   }
-  if (req.query.sample_type_norm) f.add(`sample_type_norm = ?::sample_type_t`, assertIn(String(req.query.sample_type_norm), SAMPLE_TYPES, 'sample_type_norm'));
-  if (req.query.courier_norm) f.add(`courier_norm = ?::courier_t`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
+  if (req.query.sample_type_norm) f.add(`sample_type_norm = ?`, assertIn(String(req.query.sample_type_norm), SAMPLE_TYPES, 'sample_type_norm'));
+  if (req.query.courier_norm) f.add(`courier_norm = ?`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
   if (req.query.result_norm) f.add(`result_norm = ?::result_t`, assertIn(String(req.query.result_norm), RESULTS, 'result_norm'));
+  if (req.query.country) f.add(`country = ?`, String(req.query.country));
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
   if (req.query.date_from) f.add(`date_on >= ?::date`, String(req.query.date_from));
   if (req.query.date_to) f.add(`date_on <= ?::date`, String(req.query.date_to));
@@ -83,12 +94,13 @@ specialtySamples.post('/', h(async (req, res) => {
   const row = await runWithEvent(
     `INSERT INTO specialty_samples
        (ref, description, receiver_company, sample_type_norm, outturn, name, grade, bags,
-        awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, status)
-     VALUES ($1,$2,$3,$4::sample_type_t,$5,$6,$7,$8,$9,$10::courier_t,$11,$12,$13,$14,$15,'requested')
+        awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'requested')
      RETURNING *`,
     [ref, body.description, body.receiver_company, body.sample_type_norm, body.outturn ?? null,
      body.name ?? null, body.grade ?? null, body.bags ?? null, body.awb ?? null, body.courier_norm ?? null,
-     body.qty ?? null, body.qty_grams ?? null, body.comments ?? null, body.crop_year ?? null, body.client_id ?? null],
+     body.qty ?? null, body.qty_grams ?? null, body.comments ?? null, body.crop_year ?? null, body.client_id ?? null,
+     body.country ?? null],
     { entityType: 'specialty', type: 'created', note: `${body.description} for ${body.receiver_company}`, actor },
   );
   res.status(201).json(row);
@@ -118,7 +130,7 @@ specialtySamples.patch('/:id', h(async (req, res) => {
   const row = await runWithEvent(
     `UPDATE specialty_samples SET
        status = COALESCE($2::sample_status_t, status),
-       courier_norm = COALESCE($3::courier_t, courier_norm),
+       courier_norm = COALESCE($3, courier_norm),
        awb = COALESCE($4, awb),
        result_norm = COALESCE($5::result_t, result_norm),
        description = COALESCE($6, description),
@@ -127,12 +139,20 @@ specialtySamples.patch('/:id', h(async (req, res) => {
        client_id = COALESCE($9::uuid, client_id),
        receiver_company = COALESCE($10, receiver_company),
        comments = COALESCE($11, comments),
+       country = COALESCE($12, country),
+       feedback_requested = COALESCE($13, feedback_requested),
+       feedback_received = COALESCE($14, feedback_received),
+       order_placed = COALESCE($15, order_placed),
+       new_sample_requested = COALESCE($16, new_sample_requested),
+       new_sample = COALESCE($17, new_sample),
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
      body.description ?? null, body.grade ?? null, body.qty_grams ?? null, body.client_id ?? null,
-     body.receiver_company ?? null, body.comments ?? null],
+     body.receiver_company ?? null, body.comments ?? null, body.country ?? null,
+     body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
+     body.new_sample_requested ?? null, body.new_sample ?? null],
     { entityType: 'specialty', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');

@@ -1,6 +1,7 @@
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
 import type { TabConfig } from './registry';
+import { followupColumns, followupDetailFields } from './followup-fields';
 
 // Enums verbatim from the API's specialty-samples router / global constraints.
 const STATUSES = ['requested', 'preparing', 'dispatched', 'delivered', 'results_in', 'cancelled'];
@@ -27,6 +28,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'ref', header: 'Ref', sortKey: 'ref' },
     { key: 'outturn', header: 'Outturn', defaultHidden: true },
     { key: 'name', header: 'Name', sortKey: 'name' },
+    { key: 'country', header: 'Country', sortKey: 'country' },
     { key: 'grade', header: 'Grade', sortKey: 'grade' },
     { key: 'bags', header: 'Bags', defaultHidden: true },
     { key: 'description', header: 'Description', sortKey: 'description', defaultHidden: true },
@@ -47,6 +49,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'comments', header: 'Comments', defaultHidden: true },
     { key: 'crop_year', header: 'Crop Year', defaultHidden: true },
     { key: 'crop_area_details', header: 'Crop Area Details', defaultHidden: true },
+    ...followupColumns,
     {
       key: 'status',
       header: 'Status',
@@ -59,18 +62,21 @@ export const specialtyConfig: TabConfig = {
     { key: 'sample_type_norm', label: 'Sample Type', type: 'enum', options: SAMPLE_TYPES },
     { key: 'courier_norm', label: 'Courier', type: 'enum', options: COURIERS },
     { key: 'result_norm', label: 'Result', type: 'enum', options: RESULTS },
+    { key: 'country', label: 'Country', type: 'text' },
     { key: 'date_range', label: 'Date', type: 'date' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
   ],
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
     { key: 'awb', label: 'AWB', edit: { field: 'awb', type: 'text' } },
-    { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS } },
+    { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'result', label: 'Result', edit: { field: 'result_norm', type: 'select', options: RESULTS } },
     { key: 'description', label: 'Description', edit: { field: 'description', type: 'text' } },
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
+    { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
     { key: 'grade', label: 'Grade', edit: { field: 'grade', type: 'text' } },
     { key: 'comments', label: 'Comments', edit: { field: 'comments', type: 'text' } },
+    ...followupDetailFields,
   ],
   // Exact field names from specialty-samples' POST createSchema (api/src/routes/specialty-samples.ts).
   // Omits: `ref` (server issues it via issueRef when absent), `qty_grams` (typed sort-only
@@ -78,13 +84,14 @@ export const specialtyConfig: TabConfig = {
   createFields: [
     { key: 'description', label: 'Description', type: 'text', required: true },
     { key: 'receiver_company', label: 'Receiver', type: 'text', required: true },
-    { key: 'sample_type_norm', label: 'Sample Type', type: 'select', options: SAMPLE_TYPES, defaultValue: 'other' },
+    { key: 'sample_type_norm', label: 'Sample Type', type: 'select', options: SAMPLE_TYPES, defaultValue: 'other', allowCustom: true },
     { key: 'name', label: 'Name', type: 'text' },
+    { key: 'country', label: 'Country', type: 'text' },
     { key: 'grade', label: 'Grade', type: 'text' },
     { key: 'outturn', label: 'Outturn', type: 'text' },
     { key: 'bags', label: 'Bags', type: 'number' },
     { key: 'awb', label: 'AWB', type: 'text' },
-    { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS },
+    { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS, allowCustom: true },
     { key: 'qty', label: 'Qty', type: 'text' },
     { key: 'crop_year', label: 'Crop Year', type: 'text' },
     { key: 'comments', label: 'Comments', type: 'text' },

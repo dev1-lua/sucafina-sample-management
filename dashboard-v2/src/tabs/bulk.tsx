@@ -1,6 +1,7 @@
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
 import type { TabConfig } from './registry';
+import { followupColumns, followupDetailFields } from './followup-fields';
 
 // Enums verbatim from the API's bulk-samples router / global constraints.
 const STATUSES = ['requested', 'preparing', 'dispatched', 'delivered', 'results_in', 'cancelled'];
@@ -55,6 +56,7 @@ export const bulkConfig: TabConfig = {
     { key: 'comments', header: 'Comments', defaultHidden: true },
     { key: 'crop_year', header: 'Crop Year', defaultHidden: true },
     { key: 'crop_area_details', header: 'Crop Area Details', defaultHidden: true },
+    ...followupColumns,
     {
       key: 'status',
       header: 'Status',
@@ -76,11 +78,12 @@ export const bulkConfig: TabConfig = {
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
     { key: 'awb', label: 'AWB', edit: { field: 'awb', type: 'text' } },
-    { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS } },
+    { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'result', label: 'Result', edit: { field: 'result_norm', type: 'select', options: RESULTS } },
     { key: 'quality', label: 'Quality', edit: { field: 'quality', type: 'text' } },
     { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
     { key: 'comments', label: 'Comments', edit: { field: 'comments', type: 'text' } },
+    ...followupDetailFields,
   ],
   // Exact field names from bulk-samples' POST createSchema (api/src/routes/bulk-samples.ts).
   // Note the enum field is `sample_type` here (not `sample_type_norm` as in specialty/filters).
@@ -92,13 +95,13 @@ export const bulkConfig: TabConfig = {
   createFields: [
     { key: 'quality', label: 'Quality', type: 'text', required: true },
     { key: 'client', label: 'Client', type: 'text', required: true },
-    { key: 'sample_type', label: 'Sample Type', type: 'select', options: SAMPLE_TYPES, defaultValue: 'other' },
+    { key: 'sample_type', label: 'Sample Type', type: 'select', options: SAMPLE_TYPES, defaultValue: 'other', allowCustom: true },
     { key: 'country', label: 'Country', type: 'text' },
     { key: 'bags', label: 'Bags', type: 'number' },
     { key: 'client_ref', label: 'Client Ref', type: 'text' },
     { key: 'ico_mark', label: 'ICO Mark', type: 'text' },
     { key: 'awb', label: 'AWB', type: 'text' },
-    { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS },
+    { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS, allowCustom: true },
     { key: 'qty', label: 'Qty', type: 'text' },
     { key: 'moisture', label: 'Moisture', type: 'text' },
     { key: 'water_activity', label: 'Water Activity', type: 'text' },

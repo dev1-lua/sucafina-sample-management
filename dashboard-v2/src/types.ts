@@ -73,7 +73,10 @@ export type DetailField = {
   key: string; // detail-row field to display
   label: string; // field label
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom read-only rendering (e.g. StatusBadge)
-  edit?: { field: string; type: 'text' | 'select'; options?: string[] }; // inline edit → PATCH {field: value}
+  // inline edit → PATCH {field: value}. `allowCustom` turns a select into an
+  // editable one (EditableSelect): picking "Other…" lets the user type a value
+  // outside `options` (requires the backing column to be free text).
+  edit?: { field: string; type: 'text' | 'select'; options?: string[]; allowCustom?: boolean };
 };
 
 // Drives CreateRecordDialog's form. `key` must be the EXACT field name accepted by the
@@ -86,6 +89,7 @@ export type CreateFieldDef = {
   label: string;
   type: 'text' | 'select' | 'number' | 'date';
   options?: string[]; // for type: 'select'
+  allowCustom?: boolean; // select only: picking "Other…" lets the user type a custom value
   required?: boolean;
   defaultValue?: string | number;
   placeholder?: string;

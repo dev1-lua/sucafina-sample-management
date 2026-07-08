@@ -11,8 +11,10 @@ export const forwardingSamples = Router();
 
 const STATUSES = ['requested','preparing','dispatched','delivered','cancelled'] as const; // no results_in
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
-const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm'] as const;
+const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample'] as const;
 
+// `courier_norm` is free text (migration 004) so operators can enter values outside
+// COURIERS; that array is a UI suggestion list only.
 const createSchema = z.object({
   sender: z.string().min(1),
   origin: z.string().min(1),
@@ -21,7 +23,7 @@ const createSchema = z.object({
   receiver_company: z.string().min(1),
   id_number: z.string().nullish(),  // nullable + not unique (verbatim fidelity)
   awb: z.string().nullish(),
-  courier_norm: z.enum(COURIERS).nullish(),
+  courier_norm: z.string().nullish(),
   qty: z.string().nullish(),
   qty_grams: z.number().int().nullish(),
   client_id: z.string().uuid().nullish(),
@@ -29,12 +31,18 @@ const createSchema = z.object({
 
 const patchSchema = z.object({
   status: z.enum(STATUSES).nullish(),
-  courier_norm: z.enum(COURIERS).nullish(),
+  courier_norm: z.string().nullish(),
   awb: z.string().nullish(),
   id_number: z.string().nullish(),
   receiver_company: z.string().nullish(),
   qty_grams: z.number().int().nullish(),
   client_id: z.string().uuid().nullish(),
+  // Free-form chaser follow-up fields (migration 004): "Yes"/"No", a date, or free text.
+  feedback_requested: z.string().nullish(),
+  feedback_received: z.string().nullish(),
+  order_placed: z.string().nullish(),
+  new_sample_requested: z.string().nullish(),
+  new_sample: z.string().nullish(),
 });
 
 forwardingSamples.get('/', h(async (req, res) => {
@@ -44,7 +52,7 @@ forwardingSamples.get('/', h(async (req, res) => {
     for (const v of values) assertIn(v, STATUSES, 'status');
     f.add(`status = ANY (?::sample_status_t[])`, values);
   }
-  if (req.query.courier_norm) f.add(`courier_norm = ?::courier_t`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
+  if (req.query.courier_norm) f.add(`courier_norm = ?`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
   if (req.query.origin) f.add(`origin = ?`, String(req.query.origin));
   if (req.query.sender) f.add(`sender = ?`, String(req.query.sender));
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
@@ -75,7 +83,7 @@ forwardingSamples.post('/', h(async (req, res) => {
     `INSERT INTO forwarding_samples
        (sender, origin, sample_ref, coffee_quality, receiver_company, id_number, awb, courier_norm,
         qty, qty_grams, client_id, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::courier_t,$9,$10,$11,$12::sample_status_t)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::sample_status_t)
      RETURNING *`,
     [body.sender, body.origin, body.sample_ref, body.coffee_quality, body.receiver_company,
      body.id_number ?? null, body.awb ?? null, body.courier_norm ?? null, body.qty ?? null,
@@ -109,16 +117,23 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
   const row = await runWithEvent(
     `UPDATE forwarding_samples SET
        status = COALESCE($2::sample_status_t, status),
-       courier_norm = COALESCE($3::courier_t, courier_norm),
+       courier_norm = COALESCE($3, courier_norm),
        awb = COALESCE($4, awb),
        id_number = COALESCE($5, id_number),
        receiver_company = COALESCE($6, receiver_company),
        qty_grams = COALESCE($7, qty_grams),
        client_id = COALESCE($8::uuid, client_id),
+       feedback_requested = COALESCE($9, feedback_requested),
+       feedback_received = COALESCE($10, feedback_received),
+       order_placed = COALESCE($11, order_placed),
+       new_sample_requested = COALESCE($12, new_sample_requested),
+       new_sample = COALESCE($13, new_sample),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.id_number ?? null,
-     body.receiver_company ?? null, body.qty_grams ?? null, body.client_id ?? null],
+     body.receiver_company ?? null, body.qty_grams ?? null, body.client_id ?? null,
+     body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
+     body.new_sample_requested ?? null, body.new_sample ?? null],
     { entityType: 'forwarding', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'forwarding sample not found');

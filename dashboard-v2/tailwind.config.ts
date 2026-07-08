@@ -28,15 +28,20 @@ export default {
       keyframes: {
         'slide-in-right': { from: { transform: 'translateX(100%)' }, to: { transform: 'translateX(0)' } },
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
-        // Agent deep-link landing: pulse the target row's background from the
-        // faint-blue selection tint back to transparent so it settles into its
-        // normal/hover state.
-        'row-flash': { '0%': { backgroundColor: 'hsl(var(--accent))' }, '100%': { backgroundColor: 'transparent' } },
+        // Agent deep-link landing: pulse the target row so it's unmistakable which
+        // record was just created/updated. Two quick primary-tinted pulses that then
+        // hold briefly and settle back to transparent — far more noticeable than a
+        // single instant fade, while still calming down on its own.
+        'row-flash': {
+          '0%, 100%': { backgroundColor: 'transparent' },
+          '10%, 40%, 70%': { backgroundColor: 'hsl(var(--primary) / 0.22)' },
+          '25%, 55%, 85%': { backgroundColor: 'hsl(var(--accent))' },
+        },
       },
       animation: {
         'slide-in-right': 'slide-in-right 180ms ease-out',
         'fade-in': 'fade-in 150ms ease-out',
-        'row-flash': 'row-flash 1.2s ease-out',
+        'row-flash': 'row-flash 2.2s ease-in-out',
       },
     },
   },

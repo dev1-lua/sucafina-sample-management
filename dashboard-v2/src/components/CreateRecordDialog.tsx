@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EditableSelect } from '@/components/EditableSelect';
 
 export type CreateRecordDialogProps = {
   endpoint: string;
@@ -78,7 +79,16 @@ export function CreateRecordDialog({ endpoint, entityLabel, fields, open, onOpen
                   {f.label}
                   {f.required && <span className="text-destructive"> *</span>}
                 </label>
-                {f.type === 'select' ? (
+                {f.type === 'select' && f.allowCustom ? (
+                  <EditableSelect
+                    id={inputId}
+                    value={values[f.key] ?? ''}
+                    options={f.options ?? []}
+                    humanize
+                    placeholder={f.placeholder ?? 'Select…'}
+                    onCommit={(v) => setField(f.key, v)}
+                  />
+                ) : f.type === 'select' ? (
                   <Select value={values[f.key] || undefined} onValueChange={(v) => setField(f.key, v)}>
                     <SelectTrigger id={inputId} className="h-8 text-sm">
                       <SelectValue placeholder={f.placeholder ?? 'Select…'} />
