@@ -39,6 +39,11 @@ const CONFIG = {
  */
 function buildSrcDoc(): string {
   const cfgJson = JSON.stringify(CONFIG);
+  // The parent origin, baked in at build time (we run in the parent here). The srcdoc
+  // frame is same-origin, but its own `location` is `about:srcdoc`, so we can't derive
+  // the app origin from inside — hence baking it. Used to resolve relative hrefs and to
+  // target postMessage back at the app.
+  const originJson = JSON.stringify(window.location.origin);
   return `<!doctype html>
 <html>
 <head>
@@ -53,6 +58,31 @@ function buildSrcDoc(): string {
 <body>
 <div id="lua-chat-embedded-root"></div>
 <script>
+  // In-app jump bridge: when the user clicks a dashboard record link the agent rendered
+  // (e.g. /samples/123?hl=created), don't let it navigate this tiny frame or open a new
+  // tab — hand the path to the parent SPA router via postMessage so it does a client-side
+  // navigate (which flashes + scrolls the row + shows the "Just created" banner).
+  // Capture phase so we win over any handler LuaPop attaches to the link. Match by path
+  // (not origin) so it works in dev too, where the agent returns the prod absolute URL.
+  (function () {
+    var ORIGIN = ${originJson};
+    var RECORD_RE = /^\\/(samples|bulk|forwarding|clients)\\/[^\\/]+/;
+    document.addEventListener('click', function (e) {
+      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a) return;
+      var url;
+      try { url = new URL(a.getAttribute('href') || '', ORIGIN); } catch (_) { return; }
+      if (!RECORD_RE.test(url.pathname) || !url.searchParams.has('hl')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        window.parent.postMessage(
+          { source: 'lua-chat', type: 'open-record', path: url.pathname + url.search },
+          ORIGIN,
+        );
+      } catch (_) {}
+    }, true);
+  })();
   window.__LUA_BOOT = function () {
     try { window.LuaPop && window.LuaPop.init(${cfgJson}); }
     catch (e) { console.error('LuaPop init failed', e); }

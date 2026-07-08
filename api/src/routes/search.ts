@@ -28,15 +28,20 @@ search.get('/', h(async (req, res) => {
   }
   if (req.query.awb) f.add(`awb = ?`, String(req.query.awb));
 
+  // Paginated like the per-table list endpoints (see lib/list.ts): `page` is 1-based,
+  // `pageSize` clamped ≤100. `total` is the true match count (window fn), so a caller can
+  // page until it has all `total` rows — search used to expose only the first page.
+  const page = clampInt(req.query.page, 1, 1, Number.MAX_SAFE_INTEGER);
   const pageSize = clampInt(req.query.pageSize, 50, 1, 100);
   const whereSql = f.where.length ? `WHERE ${f.where.join(' AND ')}` : '';
   const { rows } = await pool.query(
     `SELECT tab, id, ref, title, receiver, status, courier_norm, awb, date_on, delivery_on, result_norm,
        count(*) OVER ()::int AS full_count
      FROM all_samples_v ${whereSql}
-     ORDER BY date_on DESC NULLS LAST, id ASC LIMIT ${pageSize}`,
+     ORDER BY date_on DESC NULLS LAST, id ASC
+     LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
     f.params,
   );
   const total = rows[0]?.full_count ?? 0;
-  res.json({ data: rows.map(({ full_count, ...r }) => r), total });
+  res.json({ data: rows.map(({ full_count, ...r }) => r), total, page, pageSize });
 }));

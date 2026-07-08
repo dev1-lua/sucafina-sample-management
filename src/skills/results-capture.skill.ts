@@ -12,7 +12,8 @@ export const resultsCaptureSkill = new LuaSkill({
 - Forwarding has no results/cupping step — if a Forwarding parcel is named, say so plainly instead
   of trying to log a result for it.
 - Scores/tasting notes go in comments verbatim; result is approved/rejected/pending_feedback.
-- "what's awaiting feedback?" -> list_awaiting_results (Specialty + Bulk only; Forwarding never
-  reaches a result stage so it's excluded automatically).`,
+- "what's awaiting feedback?" -> list_awaiting_results. Its \`total\` is the TRUE count of everything
+  awaiting a result; \`samples\` is just the first page. Answer "how many" with \`total\`, and when
+  \`has_more\` is true, offer oldest-first or a client filter rather than implying the examples are all.`,
   tools: [new RecordResultTool(), new ListAwaitingResultsTool(), new SearchSamplesTool()],
 });

@@ -3,6 +3,7 @@ import { Route, Routes, useNavigate, useParams } from 'react-router-dom';
 
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
+import { useLuaChatBridge } from '@/lib/useLuaChatBridge';
 import DashboardPage from '@/pages/DashboardPage';
 import SampleManagementLayout from '@/pages/SampleManagementLayout';
 import SampleListView from '@/pages/SampleListView';
@@ -41,6 +42,9 @@ function TabDrawerRoute({ tab }: { tab: TabKey }) {
 }
 
 export default function App() {
+  // Turn agent-rendered record links clicked inside the chat into in-app navigations.
+  useLuaChatBridge();
+
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar />
