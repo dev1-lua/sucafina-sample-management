@@ -123,9 +123,9 @@ function FilterPopover({
       {open && pos && (
         <div
           ref={panelRef}
-          // Cap the panel to the space left below the trigger and scroll the overflow, so a long
-          // list (e.g. Country) never runs off the bottom of the viewport or covers the page.
-          style={{ position: 'fixed', top: pos.top, left: pos.left, maxHeight: `calc(100vh - ${pos.top + 12}px)`, overflowY: 'auto' }}
+          // Keep the panel compact (~9 rows) and scroll the overflow; never let it run past the
+          // bottom of the viewport either. Long lists (Country, Quality) scroll / use the search box.
+          style={{ position: 'fixed', top: pos.top, left: pos.left, maxHeight: `min(20rem, calc(100vh - ${pos.top + 12}px))`, overflowY: 'auto' }}
           className={cn(
             'z-50 rounded-lg border border-border bg-popover text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95',
             panelClassName,
