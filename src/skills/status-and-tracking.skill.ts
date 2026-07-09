@@ -1,6 +1,8 @@
 import { LuaSkill } from 'lua-cli';
 import SearchSamplesTool from './tools/SearchSamplesTool';
+import GetSamplesByBookTool from './tools/GetSamplesByBookTool';
 import GetSampleStatusTool from './tools/GetSampleStatusTool';
+import GetSampleStatsTool from './tools/GetSampleStatsTool';
 import TrackAwbTool from './tools/TrackAwbTool';
 
 export const statusTrackingSkill = new LuaSkill({
@@ -8,15 +10,25 @@ export const statusTrackingSkill = new LuaSkill({
   description: 'Answer "did we send X / where is it / what is pending" questions across specialty, bulk, and forwarding',
   context: `Use for any status question from traders: "did the Folgers samples go out?", "AWB for the
 Beyers types?", "what's pending for Zoegas?", "any forwarding parcels for Itochu?".
-- search_samples by client/quality/ref/AWB text first — it reads across all three tables in one
-  call and returns each hit's tab.
-- get_sample_status when they name a specific ref/AWB/receiver and want full detail + timeline.
-- If the record has an AWB and they ask where it is / will it arrive, call track_awb and give status
-  + ETA. Say tracking is simulated in this prototype if asked.
+
+PICK THE RIGHT TOOL:
+- search_samples — cross-book quick find by client/quality/ref/AWB text (+ status / tab / sample_type /
+  country). Returns identifying fields (ref, title, receiver, country, sample_type, status, courier,
+  awb, qty_grams, dates, result) + each hit's tab. Use to locate records or answer status.
+- get_samples_by_book — ONE book, FULL rows (every column). Use when the question is about fields
+  search doesn't carry: grade / outturn / name / bags (specialty), moisture / water-activity / ICO mark /
+  client-ref (bulk), sender / origin / ID-number (forwarding), or qty / comments / crop-year / sample-type /
+  the chaser follow-up fields — or to filter/scan within a book (e.g. all PSS to Kenya, moisture over 12).
+- get_sample_status — ONE named ref/AWB/receiver: full detail + event timeline.
+- get_sample_stats — COUNTS and BREAKDOWNS ("how many …", "by country/status/type", aging, dispatched
+  this week). Prefer this over listing rows for any "how many / give me a breakdown" question.
+- track_awb — where is it / ETA, when a record has an AWB. Say tracking is simulated if asked.
+
 - Answer with facts from the records only. If nothing is found, say so plainly — never guess.
-- COUNTS & BIG LISTS: search_samples returns the TRUE \`total\` plus a page of up to 100 rows. For
-  "how many …" answer with \`total\`. For "list all …" when \`has_more\` is true, state the total, show
-  this page, and offer to narrow (status/tab/date/AWB) or fetch the next \`page\` — never call a
-  partial page "the full list" or imply the shown rows are everything.`,
-  tools: [new SearchSamplesTool(), new GetSampleStatusTool(), new TrackAwbTool()],
+- BIG LISTS: search_samples / get_samples_by_book return the TRUE \`total\` plus a page (100 / 50 rows).
+  When \`has_more\` is true, state the total, show the page, and offer to narrow or fetch the next \`page\`
+  — never call a partial page "the full list" or imply the shown rows are everything.
+- PRESENT cleanly: a compact line per record (ref • title • receiver • status • courier/AWB), not raw
+  field dumps; lead with the count on list answers. Surface only the fields the question is about.`,
+  tools: [new SearchSamplesTool(), new GetSamplesByBookTool(), new GetSampleStatusTool(), new GetSampleStatsTool(), new TrackAwbTool()],
 });

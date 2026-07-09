@@ -11,17 +11,18 @@ const SAMPLE_TYPES = ['offer', 'type', 'pss', 'woc', 'retention', 'flavor_mappin
 const TABS = ['specialty', 'bulk', 'forwarding'];
 
 /** Dashboard filter chips. `key` doubles as the /stats query param (see
- * buildStatsFilter in api/src/routes/stats.ts), so keep them in sync. Month/Country
- * options come from `stats.months` / `stats.countries`. */
-export function dashboardFilterDefs(months: string[], countries: string[]): FilterDef[] {
+ * buildStatsFilter in api/src/routes/stats.ts), so keep them in sync. Month/Country/Quality
+ * options come from `stats.months` / `stats.countries` / `stats.qualities`. Quality is a
+ * multi-select searchable dropdown (free text, ~hundreds of values) matched by ILIKE. */
+export function dashboardFilterDefs(months: string[], countries: string[], qualities: string[]): FilterDef[] {
   return [
-    { key: 'month', label: 'Month', type: 'enum', options: months },
-    { key: 'quality', label: 'Quality', type: 'text' },
-    { key: 'tab', label: 'Tab', type: 'enum', options: TABS },
+    { key: 'month', label: 'Month', type: 'enum', options: months, multi: true },
+    { key: 'quality', label: 'Quality', type: 'enum', options: qualities, searchable: true, multi: true },
+    { key: 'tab', label: 'Tab', type: 'enum', options: TABS, multi: true },
     { key: 'status', label: 'Status', type: 'enum', options: STATUSES, multi: true },
-    { key: 'sample_type', label: 'Sample Type', type: 'enum', options: SAMPLE_TYPES },
-    { key: 'country', label: 'Country', type: 'enum', options: countries },
-    { key: 'courier', label: 'Courier', type: 'enum', options: COURIERS },
-    { key: 'result', label: 'Result', type: 'enum', options: RESULTS },
+    { key: 'sample_type', label: 'Sample Type', type: 'enum', options: SAMPLE_TYPES, multi: true },
+    { key: 'country', label: 'Country', type: 'enum', options: countries, multi: true },
+    { key: 'courier', label: 'Courier', type: 'enum', options: COURIERS, multi: true },
+    { key: 'result', label: 'Result', type: 'enum', options: RESULTS, multi: true },
   ];
 }

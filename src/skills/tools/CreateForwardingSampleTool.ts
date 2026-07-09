@@ -48,6 +48,7 @@ export default class CreateForwardingSampleTool implements LuaTool {
     return {
       tab: 'forwarding',
       id: row.id,
+      date: row.date,
       sample_ref: row.sample_ref,
       origin: row.origin,
       coffee_quality: row.coffee_quality,

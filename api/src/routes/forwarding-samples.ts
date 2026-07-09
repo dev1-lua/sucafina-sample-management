@@ -21,6 +21,8 @@ const createSchema = z.object({
   sample_ref: z.string().min(1),
   coffee_quality: z.string().min(1),
   receiver_company: z.string().min(1),
+  // Optional ISO date override; absent → server defaults to today in Nairobi time. See INSERT below.
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
   id_number: z.string().nullish(),  // nullable + not unique (verbatim fidelity)
   awb: z.string().nullish(),
   courier_norm: z.string().nullish(),
@@ -52,7 +54,11 @@ forwardingSamples.get('/', h(async (req, res) => {
     for (const v of values) assertIn(v, STATUSES, 'status');
     f.add(`status = ANY (?::sample_status_t[])`, values);
   }
-  if (req.query.courier_norm) f.add(`courier_norm = ?`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
+  if (req.query.courier_norm) {
+    const values = String(req.query.courier_norm).split(',');
+    for (const v of values) assertIn(v, COURIERS, 'courier_norm');
+    f.add(`courier_norm = ANY (?::text[])`, values);
+  }
   if (req.query.origin) f.add(`origin = ?`, String(req.query.origin));
   if (req.query.sender) f.add(`sender = ?`, String(req.query.sender));
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
@@ -80,14 +86,18 @@ forwardingSamples.post('/', h(async (req, res) => {
   const actor = actorFrom(req);
   const status = body.awb || body.courier_norm ? 'dispatched' : 'requested';
   const row = await runWithEvent(
+    // date + date_on default to today in Nairobi time when no explicit date is given; $13 overrides.
     `INSERT INTO forwarding_samples
        (sender, origin, sample_ref, coffee_quality, receiver_company, id_number, awb, courier_norm,
-        qty, qty_grams, client_id, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::sample_status_t)
+        qty, qty_grams, client_id, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+             COALESCE($13, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
+             COALESCE($13::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
+             $12::sample_status_t)
      RETURNING *`,
     [body.sender, body.origin, body.sample_ref, body.coffee_quality, body.receiver_company,
      body.id_number ?? null, body.awb ?? null, body.courier_norm ?? null, body.qty ?? null,
-     body.qty_grams ?? null, body.client_id ?? null, status],
+     body.qty_grams ?? null, body.client_id ?? null, status, body.date ?? null],
     { entityType: 'forwarding', type: 'created', note: `${body.sample_ref} from ${body.origin} → ${body.receiver_company}`, actor },
   );
   res.status(201).json(row);

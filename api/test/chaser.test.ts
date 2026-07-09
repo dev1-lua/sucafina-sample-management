@@ -11,8 +11,10 @@ beforeAll(async () => {
   // overdue undispatched specialty sample, backdated so it sorts first (oldest date_on)
   const a = await auth(request(app).post('/specialty-samples')).send({ description: 'AB FAQ', receiver_company: 'Edmax' });
   await pool.query(`UPDATE specialty_samples SET date_on = CURRENT_DATE - 20 WHERE id = $1`, [a.body.id]);
-  // overdue undispatched bulk sample (no date_on at all — still overdue per the digest's NULL-date rule)
-  await auth(request(app).post('/bulk-samples')).send({ quality: 'AAA Nespresso', client: 'Nestrade' });
+  // overdue undispatched bulk sample with a NULL date_on — still overdue per the digest's NULL-date
+  // rule. (Create now defaults date_on to today, so null it explicitly to exercise that rule.)
+  const c = await auth(request(app).post('/bulk-samples')).send({ quality: 'AAA Nespresso', client: 'Nestrade' });
+  await pool.query(`UPDATE bulk_samples SET date_on = NULL WHERE id = $1`, [c.body.id]);
   // stale dispatched bulk sample
   const d = await auth(request(app).post('/bulk-samples')).send({ quality: 'ABC FAQ', client: 'Beyers' });
   await auth(request(app).patch(`/bulk-samples/${d.body.id}`)).send({ status: 'dispatched', courier_norm: 'dhl', awb: 'OLD1' });

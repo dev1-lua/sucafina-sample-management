@@ -22,6 +22,15 @@ jobs:
   - jobId: c2436eb0-0a8a-4653-8124-ee40d3254c79
     name: daily-chaser
     version: 1.0.4
+  - jobId: 8753c99d-7a1c-4785-a102-088ea20d1992
+    name: courier-awb-reminder
+    version: 1.0.0
+  - jobId: 8c6c7faa-e6ec-44c6-b3f6-fe9f04f9d528
+    name: feedback-reminder
+    version: 1.0.0
+  - jobId: 41b1815d-9790-47f3-b4e2-0e2c7a43d4bd
+    name: order-placed-reminder
+    version: 1.0.0
 preprocessors: []
 postprocessors: []
 mcpServers: []

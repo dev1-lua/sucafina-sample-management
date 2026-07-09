@@ -27,6 +27,17 @@ search.get('/', h(async (req, res) => {
     f.add(`status = ANY (?::sample_status_t[])`, values);
   }
   if (req.query.awb) f.add(`awb = ?`, String(req.query.awb));
+  // sample_type_norm and country are free text in the unified view, so match by CSV membership
+  // (no enum assert) — lets the agent filter a cross-book list by e.g. offer / Kenya. Country is
+  // matched case-insensitively so Kenya/KENYA/kenya all match.
+  if (req.query.sample_type) {
+    const values = String(req.query.sample_type).split(',').map((s) => s.trim()).filter(Boolean);
+    if (values.length) f.add(`sample_type_norm = ANY (?::text[])`, values);
+  }
+  if (req.query.country) {
+    const values = String(req.query.country).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (values.length) f.add(`lower(country) = ANY (?::text[])`, values);
+  }
 
   // Paginated like the per-table list endpoints (see lib/list.ts): `page` is 1-based,
   // `pageSize` clamped ≤100. `total` is the true match count (window fn), so a caller can
@@ -35,7 +46,8 @@ search.get('/', h(async (req, res) => {
   const pageSize = clampInt(req.query.pageSize, 50, 1, 100);
   const whereSql = f.where.length ? `WHERE ${f.where.join(' AND ')}` : '';
   const { rows } = await pool.query(
-    `SELECT tab, id, ref, title, receiver, status, courier_norm, awb, date_on, delivery_on, result_norm,
+    `SELECT tab, id, ref, title, receiver, country, sample_type_norm, qty_grams,
+       status, courier_norm, awb, date_on, delivery_on, result_norm,
        count(*) OVER ()::int AS full_count
      FROM all_samples_v ${whereSql}
      ORDER BY date_on DESC NULLS LAST, id ASC

@@ -28,8 +28,8 @@ export default function DashboardPage() {
   const { data: stats, isLoading, isFetching, isError } = useStats(filters);
 
   const filterDefs = useMemo(
-    () => dashboardFilterDefs(stats?.months ?? [], stats?.countries ?? []),
-    [stats?.months, stats?.countries],
+    () => dashboardFilterDefs(stats?.months ?? [], stats?.countries ?? [], stats?.qualities ?? []),
+    [stats?.months, stats?.countries, stats?.qualities],
   );
   const hasFilters = Object.keys(filters).length > 0;
   const refetching = isFetching && !isLoading;
@@ -65,8 +65,9 @@ export default function DashboardPage() {
           motionDelayMs={0 * KPI_STAGGER_MS}
         />
         <KpiTile
-          label="In transit"
+          label="Dispatched"
           value={(stats?.in_transit ?? 0).toLocaleString()}
+          hint="Delivery not confirmed"
           loading={isLoading}
           motionDelayMs={1 * KPI_STAGGER_MS}
         />

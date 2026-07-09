@@ -59,9 +59,9 @@ export const specialtyConfig: TabConfig = {
   ],
   filters: [
     { key: 'status', label: 'Status', type: 'enum', options: STATUSES, multi: true },
-    { key: 'sample_type_norm', label: 'Sample Type', type: 'enum', options: SAMPLE_TYPES },
-    { key: 'courier_norm', label: 'Courier', type: 'enum', options: COURIERS },
-    { key: 'result_norm', label: 'Result', type: 'enum', options: RESULTS },
+    { key: 'sample_type_norm', label: 'Sample Type', type: 'enum', options: SAMPLE_TYPES, multi: true },
+    { key: 'courier_norm', label: 'Courier', type: 'enum', options: COURIERS, multi: true },
+    { key: 'result_norm', label: 'Result', type: 'enum', options: RESULTS, multi: true },
     { key: 'country', label: 'Country', type: 'text' },
     { key: 'date_range', label: 'Date', type: 'date' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },

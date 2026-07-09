@@ -6,6 +6,7 @@ import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
   normalizeAwb,
+  normalizeCountry,
   normalizeCourier,
   normalizeSampleType,
 } from '../../lib/normalize';
@@ -31,6 +32,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     outturn: z.string().optional().describe('Milling outturn / warehouse mark, e.g. "17KN0076".'),
     name: z.string().optional().describe('Estate/station/mark name, e.g. "KABINGARA/KIRINYAGA", "AA Swara".'),
     grade: z.string().optional().describe('Screen/quality grade, e.g. AA, AB, PB.'),
+    country: z.string().optional().describe('Origin/destination country for the lot, e.g. "Kenya" — normalized to Title Case.'),
     bags: z.number().int().optional().describe('Number of bags in the source lot.'),
     awb: z.string().optional().describe('AWB/tracking number if already known (rare at request time).'),
     courier: z.string().optional().describe('Courier as stated, e.g. DHL, Fedex, Kiptoo, HD.'),
@@ -49,6 +51,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     const sampleType = normalizeSampleType(input.sample_type) ?? 'other';
     const courier = normalizeCourier(input.courier);
     const awb = normalizeAwb(input.awb);
+    const country = normalizeCountry(input.country);
     const qtyGrams = input.qty_grams ?? DEFAULT_QTY_GRAMS[sampleType];
     const pssNote = sampleType === 'pss' ? extractPssNote(input.sample_type) : undefined;
     const comments = [input.comments, pssNote].filter(Boolean).join(' — ') || undefined;
@@ -63,6 +66,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
         outturn: input.outturn ?? null,
         name: input.name ?? null,
         grade: input.grade ?? null,
+        country: country ?? null,
         bags: input.bags ?? null,
         awb: awb ?? null,
         courier_norm: courier ?? null,
@@ -78,10 +82,13 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       tab: 'specialty',
       id: row.id,
       ref: row.ref,
+      date: row.date,
+      name: row.name,
       description: row.description,
       receiver_company: row.receiver_company,
       sample_type: row.sample_type_norm,
       grade: row.grade,
+      country: row.country,
       qty_grams: row.qty_grams,
       status: row.status,
       url: dashboardUrl('specialty', row.id, 'created'),

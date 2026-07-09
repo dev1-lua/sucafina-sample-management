@@ -6,6 +6,9 @@ import { statusTrackingSkill } from './skills/status-and-tracking.skill';
 import { resultsCaptureSkill } from './skills/results-capture.skill';
 import { clientBookSkill } from './skills/client-book.skill';
 import { dailyChaserJob } from './jobs/daily-chaser.job';
+import { courierAwbReminderJob } from './jobs/courier-awb-reminder.job';
+import { feedbackReminderJob } from './jobs/feedback-reminder.job';
+import { orderPlacedReminderJob } from './jobs/order-placed-reminder.job';
 
 const agent = new LuaAgent({
   name: 'Sample-management-agent',
@@ -18,7 +21,7 @@ const agent = new LuaAgent({
     resultsCaptureSkill,
     clientBookSkill,
   ],
-  jobs: [dailyChaserJob],
+  jobs: [dailyChaserJob, courierAwbReminderJob, feedbackReminderJob, orderPlacedReminderJob],
 });
 
 async function main() {}

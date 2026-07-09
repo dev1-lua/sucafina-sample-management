@@ -33,7 +33,12 @@ export default class FindOpenSamplesTool implements LuaTool {
         ref: s.ref,
         title: s.title,
         receiver: s.receiver,
+        country: s.country,
+        sample_type: s.sample_type_norm,
         status: s.status,
+        courier: s.courier_norm,
+        awb: s.awb,
+        date: s.date_on,
       })),
     };
   }

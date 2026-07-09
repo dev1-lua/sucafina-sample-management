@@ -123,7 +123,9 @@ function FilterPopover({
       {open && pos && (
         <div
           ref={panelRef}
-          style={{ position: 'fixed', top: pos.top, left: pos.left }}
+          // Cap the panel to the space left below the trigger and scroll the overflow, so a long
+          // list (e.g. Country) never runs off the bottom of the viewport or covers the page.
+          style={{ position: 'fixed', top: pos.top, left: pos.left, maxHeight: `calc(100vh - ${pos.top + 12}px)`, overflowY: 'auto' }}
           className={cn(
             'z-50 rounded-lg border border-border bg-popover text-popover-foreground shadow-md outline-none animate-in fade-in-0 zoom-in-95',
             panelClassName,
@@ -152,6 +154,12 @@ function EnumPill({
     ? `${def.label}: ${def.multi ? (selected as string[]).join(', ') : selected}`
     : def.label;
 
+  // Searchable lists (e.g. Quality, hundreds of free-text values) get a filter box; the
+  // panel is already height-capped + scrollable by FilterPopover, so the box stays sticky on top.
+  const [query, setQuery] = React.useState('');
+  const q = query.trim().toLowerCase();
+  const options = def.searchable && q ? def.options.filter((o) => o.toLowerCase().includes(q)) : def.options;
+
   function toggle(opt: string) {
     if (def.multi) {
       const arr = selected as string[];
@@ -164,26 +172,43 @@ function EnumPill({
 
   return (
     <Chip active={active} clearLabel={`Clear ${def.label} filter`} onClear={() => onPatch({ [def.key]: undefined })}>
-      <FilterPopover summary={summary} panelClassName="w-56 p-1">
+      <FilterPopover summary={summary} panelClassName={cn('p-1', def.searchable ? 'w-80' : 'w-56')}>
         <div className="flex flex-col">
-          {def.options.map((opt) => {
+          {def.searchable && (
+            <div className="sticky top-0 z-10 bg-popover pb-1">
+              <Input
+                aria-label={`Search ${def.label}`}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Search ${def.label.toLowerCase()}…`}
+                className="h-7 text-xs"
+                autoFocus
+              />
+            </div>
+          )}
+          {options.map((opt) => {
             const checked = def.multi ? (selected as string[]).includes(opt) : selected === opt;
             return (
               <label
                 key={opt}
-                className="flex cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                className="flex min-w-0 cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
               >
                 <input
                   type={def.multi ? 'checkbox' : 'radio'}
                   name={def.key}
                   checked={checked}
                   onChange={() => toggle(opt)}
-                  className="size-3.5 accent-primary"
+                  className="size-3.5 shrink-0 accent-primary"
                 />
-                {opt}
+                <span className="truncate" title={opt}>
+                  {opt}
+                </span>
               </label>
             );
           })}
+          {def.searchable && options.length === 0 && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">No matches</div>
+          )}
         </div>
       </FilterPopover>
     </Chip>

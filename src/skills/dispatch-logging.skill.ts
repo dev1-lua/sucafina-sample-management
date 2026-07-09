@@ -16,6 +16,7 @@ export const dispatchLoggingSkill = new LuaSkill({
 - Courier words map: DHL->dhl, Fedex->fedex, UPS->ups, Kiptoo/rider->rider, HD/by hand->hand_delivery,
   picked by client->client_pickup — just pass the word as said, the tool normalizes it.
 - AWB numbers are normalized to digits-only automatically; pass the number as given.
-- Confirm with ref(s) + AWB in one line, then put each row's dashboard url on its own line (one "ref -> url" per row).`,
+- Confirm with ref(s) + AWB, then show each dispatched row as a row card + open-link, exactly as the
+  persona's write-result format describes — one card per row (a shared AWB still gets one card each).`,
   tools: [new FindOpenSamplesTool(), new RecordDispatchTool()],
 });

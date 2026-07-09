@@ -85,6 +85,7 @@ export default class CreateBulkSampleTool implements LuaTool {
     return {
       tab: 'bulk',
       id: row.id,
+      date: row.date,
       sample_ref: row.sample_ref,
       quality: row.quality,
       client: row.client,

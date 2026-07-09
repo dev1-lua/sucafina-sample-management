@@ -24,6 +24,9 @@ export default class ListAwaitingResultsTool implements LuaTool {
       ref: s.ref,
       title: s.title,
       receiver: s.receiver,
+      country: s.country,
+      awb: s.awb,
+      date: s.date_on,
       delivery_date: s.delivery_on,
     }));
     return {

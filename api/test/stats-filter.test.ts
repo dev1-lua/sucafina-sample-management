@@ -16,7 +16,7 @@ describe('stats dashboard filters', () => {
       quality: 'Grinder AA', client: 'Nestrade', country: 'Kenya', sample_type: 'offer',
     });
     await auth(request(app).patch(`/bulk-samples/${b1.body.id}`)).send({ status: 'dispatched', courier_norm: 'dhl', awb: 'X1' });
-    // date_on is not set on create; set it directly so the month filter has something to bite on
+    // create defaults date_on to today; override it to a fixed month so the month filter has something to bite on
     await pool.query(`UPDATE bulk_samples SET date_on = '2020-03-15' WHERE id = $1`, [b1.body.id]);
     // bulk #2 — requested, Brazil, sample_type type
     await auth(request(app).post('/bulk-samples')).send({
@@ -51,8 +51,8 @@ describe('stats dashboard filters', () => {
     expect(res.body.by_country).toEqual({ Kenya: 1 });
   });
 
-  it('filters by quality (case-insensitive contains on the view title)', async () => {
-    const res = await auth(request(app).get('/stats?quality=grinder'));
+  it('filters by quality_like (case-insensitive contains — the agent substring filter)', async () => {
+    const res = await auth(request(app).get('/stats?quality_like=grinder'));
     expect(res.body.by_tab).toEqual({ bulk: 1 });
   });
 

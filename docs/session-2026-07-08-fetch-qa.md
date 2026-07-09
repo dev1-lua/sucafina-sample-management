@@ -76,3 +76,39 @@ tests; agent `lua compile` 21 primitives; tool-logic verification 9/9 against pr
   (23 samples reference "beyers" but no client record exists). Flagged to the team to add.
 - **#4 SL-7346 disambiguation** — `get_sample_status` still resolves the single first match
   (`pageSize=1`); left as-is this round (out of the agreed scope), noted for a follow-up.
+
+---
+
+## Column coverage — "does the agent get every field, all the derivative info?"
+
+Traced all four layers: **Excel → DB → API → agent tools.**
+
+- **Excel → DB: complete.** Source `docs/Sample Chaser2025-2026.xlsx` (4 sheets). Seed stores every source
+  column **verbatim** (16 specialty / 19 bulk / 10 forwarding + client name + 4 contact fields) AND keeps
+  the derived companions (`courier`+`courier_norm`, `qty`+`qty_grams`, `moisture`+`moisture_pct`,
+  `date`+`date_on`, `result`+`result_norm`, `sample_type`+`sample_type_norm`). `seed-report.json`: dropped = 0.
+  Only unrecoverable: 3 stray cells in a blank-header column of Client Details.
+- **The gap was the agent's tools**, not the data. Search returned only 11 fields; there was no way to reach
+  grade/moisture/ICO/sender/origin/id-number/etc. in a list, **no** way to read a client's address/contacts/
+  orders, and the stats breakdowns were unused.
+
+### What changed
+
+| Gap | Fix |
+|-----|-----|
+| List/search too thin | `search_samples` now also returns `country`, `sample_type`, `qty_grams`, and filters by `sample_type`/`country`; `find_open_samples` & `list_awaiting_results` no longer drop courier/awb/date. *(Needs API redeploy — same as pagination.)* |
+| No book-specific fields | **New `get_samples_by_book`** — full rows from one book (every column, incl. grade/outturn/moisture/ICO/sender/origin/id_number/comments/crop_year/sample_type + chaser follow-up), with the book's filters. Uses existing per-table endpoints — live now. |
+| Client detail unreachable | **New `get_client`** — address, contacts, account owner, order history via `/clients/:id`. Closes the gap the client-book skill already assumed. `find_client` now also returns `contact_count` + `latest_order_date`. Live now. |
+| Stats unused | **New `get_sample_stats`** — counts/breakdowns by status/tab/type/country/courier/result, aging, dispatched-this-week, volume-over-time. Live now. |
+| Raw dumps | Persona + skills now instruct compact, labelled presentation (line-per-record, address blocks), not JSON. |
+
+Per-record, `get_sample_status` was already the full-row escape hatch. Net: the agent can now reach **every
+stored column** — full detail per record (`get_sample_status`), per book (`get_samples_by_book`), per client
+(`get_client`), plus aggregates (`get_sample_stats`) — presented cleanly.
+
+**Verification (no deploy):** agent `lua compile` 24 primitives (17 tools); api **102/102** (incl. new search
+field/filter tests); live-prod tool-logic **6/7** (the 7th — widened search fields — awaits the API redeploy).
+
+**Still requires the API redeploy** for the widened `/search` projection + `sample_type`/`country` filters to
+appear on prod. The three new tools (`get_client`, `get_sample_stats`, `get_samples_by_book`) work against the
+current prod API and only need the **agent** deployed.

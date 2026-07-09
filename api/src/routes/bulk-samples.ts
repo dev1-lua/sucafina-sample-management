@@ -22,6 +22,8 @@ const createSchema = z.object({
   quality: z.string().min(1),
   client: z.string().min(1),
   sample_type: z.string().default('other'),
+  // Optional ISO date override; absent → server defaults to today in Nairobi time. See INSERT below.
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
   sample_ref: z.string().nullish(),
   bags: z.number().int().nullish(),
   client_ref: z.string().nullish(),
@@ -65,10 +67,26 @@ bulkSamples.get('/', h(async (req, res) => {
     for (const v of values) assertIn(v, STATUSES, 'status');
     f.add(`status = ANY (?::sample_status_t[])`, values);
   }
-  if (req.query.sample_type_norm) f.add(`sample_type_norm = ?`, assertIn(String(req.query.sample_type_norm), SAMPLE_TYPES, 'sample_type_norm'));
-  if (req.query.courier_norm) f.add(`courier_norm = ?`, assertIn(String(req.query.courier_norm), COURIERS, 'courier_norm'));
-  if (req.query.result_norm) f.add(`result_norm = ?::result_t`, assertIn(String(req.query.result_norm), RESULTS, 'result_norm'));
-  if (req.query.country) f.add(`country = ?`, String(req.query.country));
+  if (req.query.sample_type_norm) {
+    const values = String(req.query.sample_type_norm).split(',');
+    for (const v of values) assertIn(v, SAMPLE_TYPES, 'sample_type_norm');
+    f.add(`sample_type_norm = ANY (?::text[])`, values);
+  }
+  if (req.query.courier_norm) {
+    const values = String(req.query.courier_norm).split(',');
+    for (const v of values) assertIn(v, COURIERS, 'courier_norm');
+    f.add(`courier_norm = ANY (?::text[])`, values);
+  }
+  if (req.query.result_norm) {
+    const values = String(req.query.result_norm).split(',');
+    for (const v of values) assertIn(v, RESULTS, 'result_norm');
+    f.add(`result_norm = ANY (?::result_t[])`, values);
+  }
+  // Country: case-insensitive + multi (BELGIUM/Belgium/belgium all match).
+  if (req.query.country) {
+    const values = String(req.query.country).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (values.length) f.add(`lower(country) = ANY (?::text[])`, values);
+  }
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
   if (req.query.date_from) f.add(`date_on >= ?::date`, String(req.query.date_from));
   if (req.query.date_to) f.add(`date_on <= ?::date`, String(req.query.date_to));
@@ -95,17 +113,21 @@ bulkSamples.post('/', h(async (req, res) => {
   const body = parseBody(createSchema, req.body);
   const actor = actorFrom(req);
   const row = await runWithEvent(
+    // date + date_on default to today in Nairobi time when no explicit date is given; $20 overrides.
     `INSERT INTO bulk_samples
        (sample_ref, quality, client, sample_type_norm, bags, client_ref, ico_mark, country, awb,
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
-        comments, crop_year, client_id, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'requested')
+        comments, crop_year, client_id, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+             COALESCE($20, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
+             COALESCE($20::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
+             'requested')
      RETURNING *`,
     [body.sample_ref ?? null, body.quality, body.client, body.sample_type, body.bags ?? null,
      body.client_ref ?? null, body.ico_mark ?? null, body.country ?? null, body.awb ?? null,
      body.courier_norm ?? null, body.qty ?? null, body.qty_grams ?? null, body.moisture ?? null,
      body.water_activity ?? null, body.moisture_pct ?? null, body.water_activity_num ?? null,
-     body.comments ?? null, body.crop_year ?? null, body.client_id ?? null],
+     body.comments ?? null, body.crop_year ?? null, body.client_id ?? null, body.date ?? null],
     { entityType: 'bulk', type: 'created', note: `${body.quality} for ${body.client}`, actor },
   );
   res.status(201).json(row);

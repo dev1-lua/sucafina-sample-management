@@ -37,7 +37,7 @@ export const forwardingConfig: TabConfig = {
   ],
   filters: [
     { key: 'status', label: 'Status', type: 'enum', options: STATUSES, multi: true },
-    { key: 'courier_norm', label: 'Courier', type: 'enum', options: COURIERS },
+    { key: 'courier_norm', label: 'Courier', type: 'enum', options: COURIERS, multi: true },
     { key: 'origin', label: 'Origin', type: 'text' },
     { key: 'sender', label: 'Sender', type: 'text' },
     { key: 'date_range', label: 'Date', type: 'date' },

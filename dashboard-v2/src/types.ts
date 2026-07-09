@@ -44,7 +44,7 @@ export type SortState = { sort: string; order: 'asc' | 'desc' } | null;
 export type FilterState = Record<string, string | string[]>;
 
 export type FilterDef =
-  | { key: string; label: string; type: 'enum'; options: string[]; multi?: boolean }
+  | { key: string; label: string; type: 'enum'; options: string[]; multi?: boolean; searchable?: boolean }
   | { key: string; label: string; type: 'text' }
   | { key: string; label: string; type: 'bool'; trueValue?: string } // e.g. has_awb=true
   | { key: string; label: string; type: 'date' } // maps to date_from/date_to pair handled by caller

@@ -98,16 +98,18 @@ export type StatsResult = {
   // these WITHOUT the active filters, so they never collapse). See stats.ts.
   months: string[];
   countries: string[];
+  qualities: string[];
 };
 
-/** Serialize dashboard filter state into a `/stats` query string. Mirrors the
- * filter half of buildListParams (arrays → comma-joined; empty values dropped),
- * so multi-selects arrive as the CSV the API's buildStatsFilter expects. */
+/** Serialize dashboard filter state into a `/stats` query string. Arrays go out as
+ * repeated params (not comma-joined) so multi-select values that themselves contain
+ * commas — a Quality string, or a country like "Hong Kong Sar,China" — survive the
+ * round-trip; the API's buildStatsFilter reads either repeated params or a CSV string. */
 function buildStatsQuery(filters: FilterState): string {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v == null) continue;
-    if (Array.isArray(v)) { if (v.length) p.set(k, v.join(',')); }
+    if (Array.isArray(v)) { for (const item of v) if (item !== '') p.append(k, item); }
     else if (v !== '') p.set(k, v);
   }
   return p.toString();

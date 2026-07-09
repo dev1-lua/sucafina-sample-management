@@ -33,9 +33,9 @@ describe('clients upgrades', () => {
   });
 
   it('sorts clients by latest_order_date', async () => {
-    // create/PATCH never accept date_on, so both orders are NULL by default; backfill one
-    // directly so Beyers has a real, non-tied latest_order_date to sort on (NULLS LAST would
-    // otherwise leave both clients tied, and the id ASC tie-break is a random UUID per run).
+    // Beyers' orders get today's date_on by default; Nestrade has no orders (NULL latest_order_date),
+    // so Beyers sorts first under DESC NULLS LAST. Pin the date explicitly so the assertion doesn't
+    // ride on the create-time default.
     await pool.query(`UPDATE specialty_samples SET date_on = CURRENT_DATE WHERE client_id = $1`, [clientId]);
     await auth(request(app).post('/clients')).send({ name: 'Nestrade' }); // no orders
     const res = await auth(request(app).get('/clients?sort=latest_order_date&order=desc'));

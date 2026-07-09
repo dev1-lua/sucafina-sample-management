@@ -13,6 +13,8 @@ export default class SearchSamplesTool implements LuaTool {
     tab: z.enum(TABS).optional().describe('Restrict to one table: specialty, bulk, or forwarding'),
     status: z.string().optional().describe('Comma list: requested,preparing,dispatched,delivered,results_in,cancelled'),
     awb: z.string().optional().describe('Exact AWB/tracking number'),
+    sample_type: z.string().optional().describe('Filter by sample type, e.g. offer, pss, type, woc'),
+    country: z.string().optional().describe('Filter by destination country (bulk) / origin (forwarding)'),
     page: z.number().int().min(1).optional().describe('1-based page to fetch (100 per page). Use to walk past the first page when has_more is true.'),
   });
 
@@ -24,6 +26,8 @@ export default class SearchSamplesTool implements LuaTool {
     if (input.tab) p.set('tab', input.tab);
     if (input.status) p.set('status', input.status);
     if (input.awb) p.set('awb', input.awb);
+    if (input.sample_type) p.set('sample_type', input.sample_type);
+    if (input.country) p.set('country', input.country);
     const res = await apiFetch(`/search?${p}`);
     return {
       total: res.total,
@@ -37,9 +41,12 @@ export default class SearchSamplesTool implements LuaTool {
         ref: s.ref,
         title: s.title,
         receiver: s.receiver,
+        country: s.country,
+        sample_type: s.sample_type_norm,
         status: s.status,
         courier: s.courier_norm,
         awb: s.awb,
+        qty_grams: s.qty_grams,
         date: s.date_on,
         delivery_date: s.delivery_on,
         result: s.result_norm,

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app.js';
+import { pool } from '../src/db.js';
 import { resetDb, API_KEY } from './helpers.js';
 
 beforeAll(resetDb);
@@ -48,5 +49,18 @@ describe('forwarding-samples', () => {
     await auth(request(app).delete(`/forwarding-samples/${id}`));
     const d = await auth(request(app).get(`/forwarding-samples/${id}`));
     expect(d.body.events.map((e: { type: string }) => e.type)).toContain('deleted');
+  });
+
+  it('defaults date + date_on to Nairobi today when none is given', async () => {
+    const res = await auth(request(app).post('/forwarding-samples')).send({
+      sender: 'Kenyacof', origin: 'Uganda', sample_ref: 'DATE-1', coffee_quality: 'AA',
+      receiver_company: 'Beyers', id_number: 'DATE/1',
+    });
+    expect(res.status).toBe(201);
+    const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
+    const { rows } = await pool.query(`SELECT date::text AS d, date_on::text AS don FROM forwarding_samples WHERE id = $1`, [res.body.id]);
+    expect(rows[0].d).toBe(nairobiToday);
+    expect(rows[0].don).toBe(nairobiToday);
+    expect(res.body.date).toBe(nairobiToday);
   });
 });

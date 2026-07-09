@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app.js';
+import { pool } from '../src/db.js';
 import { resetDb, API_KEY } from './helpers.js';
 
 beforeAll(resetDb);
@@ -110,5 +111,48 @@ describe('specialty-samples', () => {
     expect(res.body.id).toBe(rid);
     const after = await auth(request(app).get(`/specialty-samples/${rid}`));
     expect(after.body.events).toHaveLength(before.body.events.length);
+  });
+
+  it('defaults date + date_on to Nairobi today when none is given', async () => {
+    const res = await auth(request(app).post('/specialty-samples')).send({
+      description: 'Date default fixture', receiver_company: 'Beyers',
+    });
+    expect(res.status).toBe(201);
+    const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
+    const { rows } = await pool.query(
+      `SELECT date::text AS d, date_on::text AS don FROM specialty_samples WHERE id = $1`, [res.body.id],
+    );
+    expect(rows[0].d).toBe(nairobiToday);
+    expect(rows[0].don).toBe(nairobiToday);
+    expect(res.body.date).toBe(nairobiToday);
+  });
+
+  it('honors an explicit ISO date override', async () => {
+    const res = await auth(request(app).post('/specialty-samples')).send({
+      description: 'Date override fixture', receiver_company: 'Beyers', date: '2020-01-15',
+    });
+    expect(res.status).toBe(201);
+    const { rows } = await pool.query(
+      `SELECT date::text AS d, date_on::text AS don FROM specialty_samples WHERE id = $1`, [res.body.id],
+    );
+    expect(rows[0].d).toBe('2020-01-15');
+    expect(rows[0].don).toBe('2020-01-15');
+  });
+
+  it('breaks list ties by created_at DESC (newest-created first), not by id', async () => {
+    // Two rows sharing a date_on; give the OLDER one the LOWER id so an id-ASC tiebreak would
+    // (wrongly) place it first. created_at DESC must put the newer row first regardless of id.
+    const older = '11111111-1111-1111-1111-111111111111';
+    const newer = '99999999-9999-9999-9999-999999999999';
+    await pool.query(
+      `INSERT INTO specialty_samples (id, description, receiver_company, status, date_on, created_at)
+       VALUES ($1,'Tiebreak older','Beyers','requested', CURRENT_DATE, now() - interval '1 hour'),
+              ($2,'Tiebreak newer','Beyers','requested', CURRENT_DATE, now())`,
+      [older, newer],
+    );
+    const list = await auth(request(app).get('/specialty-samples?pageSize=100'));
+    const ids = list.body.data.map((r: { id: string }) => r.id);
+    expect(ids.indexOf(newer)).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older)); // newer created_at wins the tie
   });
 });

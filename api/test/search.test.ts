@@ -74,3 +74,33 @@ describe('search pagination', () => {
     expect(res.body.data).toHaveLength(0);
   });
 });
+
+describe('search widened fields + filters', () => {
+  beforeAll(async () => {
+    await auth(request(app).post('/bulk-samples')).send({
+      sample_ref: 'ZQ-1', quality: 'ZQWIDE lot', client: 'ZQWideCo', country: 'Testland', sample_type: 'pss',
+    });
+  });
+
+  it('exposes country, sample_type_norm and qty_grams in results', async () => {
+    const res = await auth(request(app).get('/search?q=ZQWIDE'));
+    expect(res.body.total).toBe(1);
+    const hit = res.body.data[0];
+    expect(hit).toHaveProperty('country', 'Testland');
+    expect(hit).toHaveProperty('sample_type_norm', 'pss');
+    expect(hit).toHaveProperty('qty_grams'); // present (PSS default may fill it)
+  });
+
+  it('filters by country', async () => {
+    const res = await auth(request(app).get('/search?country=Testland'));
+    expect(res.body.total).toBe(1);
+    expect(res.body.data[0].country).toBe('Testland');
+  });
+
+  it('filters by sample_type', async () => {
+    const res = await auth(request(app).get('/search?q=ZQWIDE&sample_type=pss'));
+    expect(res.body.total).toBe(1);
+    const none = await auth(request(app).get('/search?q=ZQWIDE&sample_type=offer'));
+    expect(none.body.total).toBe(0);
+  });
+});
