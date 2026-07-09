@@ -5,7 +5,7 @@ import { normalizeAwb } from '../../lib/normalize';
 
 export default class TrackAwbTool implements LuaTool {
   name = 'track_awb';
-  description = 'Courier tracking status for an AWB/tracking number, looked up across all three tables (prototype: simulated data).';
+  description = 'Courier tracking status (latest scan, transit days, delivery) for an AWB/tracking number, looked up across all three tables.';
 
   inputSchema = z.object({
     awb: z.string().describe('AWB / tracking number'),

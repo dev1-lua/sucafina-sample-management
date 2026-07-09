@@ -1,5 +1,6 @@
 import { LuaSkill } from 'lua-cli';
 import FindClientTool from './tools/FindClientTool';
+import UpsertClientTool from './tools/UpsertClientTool';
 import CreateSpecialtySampleTool from './tools/CreateSpecialtySampleTool';
 import CreateBulkSampleTool from './tools/CreateBulkSampleTool';
 import CreateForwardingSampleTool from './tools/CreateForwardingSampleTool';
@@ -8,7 +9,9 @@ import CreateForwardingSampleTool from './tools/CreateForwardingSampleTool';
 export const sampleIntakeSkill = new LuaSkill({
   name: 'sample-intake',
   description: 'Log new sample requests, routed to the correct book: Specialty, Bulk, or Forwarding',
-  context: `Use when a trader or QC asks to send/prepare/forward samples for a client or shipment.
+  context: `NO NARRATION — never think out loud to the user: no "Let me check…", "I need to clarify…", "I'm noticing…", "I can offer to…", "before we proceed". Call tools SILENTLY; reply with only the result or the single next question.
+
+Use when a trader or QC asks to send/prepare/forward samples for a client or shipment.
 
 ROUTE FIRST — decide which table before gathering anything else:
 - Specialty (create_specialty_sample): a single specialty-position lot. Signals: a screen grade
@@ -51,7 +54,7 @@ confirm the assembled row, and write. Guided mode is for the newcomer / incomple
 
 GUARANTEED COMPLETENESS — each create tool hard-requires that table's fields and will error on an
 incomplete record, so gather these before calling it:
-- Specialty: description/quality text, sample type, receiver/company.
+- Specialty: description/quality text, sample type, receiver/company, estate/station name, country of origin.
 - Bulk: quality text, sample type, client name.
 - Forwarding: sender, origin, sample ref, coffee quality, receiver/company, and a per-bag ID Number.
 Gather what's missing one gentle step at a time — acknowledge what's given, ask only for the single
@@ -63,8 +66,8 @@ PER-BOOK FIELDS — in guided mode, walk the full field set for the chosen book 
 merely valid. Required (the tool errors without them) are marked ✱; ask the rest where they apply and
 always let the person "skip". Name / country / grade only exist where listed below — don't ask a Bulk
 row for a screen grade (it lives in the quality text) or a Forwarding row for a grade at all.
-- Specialty: ✱description/quality, ✱sample type, ✱receiver (client or internal office); then estate/
-  station name, grade (AA/AB/PB/C/E/TT — see GRADE GLOSSARY), country of origin, outturn mark, bags,
+- Specialty: ✱description/quality, ✱sample type, ✱receiver (client or internal office), ✱estate/station
+  name, ✱country of origin; then grade (AA/AB/PB/C/E/TT — see GRADE GLOSSARY), outturn mark, bags,
   courier, qty (defaults by type), crop year. Ref auto-issues — don't ask for it.
 - Bulk: ✱quality text (the grade lives in this text, e.g. "AA PLUS (30%), AB (70%)"), ✱sample type,
   ✱client; then destination country, sample ref, client's own reference, ICO mark, bags, moisture %,
@@ -84,9 +87,22 @@ grades), then carry straight on with the intake:
 - TT — the lighter beans / floaters sorted out of AA and AB.
 - MH / Mbuni — natural, dried-in-the-cherry coffee.
 
-CLIENT RESOLUTION — ALWAYS call find_client first to resolve the company (use the company, not the
-person: "Thomas at Beyers" -> search "beyers"). Pass client_id when exactly one match; otherwise
-pass the receiver/client text as stated and mention you could not resolve the client.
+CLIENT RESOLUTION — ALWAYS call find_client first to resolve the company (call it SILENTLY — never
+say "let me check the client book"; just do it). Use the company, not the person: "Thomas at Beyers"
+-> search "beyers". This applies to all three books.
+- EXISTING client (one clear match, "old"): pass its client_id on the create call and REUSE what's on
+  file — do NOT re-ask for their contact person, email, phone, or address. If no address is on file yet
+  you may offer to add one, but never block the sample on it.
+- NEW client (find_client total 0) — CRUCIAL: before you create the sample, capture the client's
+  details one gentle step at a time — contact person, email, phone, and address (you already have the
+  company name). ASK for each of these — do NOT offer to skip them and do NOT say "happy to skip any";
+  they must be added. Only move on from a field if the person explicitly says they don't have it. Then
+  call upsert_client { name, country, attention_to (contact person), full_address, phone, email } to add
+  them to the book. Take the id it returns and pass it as client_id on the create call. Internal Sucafina
+  offices (Geneva, NV, Yunnan) can be added with just the name — don't badger an internal office for a
+  phone/address.
+- MULTIPLE matches: ask which one; don't guess. Only if it stays unresolvable, log with the client text
+  as stated and say you couldn't pin the client down.
 
 MULTIPLE SAMPLES — each distinct quality/lot is its own record. "AB FAQ, ABC FAQ and Heavy Mbuni to
 Beyers" = 3 separate create calls.
@@ -96,6 +112,7 @@ if known • quality/description • qty • receiver • sample type) and get a
 calling the create tool. After creating, confirm again with the issued ref.`,
   tools: [
     new FindClientTool(),
+    new UpsertClientTool(),
     new CreateSpecialtySampleTool(),
     new CreateBulkSampleTool(),
     new CreateForwardingSampleTool(),

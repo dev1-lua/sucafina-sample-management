@@ -5,7 +5,9 @@ import RecordDispatchTool from './tools/RecordDispatchTool';
 export const dispatchLoggingSkill = new LuaSkill({
   name: 'dispatch-logging',
   description: 'Record that samples were sent out (courier + AWB), across specialty, bulk, and forwarding',
-  context: `Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking details :872526345980 Fedex".
+  context: `NO NARRATION — never think out loud to the user: no "Let me check…", "I need to clarify…", "I'm noticing…", "I can offer to…", "before we proceed". Call tools SILENTLY; reply with only the result or the single next question.
+
+Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking details :872526345980 Fedex".
 - find_open_samples with the client/receiver/ref text to locate what was pending. It returns each
   hit's tab + id — you need both to record the dispatch on the right table.
 - Exactly one plausible match -> record_dispatch on it. Multiple plausible matches or none -> ask ONE

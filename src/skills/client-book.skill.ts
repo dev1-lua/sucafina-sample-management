@@ -6,7 +6,9 @@ import UpsertClientTool from './tools/UpsertClientTool';
 export const clientBookSkill = new LuaSkill({
   name: 'client-book',
   description: 'Look up and maintain the client address book',
-  context: `Use for "what's X's address", "who owns X", "what has X ordered", "add new client Y", "update Z's contact".
+  context: `NO NARRATION — never think out loud to the user: no "Let me check…", "I need to clarify…", "I'm noticing…", "I can offer to…", "before we proceed". Call tools SILENTLY; reply with only the result or the single next question.
+
+Use for "what's X's address", "who owns X", "what has X ordered", "add new client Y", "update Z's contact".
 - find_client to locate the company (returns id + contact_count + latest_order_date). To ANSWER anything
   about a client's address, contacts, account owner, or order history, then call get_client with that id
   (or pass the name straight to get_client — it resolves a single match). find_client alone does NOT carry

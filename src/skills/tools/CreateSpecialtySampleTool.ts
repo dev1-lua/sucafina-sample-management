@@ -14,7 +14,7 @@ import {
 export default class CreateSpecialtySampleTool implements LuaTool {
   name = 'create_specialty_sample';
   description =
-    'Create one Specialty-book sample record (single specialty-position lot). Hard-requires description, sample type, and receiver — the API rejects an incomplete record. Returns the server-issued ref.';
+    'Create one Specialty-book sample record (single specialty-position lot). Hard-requires description, sample type, receiver, estate/station name, and country of origin. Returns the server-issued ref.';
 
   inputSchema = z.object({
     description: z
@@ -30,9 +30,9 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     receiver_company: z.string().min(1).describe('Who receives it — client or internal office, e.g. "Geneva", "Key Coffee".'),
     ref: z.string().optional().describe('Explicit lot ref like "SL-7346" if stated; omit to let the desk auto-issue one.'),
     outturn: z.string().optional().describe('Milling outturn / warehouse mark, e.g. "17KN0076".'),
-    name: z.string().optional().describe('Estate/station/mark name, e.g. "KABINGARA/KIRINYAGA", "AA Swara".'),
+    name: z.string().min(1).describe('Estate/station/mark name, e.g. "KABINGARA/KIRINYAGA", "AA Swara". Required — always capture it.'),
     grade: z.string().optional().describe('Screen/quality grade, e.g. AA, AB, PB.'),
-    country: z.string().optional().describe('Origin/destination country for the lot, e.g. "Kenya" — normalized to Title Case.'),
+    country: z.string().min(1).describe('Origin/destination country for the lot, e.g. "Kenya" — normalized to Title Case. Required — always capture it.'),
     bags: z.number().int().optional().describe('Number of bags in the source lot.'),
     awb: z.string().optional().describe('AWB/tracking number if already known (rare at request time).'),
     courier: z.string().optional().describe('Courier as stated, e.g. DHL, Fedex, Kiptoo, HD.'),
@@ -51,7 +51,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     const sampleType = normalizeSampleType(input.sample_type) ?? 'other';
     const courier = normalizeCourier(input.courier);
     const awb = normalizeAwb(input.awb);
-    const country = normalizeCountry(input.country);
+    const country = normalizeCountry(input.country) ?? input.country;
     const qtyGrams = input.qty_grams ?? DEFAULT_QTY_GRAMS[sampleType];
     const pssNote = sampleType === 'pss' ? extractPssNote(input.sample_type) : undefined;
     const comments = [input.comments, pssNote].filter(Boolean).join(' — ') || undefined;

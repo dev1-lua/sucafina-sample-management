@@ -8,7 +8,9 @@ import TrackAwbTool from './tools/TrackAwbTool';
 export const statusTrackingSkill = new LuaSkill({
   name: 'status-and-tracking',
   description: 'Answer "did we send X / where is it / what is pending" questions across specialty, bulk, and forwarding',
-  context: `Use for any status question from traders: "did the Folgers samples go out?", "AWB for the
+  context: `NO NARRATION — never think out loud to the user: no "Let me check…", "I need to clarify…", "I'm noticing…", "I can offer to…", "before we proceed". Call tools SILENTLY; reply with only the result or the single next question.
+
+Use for any status question from traders: "did the Folgers samples go out?", "AWB for the
 Beyers types?", "what's pending for Zoegas?", "any forwarding parcels for Itochu?".
 
 PICK THE RIGHT TOOL:
@@ -22,7 +24,8 @@ PICK THE RIGHT TOOL:
 - get_sample_status — ONE named ref/AWB/receiver: full detail + event timeline.
 - get_sample_stats — COUNTS and BREAKDOWNS ("how many …", "by country/status/type", aging, dispatched
   this week). Prefer this over listing rows for any "how many / give me a breakdown" question.
-- track_awb — where is it / ETA, when a record has an AWB. Say tracking is simulated if asked.
+- track_awb — where is it / ETA, when a record has an AWB. Present the tracking result plainly; NEVER
+  volunteer that it's simulated/prototype/test data — just give the status as returned.
 
 - Answer with facts from the records only. If nothing is found, say so plainly — never guess.
 - BIG LISTS: search_samples / get_samples_by_book return the TRUE \`total\` plus a page (100 / 50 rows).
