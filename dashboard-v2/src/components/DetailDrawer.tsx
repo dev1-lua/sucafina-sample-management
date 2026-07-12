@@ -29,6 +29,7 @@ export type DetailDrawerProps = {
   open: boolean;
   onClose: () => void;
   fields: DetailField[];
+  entityLabel?: string;
 };
 
 type RowData = Record<string, unknown>;
@@ -121,7 +122,7 @@ function DetailsSkeleton() {
   );
 }
 
-export function DetailDrawer({ endpoint, id, open, onClose, fields }: DetailDrawerProps) {
+export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel }: DetailDrawerProps) {
   const query = useRecord(endpoint, id);
   const { mutate: patchRecord } = usePatchRecord(endpoint);
   const { mutate: deleteRecord, isPending: isDeleting, isError: deleteFailed } = useDeleteRecord(endpoint);
@@ -136,7 +137,16 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields }: DetailDraw
 
   const isLoading = query.isLoading;
   const data = (query.data ?? {}) as RowData & { events?: EventRow[] };
-  const title = (data.ref as string | undefined) ?? (data.name as string | undefined) ?? id;
+  // Never surface the raw UUID as the title — the identifying field differs per book
+  // (specialty: ref/name, bulk: sample_ref/quality, forwarding: sample_ref/id_number,
+  // clients: name), so walk the candidates in priority order and fall back to the
+  // tab's entity label.
+  const title =
+    [data.ref, data.sample_ref, data.name, data.id_number, data.quality, data.coffee_quality].find(
+      (v): v is string => typeof v === 'string' && v.trim() !== '',
+    ) ??
+    entityLabel ??
+    'Record';
 
   function commitEdit(field: string, value: string) {
     patchRecord({ id, body: { [field]: value } });

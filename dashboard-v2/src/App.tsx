@@ -36,6 +36,7 @@ function TabDrawerRoute({ tab }: { tab: TabKey }) {
         open={!!id}
         onClose={() => navigate(cfg.path)}
         fields={cfg.detailFields}
+        entityLabel={cfg.entityLabel}
       />
     </Suspense>
   );
