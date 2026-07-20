@@ -63,4 +63,15 @@ describe('forwarding-samples', () => {
     expect(rows[0].don).toBe(nairobiToday);
     expect(res.body.date).toBe(nairobiToday);
   });
+
+  it('roundtrips phyto_cert on create and patch', async () => {
+    const created = await auth(request(app).post('/forwarding-samples')).send({
+      sender: 'Kenyacof', origin: 'Uganda', sample_ref: 'PHYTO-1', coffee_quality: 'AA',
+      receiver_company: 'Beyers', phyto_cert: 'Yes',
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.phyto_cert).toBe('Yes');
+    const patched = await auth(request(app).patch(`/forwarding-samples/${created.body.id}`)).send({ phyto_cert: 'Client to confirm' });
+    expect(patched.body.phyto_cert).toBe('Client to confirm');
+  });
 });

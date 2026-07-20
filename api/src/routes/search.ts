@@ -47,7 +47,7 @@ search.get('/', h(async (req, res) => {
   const whereSql = f.where.length ? `WHERE ${f.where.join(' AND ')}` : '';
   const { rows } = await pool.query(
     `SELECT tab, id, ref, title, receiver, country, sample_type_norm, qty_grams,
-       status, courier_norm, awb, date_on, delivery_on, result_norm,
+       status, courier_norm, awb, date_on, delivery_on, result_norm, phyto_cert,
        count(*) OVER ()::int AS full_count
      FROM all_samples_v ${whereSql}
      ORDER BY date_on DESC NULLS LAST, id ASC

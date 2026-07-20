@@ -11,7 +11,7 @@ export const forwardingSamples = Router();
 
 const STATUSES = ['requested','preparing','dispatched','delivered','cancelled'] as const; // no results_in
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
-const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample'] as const;
+const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert'] as const;
 
 // `courier_norm` is free text (migration 004) so operators can enter values outside
 // COURIERS; that array is a UI suggestion list only.
@@ -29,6 +29,8 @@ const createSchema = z.object({
   qty: z.string().nullish(),
   qty_grams: z.number().int().nullish(),
   client_id: z.string().uuid().nullish(),
+  // Phytosanitary certificate needed? (migration 005): "Yes"/"No"/"Client to confirm" or free text.
+  phyto_cert: z.string().nullish(),
 });
 
 const patchSchema = z.object({
@@ -45,6 +47,7 @@ const patchSchema = z.object({
   order_placed: z.string().nullish(),
   new_sample_requested: z.string().nullish(),
   new_sample: z.string().nullish(),
+  phyto_cert: z.string().nullish(),
 });
 
 forwardingSamples.get('/', h(async (req, res) => {
@@ -86,18 +89,18 @@ forwardingSamples.post('/', h(async (req, res) => {
   const actor = actorFrom(req);
   const status = body.awb || body.courier_norm ? 'dispatched' : 'requested';
   const row = await runWithEvent(
-    // date + date_on default to today in Nairobi time when no explicit date is given; $13 overrides.
+    // date + date_on default to today in Nairobi time when no explicit date is given; $14 overrides.
     `INSERT INTO forwarding_samples
        (sender, origin, sample_ref, coffee_quality, receiver_company, id_number, awb, courier_norm,
-        qty, qty_grams, client_id, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-             COALESCE($13, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
-             COALESCE($13::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
-             $12::sample_status_t)
+        qty, qty_grams, client_id, phyto_cert, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+             COALESCE($14, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
+             COALESCE($14::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
+             $13::sample_status_t)
      RETURNING *`,
     [body.sender, body.origin, body.sample_ref, body.coffee_quality, body.receiver_company,
      body.id_number ?? null, body.awb ?? null, body.courier_norm ?? null, body.qty ?? null,
-     body.qty_grams ?? null, body.client_id ?? null, status, body.date ?? null],
+     body.qty_grams ?? null, body.client_id ?? null, body.phyto_cert ?? null, status, body.date ?? null],
     { entityType: 'forwarding', type: 'created', note: `${body.sample_ref} from ${body.origin} → ${body.receiver_company}`, actor },
   );
   res.status(201).json(row);
@@ -138,12 +141,13 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
        order_placed = COALESCE($11, order_placed),
        new_sample_requested = COALESCE($12, new_sample_requested),
        new_sample = COALESCE($13, new_sample),
+       phyto_cert = COALESCE($14, phyto_cert),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.id_number ?? null,
      body.receiver_company ?? null, body.qty_grams ?? null, body.client_id ?? null,
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
-     body.new_sample_requested ?? null, body.new_sample ?? null],
+     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null],
     { entityType: 'forwarding', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'forwarding sample not found');

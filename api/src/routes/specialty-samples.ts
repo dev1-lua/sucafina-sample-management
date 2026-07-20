@@ -15,7 +15,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert'] as const;
 
 // `sample_type_norm`/`courier_norm` are free text (migration 004) so operators can
 // enter values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -39,6 +39,8 @@ const createSchema = z.object({
   crop_year: z.string().nullish(),
   country: z.string().nullish(),
   client_id: z.string().uuid().nullish(),
+  // Phytosanitary certificate needed? (migration 005): "Yes"/"No"/"Client to confirm" or free text.
+  phyto_cert: z.string().nullish(),
 });
 
 const patchSchema = z.object({
@@ -59,6 +61,7 @@ const patchSchema = z.object({
   order_placed: z.string().nullish(),
   new_sample_requested: z.string().nullish(),
   new_sample: z.string().nullish(),
+  phyto_cert: z.string().nullish(),
 });
 
 specialtySamples.get('/', h(async (req, res) => {
@@ -112,19 +115,19 @@ specialtySamples.post('/', h(async (req, res) => {
   const ref = body.ref ?? (await issueRef(body.sample_type_norm));
   const row = await runWithEvent(
     // date (verbatim text, shown in the dashboard's Date column) and date_on (typed, sorted on)
-    // both default to today in Nairobi time when no explicit date is given; $17 supplies an override.
+    // both default to today in Nairobi time when no explicit date is given; $18 supplies an override.
     `INSERT INTO specialty_samples
        (ref, description, receiver_company, sample_type_norm, outturn, name, grade, bags,
-        awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-             COALESCE($17, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
-             COALESCE($17::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
+        awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+             COALESCE($18, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
+             COALESCE($18::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
      RETURNING *`,
     [ref, body.description, body.receiver_company, body.sample_type_norm, body.outturn ?? null,
      body.name ?? null, body.grade ?? null, body.bags ?? null, body.awb ?? null, body.courier_norm ?? null,
      body.qty ?? null, body.qty_grams ?? null, body.comments ?? null, body.crop_year ?? null, body.client_id ?? null,
-     body.country ?? null, body.date ?? null],
+     body.country ?? null, body.phyto_cert ?? null, body.date ?? null],
     { entityType: 'specialty', type: 'created', note: `${body.description} for ${body.receiver_company}`, actor },
   );
   res.status(201).json(row);
@@ -169,6 +172,7 @@ specialtySamples.patch('/:id', h(async (req, res) => {
        order_placed = COALESCE($15, order_placed),
        new_sample_requested = COALESCE($16, new_sample_requested),
        new_sample = COALESCE($17, new_sample),
+       phyto_cert = COALESCE($18, phyto_cert),
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
@@ -176,7 +180,7 @@ specialtySamples.patch('/:id', h(async (req, res) => {
      body.description ?? null, body.grade ?? null, body.qty_grams ?? null, body.client_id ?? null,
      body.receiver_company ?? null, body.comments ?? null, body.country ?? null,
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
-     body.new_sample_requested ?? null, body.new_sample ?? null],
+     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null],
     { entityType: 'specialty', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');

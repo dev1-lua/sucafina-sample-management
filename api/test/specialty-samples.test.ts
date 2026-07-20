@@ -155,4 +155,14 @@ describe('specialty-samples', () => {
     expect(ids.indexOf(newer)).toBeGreaterThanOrEqual(0);
     expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older)); // newer created_at wins the tie
   });
+
+  it('roundtrips phyto_cert on create and patch', async () => {
+    const created = await auth(request(app).post('/specialty-samples')).send({
+      description: 'Phyto fixture', receiver_company: 'Beyers', phyto_cert: 'Yes',
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.phyto_cert).toBe('Yes');
+    const patched = await auth(request(app).patch(`/specialty-samples/${created.body.id}`)).send({ phyto_cert: 'No' });
+    expect(patched.body.phyto_cert).toBe('No');
+  });
 });

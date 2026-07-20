@@ -14,7 +14,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert'] as const;
 
 // `sample_type`/`courier_norm` are free text (migration 004) so operators can enter
 // values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -40,6 +40,8 @@ const createSchema = z.object({
   comments: z.string().nullish(),
   crop_year: z.string().nullish(),
   client_id: z.string().uuid().nullish(),
+  // Phytosanitary certificate needed? (migration 005): "Yes"/"No"/"Client to confirm" or free text.
+  phyto_cert: z.string().nullish(),
 });
 
 const patchSchema = z.object({
@@ -58,6 +60,7 @@ const patchSchema = z.object({
   order_placed: z.string().nullish(),
   new_sample_requested: z.string().nullish(),
   new_sample: z.string().nullish(),
+  phyto_cert: z.string().nullish(),
 });
 
 bulkSamples.get('/', h(async (req, res) => {
@@ -113,21 +116,22 @@ bulkSamples.post('/', h(async (req, res) => {
   const body = parseBody(createSchema, req.body);
   const actor = actorFrom(req);
   const row = await runWithEvent(
-    // date + date_on default to today in Nairobi time when no explicit date is given; $20 overrides.
+    // date + date_on default to today in Nairobi time when no explicit date is given; $21 overrides.
     `INSERT INTO bulk_samples
        (sample_ref, quality, client, sample_type_norm, bags, client_ref, ico_mark, country, awb,
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
-        comments, crop_year, client_id, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-             COALESCE($20, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
-             COALESCE($20::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
+        comments, crop_year, client_id, phyto_cert, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+             COALESCE($21, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
+             COALESCE($21::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
      RETURNING *`,
     [body.sample_ref ?? null, body.quality, body.client, body.sample_type, body.bags ?? null,
      body.client_ref ?? null, body.ico_mark ?? null, body.country ?? null, body.awb ?? null,
      body.courier_norm ?? null, body.qty ?? null, body.qty_grams ?? null, body.moisture ?? null,
      body.water_activity ?? null, body.moisture_pct ?? null, body.water_activity_num ?? null,
-     body.comments ?? null, body.crop_year ?? null, body.client_id ?? null, body.date ?? null],
+     body.comments ?? null, body.crop_year ?? null, body.client_id ?? null, body.phyto_cert ?? null,
+     body.date ?? null],
     { entityType: 'bulk', type: 'created', note: `${body.quality} for ${body.client}`, actor },
   );
   res.status(201).json(row);
@@ -170,13 +174,14 @@ bulkSamples.patch('/:id', h(async (req, res) => {
        order_placed = COALESCE($13, order_placed),
        new_sample_requested = COALESCE($14, new_sample_requested),
        new_sample = COALESCE($15, new_sample),
+       phyto_cert = COALESCE($16, phyto_cert),
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
      body.quality ?? null, body.country ?? null, body.qty_grams ?? null, body.client_id ?? null, body.comments ?? null,
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
-     body.new_sample_requested ?? null, body.new_sample ?? null],
+     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null],
     { entityType: 'bulk', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');
