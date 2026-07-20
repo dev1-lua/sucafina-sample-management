@@ -6,7 +6,7 @@ import { TABS } from '../../lib/normalize';
 export default class FindOpenSamplesTool implements LuaTool {
   name = 'find_open_samples';
   description =
-    'List samples not yet dispatched (status requested/preparing) across specialty/bulk/forwarding, optionally filtered by client/receiver/ref text. Returns each hit\'s tab + id, needed to record a dispatch on the right table. Up to 100 per page; `total` is the TRUE count — when `has_more` is true, report the total and offer to narrow or fetch the next `page` rather than implying the shown rows are all of them.';
+    'List samples not yet dispatched (status requested/preparing) across specialty/commercial/forwarding, optionally filtered by client/receiver/ref text. Returns each hit\'s tab + id, needed to record a dispatch on the right table. Up to 100 per page; `total` is the TRUE count — when `has_more` is true, report the total and offer to narrow or fetch the next `page` rather than implying the shown rows are all of them.';
 
   inputSchema = z.object({
     query: z.string().optional().describe('Client, receiver, or ref text, e.g. "beyers"'),
@@ -38,6 +38,7 @@ export default class FindOpenSamplesTool implements LuaTool {
         status: s.status,
         courier: s.courier_norm,
         awb: s.awb,
+        phyto_cert: s.phyto_cert,
         date: s.date_on,
       })),
     };

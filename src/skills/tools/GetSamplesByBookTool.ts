@@ -6,10 +6,10 @@ import { TABS, TAB_ENDPOINT } from '../../lib/normalize';
 export default class GetSamplesByBookTool implements LuaTool {
   name = 'get_samples_by_book';
   description =
-    'List FULL sample rows from ONE book — every column, including the fields search omits: grade/outturn/name/bags (specialty); moisture/water-activity/ICO mark/client-ref (bulk); sender/origin/ID-number (forwarding); plus qty, comments, crop year, sample type, delivery, and the chaser follow-up fields (feedback_requested/received, order_placed, new_sample_requested, new_sample). Use when the user asks about any of those fields or wants to filter/scan within a book. Returns up to 50 full rows per page with the true total + has_more. To filter on a field with no dedicated param (e.g. grade), fetch the narrowed page and read the field off the rows.';
+    'List FULL sample rows from ONE book — every column, including the fields search omits: grade/outturn/name/bags (specialty); moisture/water-activity/ICO mark/client-ref (commercial); sender/origin/ID-number (forwarding); plus qty, comments, crop year, sample type, delivery, and the chaser follow-up fields (feedback_requested/received, order_placed, new_sample_requested, new_sample). Use when the user asks about any of those fields or wants to filter/scan within a book. Returns up to 50 full rows per page with the true total + has_more. To filter on a field with no dedicated param (e.g. grade), fetch the narrowed page and read the field off the rows.';
 
   inputSchema = z.object({
-    tab: z.enum(TABS).describe('Which book: specialty, bulk, or forwarding'),
+    tab: z.enum(TABS).describe("Which book: 'specialty', 'bulk' (the Commercial book), or 'forwarding'"),
     q: z.string().optional().describe("Free text over that book's ref / quality / receiver / name / awb"),
     status: z.string().optional().describe('Comma list: requested,preparing,dispatched,delivered,results_in,cancelled'),
     sample_type: z.string().optional().describe('specialty/bulk only: offer, type, pss, woc, …'),

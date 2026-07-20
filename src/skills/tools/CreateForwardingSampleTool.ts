@@ -21,6 +21,10 @@ export default class CreateForwardingSampleTool implements LuaTool {
     qty: z.string().optional().describe('Quantity as stated, if given.'),
     qty_grams: z.number().int().optional().describe('Quantity in grams, if given.'),
     client_id: z.string().optional().describe('Client id from find_client, when resolved.'),
+    phyto_cert: z
+      .string()
+      .optional()
+      .describe('Whether the shipment needs a phytosanitary certificate — "Yes", "No", or "Client to confirm".'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -42,6 +46,7 @@ export default class CreateForwardingSampleTool implements LuaTool {
         qty: input.qty ?? null,
         qty_grams: input.qty_grams ?? null,
         client_id: input.client_id ?? null,
+        phyto_cert: input.phyto_cert ?? null,
       }),
     });
 
@@ -55,6 +60,7 @@ export default class CreateForwardingSampleTool implements LuaTool {
       receiver_company: row.receiver_company,
       id_number: row.id_number,
       status: row.status,
+      phyto_cert: row.phyto_cert,
       url: dashboardUrl('forwarding', row.id, 'created'),
     };
   }

@@ -6,15 +6,15 @@ import { TABS } from '../../lib/normalize';
 export default class SearchSamplesTool implements LuaTool {
   name = 'search_samples';
   description =
-    'Search sample records by text, status, table, or AWB across specialty, bulk, and forwarding. Returns each hit\'s tab + id (needed to update the correct table). Returns up to 100 rows per page: `total` is the TRUE number of matches — when `has_more` is true you are NOT seeing them all, so report the total, show this page, and offer to narrow (by status/tab/date/AWB) or fetch the next `page`. Never imply the shown rows are the complete set.';
+    'Search sample records by text, status, table, or AWB across specialty, commercial, and forwarding. Returns each hit\'s tab + id (needed to update the correct table). Returns up to 100 rows per page: `total` is the TRUE number of matches — when `has_more` is true you are NOT seeing them all, so report the total, show this page, and offer to narrow (by status/tab/date/AWB) or fetch the next `page`. Never imply the shown rows are the complete set.';
 
   inputSchema = z.object({
     q: z.string().optional().describe('Text over ref/title/receiver/awb'),
-    tab: z.enum(TABS).optional().describe('Restrict to one table: specialty, bulk, or forwarding'),
+    tab: z.enum(TABS).optional().describe("Restrict to one table: 'specialty', 'bulk' (the Commercial book), or 'forwarding'"),
     status: z.string().optional().describe('Comma list: requested,preparing,dispatched,delivered,results_in,cancelled'),
     awb: z.string().optional().describe('Exact AWB/tracking number'),
     sample_type: z.string().optional().describe('Filter by sample type, e.g. offer, pss, type, woc'),
-    country: z.string().optional().describe('Filter by destination country (bulk) / origin (forwarding)'),
+    country: z.string().optional().describe('Filter by destination country (commercial) / origin (forwarding)'),
     page: z.number().int().min(1).optional().describe('1-based page to fetch (100 per page). Use to walk past the first page when has_more is true.'),
   });
 

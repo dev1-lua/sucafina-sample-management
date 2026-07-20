@@ -5,7 +5,7 @@ import { apiFetch } from '../../lib/api';
 export default class ListAwaitingResultsTool implements LuaTool {
   name = 'list_awaiting_results';
   description =
-    'List delivered specialty/bulk samples that still have no recorded result. Forwarding never reaches a result stage and is excluded. `total` is the TRUE count of everything awaiting a result (from the stats aggregate); `samples` is the first page of examples — when `has_more` is true, report the total and offer oldest-first or a client filter rather than implying the examples are all of them.';
+    'List delivered specialty/commercial samples that still have no recorded result. Forwarding never reaches a result stage and is excluded. `total` is the TRUE count of everything awaiting a result (from the stats aggregate); `samples` is the first page of examples — when `has_more` is true, report the total and offer oldest-first or a client filter rather than implying the examples are all of them.';
 
   inputSchema = z.object({});
 

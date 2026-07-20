@@ -5,7 +5,7 @@ import SearchSamplesTool from './tools/SearchSamplesTool';
 
 export const resultsCaptureSkill = new LuaSkill({
   name: 'results-capture',
-  description: 'Record cupping results and client feedback for Specialty/Bulk samples; list what is awaiting feedback',
+  description: 'Record cupping results and client feedback for Specialty/Commercial samples; list what is awaiting feedback',
   context: `NO NARRATION — never think out loud to the user: no "Let me check…", "I need to clarify…", "I'm noticing…", "I can offer to…", "before we proceed". Call tools SILENTLY; reply with only the result or the single next question.
 
 Use when someone shares cupping notes or a client verdict, e.g. "PSS3 cupped 83, citrus driven, clean — approved".

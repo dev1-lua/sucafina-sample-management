@@ -14,7 +14,7 @@ import {
 export default class CreateBulkSampleTool implements LuaTool {
   name = 'create_bulk_sample';
   description =
-    'Create one Bulk-book sample record (commercial/offer/type/PSS sample tied to an external client + country). Hard-requires quality, sample type, and client — the API rejects an incomplete record. Returns the row (Bulk refs are not auto-issued — pass one if the trader gave it).';
+    'Create one Commercial-book sample record (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. Returns the row (Commercial refs are not auto-issued — pass one if the trader gave it).';
 
   inputSchema = z.object({
     quality: z
@@ -28,7 +28,7 @@ export default class CreateBulkSampleTool implements LuaTool {
         'Sample purpose as stated or inferred: offer, type, pss (may include "PSS June Shipment" or "(replacement)"), woc, retention, flavor_mapping, marketing, calibration, or other.',
       ),
     client: z.string().min(1).describe('External client name (or internal contact), e.g. "Beyers", "Edmax Coffee".'),
-    sample_ref: z.string().optional().describe('Sample ref if stated, e.g. "TYPE - 980", "SSKE-104933" (not auto-issued for Bulk).'),
+    sample_ref: z.string().optional().describe('Sample ref if stated, e.g. "TYPE - 980", "SSKE-104933" (not auto-issued for Commercial).'),
     bags: z.number().int().optional().describe('Bags in the source lot.'),
     client_ref: z.string().optional().describe("Client's own reference number, e.g. a Zoegas/Nestle reference."),
     ico_mark: z.string().optional().describe('International Coffee Org mark, if given.'),
@@ -46,6 +46,10 @@ export default class CreateBulkSampleTool implements LuaTool {
     comments: z.string().optional(),
     crop_year: z.string().optional().describe('Harvest year, e.g. "2025/2026".'),
     client_id: z.string().optional().describe('Client id from find_client, when resolved.'),
+    phyto_cert: z
+      .string()
+      .optional()
+      .describe('Whether the shipment needs a phytosanitary certificate — "Yes", "No", or "Client to confirm".'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -79,6 +83,7 @@ export default class CreateBulkSampleTool implements LuaTool {
         comments: comments ?? null,
         crop_year: input.crop_year ?? null,
         client_id: input.client_id ?? null,
+        phyto_cert: input.phyto_cert ?? null,
       }),
     });
 
@@ -93,6 +98,7 @@ export default class CreateBulkSampleTool implements LuaTool {
       sample_type: row.sample_type_norm,
       qty_grams: row.qty_grams,
       status: row.status,
+      phyto_cert: row.phyto_cert,
       url: dashboardUrl('bulk', row.id, 'created'),
     };
   }

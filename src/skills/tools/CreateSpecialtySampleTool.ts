@@ -45,6 +45,10 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     comments: z.string().optional(),
     crop_year: z.string().optional().describe('Harvest year, e.g. "2025/2026".'),
     client_id: z.string().optional().describe('Client id from find_client, when resolved.'),
+    phyto_cert: z
+      .string()
+      .optional()
+      .describe('Whether the shipment needs a phytosanitary certificate — "Yes", "No", or "Client to confirm".'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -75,6 +79,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
         comments: comments ?? null,
         crop_year: input.crop_year ?? null,
         client_id: input.client_id ?? null,
+        phyto_cert: input.phyto_cert ?? null,
       }),
     });
 
@@ -91,6 +96,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       country: row.country,
       qty_grams: row.qty_grams,
       status: row.status,
+      phyto_cert: row.phyto_cert,
       url: dashboardUrl('specialty', row.id, 'created'),
     };
   }

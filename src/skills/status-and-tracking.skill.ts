@@ -7,7 +7,7 @@ import TrackAwbTool from './tools/TrackAwbTool';
 
 export const statusTrackingSkill = new LuaSkill({
   name: 'status-and-tracking',
-  description: 'Answer "did we send X / where is it / what is pending" questions across specialty, bulk, and forwarding',
+  description: 'Answer "did we send X / where is it / what is pending" questions across specialty, commercial, and forwarding',
   context: `NO NARRATION — never think out loud to the user: no "Let me check…", "I need to clarify…", "I'm noticing…", "I can offer to…", "before we proceed". Call tools SILENTLY; reply with only the result or the single next question.
 
 Use for any status question from traders: "did the Folgers samples go out?", "AWB for the
@@ -19,7 +19,7 @@ PICK THE RIGHT TOOL:
   awb, qty_grams, dates, result) + each hit's tab. Use to locate records or answer status.
 - get_samples_by_book — ONE book, FULL rows (every column). Use when the question is about fields
   search doesn't carry: grade / outturn / name / bags (specialty), moisture / water-activity / ICO mark /
-  client-ref (bulk), sender / origin / ID-number (forwarding), or qty / comments / crop-year / sample-type /
+  client-ref (commercial), sender / origin / ID-number (forwarding), or qty / comments / crop-year / sample-type /
   the chaser follow-up fields — or to filter/scan within a book (e.g. all PSS to Kenya, moisture over 12).
 - get_sample_status — ONE named ref/AWB/receiver: full detail + event timeline.
 - get_sample_stats — COUNTS and BREAKDOWNS ("how many …", "by country/status/type", aging, dispatched

@@ -12,12 +12,16 @@ const item = z.object({
 export default class RecordDispatchTool implements LuaTool {
   name = 'record_dispatch';
   description =
-    'Mark one or more samples as dispatched with courier + AWB, across specialty, bulk, and forwarding. One AWB can cover several rows (e.g. a batch of Type samples, or several Forwarding parcels) — pass every {tab, id} in one call.';
+    'Mark one or more samples as dispatched with courier + AWB, across specialty, commercial, and forwarding. One AWB can cover several rows (e.g. a batch of Type samples, or several Forwarding parcels) — pass every {tab, id} in one call.';
 
   inputSchema = z.object({
     items: z.array(item).min(1).describe('Rows to mark dispatched, each tagged with its table.'),
     courier: z.string().optional().describe('Courier as stated, e.g. DHL, Fedex, Kiptoo, HD, picked by client.'),
     awb: z.string().optional().describe('AWB/tracking number if there is one; normalized to digits-only.'),
+    phyto_cert: z
+      .string()
+      .optional()
+      .describe('Whether the shipment needs a phytosanitary certificate — "Yes", "No", or "Client to confirm". Applies to every row in the call (one shipment, one answer).'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -27,7 +31,12 @@ export default class RecordDispatchTool implements LuaTool {
     for (const it of input.items) {
       const row = await apiFetch(`/${TAB_ENDPOINT[it.tab]}/${it.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: 'dispatched', courier_norm: courier ?? null, awb: awb ?? null }),
+        body: JSON.stringify({
+          status: 'dispatched',
+          courier_norm: courier ?? null,
+          awb: awb ?? null,
+          phyto_cert: input.phyto_cert ?? null,
+        }),
       });
       updated.push({
         tab: it.tab,
@@ -36,6 +45,7 @@ export default class RecordDispatchTool implements LuaTool {
         status: row.status,
         courier: row.courier_norm,
         awb: row.awb,
+        phyto_cert: row.phyto_cert,
         url: dashboardUrl(it.tab, row.id, 'updated'),
       });
     }

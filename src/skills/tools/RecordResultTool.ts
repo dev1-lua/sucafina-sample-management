@@ -9,10 +9,10 @@ const RESULT_TABS = ['specialty', 'bulk'] as const; // Forwarding has no results
 export default class RecordResultTool implements LuaTool {
   name = 'record_result';
   description =
-    'Record the cupping/client outcome for a Specialty or Bulk sample (approved/rejected/pending_feedback + notes). Forwarding has no result field — do not call this for a forwarding row.';
+    'Record the cupping/client outcome for a Specialty or Commercial sample (approved/rejected/pending_feedback + notes). Forwarding has no result field — do not call this for a forwarding row.';
 
   inputSchema = z.object({
-    tab: z.enum(RESULT_TABS).describe('specialty or bulk only — resolve via search_samples first.'),
+    tab: z.enum(RESULT_TABS).describe("'specialty' or 'bulk' (the Commercial book's internal key) only — resolve via search_samples first."),
     id: z.string().describe('Sample row id (resolve via search_samples / get_sample_status first)'),
     result: z.enum(['approved', 'rejected', 'pending_feedback']),
     comments: z.string().optional().describe('Tasting notes / verdict text, verbatim, e.g. "83p, citrus driven, clean"'),
