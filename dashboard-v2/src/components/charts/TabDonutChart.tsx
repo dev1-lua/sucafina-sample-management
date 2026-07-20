@@ -2,7 +2,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 
 import { ChartShell } from './ChartShell';
 import { ChartTooltip } from './ChartTooltip';
-import { TAB_ORDER, chartChrome, humanize, tabColorHex, useIsDark } from './colors';
+import { TAB_LABEL, TAB_ORDER, chartChrome, humanize, tabColorHex, useIsDark } from './colors';
 import { isAllZero, recordToBuckets } from './utils';
 
 export function TabDonutChart({
@@ -18,12 +18,12 @@ export function TabDonutChart({
   const chrome = chartChrome(isDark);
   const buckets = recordToBuckets(data, TAB_ORDER);
   const total = buckets.reduce((sum, b) => sum + b.value, 0);
-  const rows = buckets.map((b) => ({ ...b, label: humanize(b.key), fill: tabColorHex(isDark, b.key) }));
+  const rows = buckets.map((b) => ({ ...b, label: TAB_LABEL[b.key] ?? humanize(b.key), fill: tabColorHex(isDark, b.key) }));
 
   return (
     <ChartShell
       title="Samples by tab"
-      subtitle="Specialty / Bulk / Forwarding"
+      subtitle="Specialty / Commercial / Forwarding"
       loading={loading}
       isEmpty={isAllZero(buckets)}
       emptyMessage="No samples yet"

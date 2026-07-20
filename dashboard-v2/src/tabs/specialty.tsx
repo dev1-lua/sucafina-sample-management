@@ -46,6 +46,7 @@ export const specialtyConfig: TabConfig = {
       sortKey: 'result_norm',
       render: (r) => <StatusBadge kind="result" value={r.result_norm as string | null} />,
     },
+    { key: 'phyto_cert', header: 'Phyto Cert', sortKey: 'phyto_cert', defaultHidden: true },
     { key: 'comments', header: 'Comments', defaultHidden: true },
     { key: 'crop_year', header: 'Crop Year', defaultHidden: true },
     { key: 'crop_area_details', header: 'Crop Area Details', defaultHidden: true },
@@ -75,6 +76,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
     { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
     { key: 'grade', label: 'Grade', edit: { field: 'grade', type: 'text' } },
+    { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
     { key: 'comments', label: 'Comments', edit: { field: 'comments', type: 'text' } },
     ...followupDetailFields,
   ],
@@ -94,6 +96,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS, allowCustom: true },
     { key: 'qty', label: 'Qty', type: 'text' },
     { key: 'crop_year', label: 'Crop Year', type: 'text' },
+    { key: 'phyto_cert', label: 'Phyto Cert', type: 'text' },
     { key: 'comments', label: 'Comments', type: 'text' },
   ],
 };

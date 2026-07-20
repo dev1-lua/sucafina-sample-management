@@ -27,6 +27,7 @@ export const forwardingConfig: TabConfig = {
     // Sort by that same normalized column.
     { key: 'courier', header: 'Courier', sortKey: 'courier_norm', render: (r) => <CellValue value={r.courier_norm} humanize /> },
     { key: 'qty', header: 'Qty', sortKey: 'qty_grams' },
+    { key: 'phyto_cert', header: 'Phyto Cert', sortKey: 'phyto_cert', defaultHidden: true },
     ...followupColumns,
     {
       key: 'status',
@@ -50,6 +51,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'id_number', label: 'ID Number', edit: { field: 'id_number', type: 'text' } },
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
+    { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
     ...followupDetailFields,
   ],
   // Exact field names from forwarding-samples' POST createSchema
@@ -69,5 +71,6 @@ export const forwardingConfig: TabConfig = {
     { key: 'awb', label: 'AWB', type: 'text' },
     { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS, allowCustom: true },
     { key: 'qty', label: 'Qty', type: 'text' },
+    { key: 'phyto_cert', label: 'Phyto Cert', type: 'text' },
   ],
 };

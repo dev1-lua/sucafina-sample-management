@@ -127,6 +127,13 @@ export const SAMPLE_TYPE_COLORS: Record<string, string> = {
 };
 
 export const TAB_ORDER = ['specialty', 'bulk', 'forwarding'] as const;
+// Display names for the tab keys — `bulk` is shown as "Commercial" (client-approved
+// wording); the key itself stays `bulk` end-to-end (DB/API/routes).
+export const TAB_LABEL: Record<string, string> = {
+  specialty: 'Specialty',
+  bulk: 'Commercial',
+  forwarding: 'Forwarding',
+};
 const TAB_COLORS: Record<'light' | 'dark', Record<string, string>> = {
   light: { specialty: '#2a78d6', bulk: '#1baf7a', forwarding: '#eda100' },
   dark: { specialty: '#3987e5', bulk: '#199e70', forwarding: '#c98500' },

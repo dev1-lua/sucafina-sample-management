@@ -22,7 +22,9 @@ const SAMPLE_TYPES = [
 export const bulkConfig: TabConfig = {
   endpoint: '/bulk-samples',
   path: '/bulk',
-  entityLabel: 'Bulk Sample',
+  // "Commercial" is the client-approved display name; the internal tab key / route / API
+  // endpoint stay `bulk` (renaming those would break saved links and the DB discriminator).
+  entityLabel: 'Commercial Sample',
   columns: [
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     { key: 'sample_ref', header: 'Sample Ref', sortKey: 'sample_ref' },
@@ -53,6 +55,7 @@ export const bulkConfig: TabConfig = {
       sortKey: 'result_norm',
       render: (r) => <StatusBadge kind="result" value={r.result_norm as string | null} />,
     },
+    { key: 'phyto_cert', header: 'Phyto Cert', sortKey: 'phyto_cert', defaultHidden: true },
     { key: 'comments', header: 'Comments', defaultHidden: true },
     { key: 'crop_year', header: 'Crop Year', defaultHidden: true },
     { key: 'crop_area_details', header: 'Crop Area Details', defaultHidden: true },
@@ -82,6 +85,7 @@ export const bulkConfig: TabConfig = {
     { key: 'result', label: 'Result', edit: { field: 'result_norm', type: 'select', options: RESULTS } },
     { key: 'quality', label: 'Quality', edit: { field: 'quality', type: 'text' } },
     { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
+    { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
     { key: 'comments', label: 'Comments', edit: { field: 'comments', type: 'text' } },
     ...followupDetailFields,
   ],
@@ -106,6 +110,7 @@ export const bulkConfig: TabConfig = {
     { key: 'moisture', label: 'Moisture', type: 'text' },
     { key: 'water_activity', label: 'Water Activity', type: 'text' },
     { key: 'crop_year', label: 'Crop Year', type: 'text' },
+    { key: 'phyto_cert', label: 'Phyto Cert', type: 'text' },
     { key: 'comments', label: 'Comments', type: 'text' },
   ],
 };

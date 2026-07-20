@@ -8,7 +8,7 @@ import type { ClientOrder, ClientOrderTab } from './client-types';
 
 const TAB_LABEL: Record<ClientOrderTab, string> = {
   specialty: 'Specialty',
-  bulk: 'Bulk',
+  bulk: 'Commercial',
   forwarding: 'Forwarding',
 };
 

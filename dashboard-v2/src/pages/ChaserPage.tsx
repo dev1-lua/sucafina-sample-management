@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TAB_LABEL } from '@/components/charts/colors';
 import { useDigest, useRunChaser } from '@/lib/query';
 import { TAB_REGISTRY } from '@/tabs/registry';
 import type { DigestBucket, DigestBucketKey, DigestItem, TabKey } from '@/types';
@@ -77,7 +78,7 @@ function BucketCard({ meta, bucket }: { meta: (typeof BUCKETS)[number]; bucket: 
               {bucket.items.map((item) => (
                 <TableRow key={`${item.tab}:${item.id}`}>
                   <TableCell><RefCell item={item} /></TableCell>
-                  <TableCell><Badge variant="outline" className="capitalize">{item.tab}</Badge></TableCell>
+                  <TableCell><Badge variant="outline">{TAB_LABEL[item.tab] ?? item.tab}</Badge></TableCell>
                   <TableCell>{item.quality ?? '—'}</TableCell>
                   <TableCell>{item.receiver ?? '—'}</TableCell>
                   <TableCell className="tabular-nums">{fmtDate(item.date_on)}</TableCell>

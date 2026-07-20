@@ -41,7 +41,7 @@ export default function DashboardPage() {
       {/* No page-level "Dashboard" title here: the Header bar already renders it as the
           section title (like every other route), so repeating it would duplicate the h1. */}
       <p className="text-xs text-muted-foreground">
-        Live view across specialty, bulk, and forwarding samples.
+        Live view across specialty, commercial, and forwarding samples.
         {isError && <span className="ml-1 text-destructive">Couldn't load the latest stats — showing what's cached.</span>}
       </p>
 

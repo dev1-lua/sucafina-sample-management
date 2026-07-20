@@ -9,7 +9,7 @@ import { TAB_REGISTRY } from './registry';
  * so deep-links / drawers / highlights are unaffected by the merge. */
 export const SAMPLE_TABS: ReadonlyArray<{ key: TabKey; label: string; path: string }> = [
   { key: 'specialty', label: 'Speciality Samples', path: TAB_REGISTRY.specialty.path },
-  { key: 'bulk', label: 'Bulk Samples', path: TAB_REGISTRY.bulk.path },
+  { key: 'bulk', label: 'Commercial Samples', path: TAB_REGISTRY.bulk.path },
   { key: 'forwarding', label: 'EA Forwarding', path: TAB_REGISTRY.forwarding.path },
 ];
 
