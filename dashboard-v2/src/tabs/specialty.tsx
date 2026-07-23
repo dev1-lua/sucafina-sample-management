@@ -27,6 +27,7 @@ export const specialtyConfig: TabConfig = {
   endpoint: '/specialty-samples',
   path: '/samples',
   entityLabel: 'Specialty Sample',
+  defaultSort: { sort: 'created_at', order: 'desc' },
   columns: [
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     { key: 'ref', header: 'Ref', sortKey: 'ref' },

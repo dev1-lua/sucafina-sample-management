@@ -20,6 +20,13 @@ it('every column sortKey is server-whitelisted', () => {
   }
 });
 
+it('sample books open sorted by creation time (newest logged first) and the key is server-whitelisted', () => {
+  for (const tab of ['specialty', 'bulk', 'forwarding'] as const) {
+    expect(TAB_REGISTRY[tab].defaultSort).toEqual({ sort: 'created_at', order: 'desc' });
+    expect(WL[tab]).toContain('created_at');
+  }
+});
+
 it('every tab has the correct endpoint/path pairing', () => {
   expect(TAB_REGISTRY.specialty.endpoint).toBe('/specialty-samples');
   expect(TAB_REGISTRY.specialty.path).toBe('/samples');

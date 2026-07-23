@@ -29,6 +29,7 @@ export const bulkConfig: TabConfig = {
   // "Commercial" is the client-approved display name; the internal tab key / route / API
   // endpoint stay `bulk` (renaming those would break saved links and the DB discriminator).
   entityLabel: 'Commercial Sample',
+  defaultSort: { sort: 'created_at', order: 'desc' },
   columns: [
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     { key: 'sample_ref', header: 'Sample Ref', sortKey: 'sample_ref' },

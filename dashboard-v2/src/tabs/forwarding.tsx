@@ -16,6 +16,7 @@ export const forwardingConfig: TabConfig = {
   endpoint: '/forwarding-samples',
   path: '/forwarding',
   entityLabel: 'Forwarding Sample',
+  defaultSort: { sort: 'created_at', order: 'desc' },
   // Only 11 columns total — no curation needed, all ship visible by default.
   columns: [
     { key: 'date', header: 'Date', sortKey: 'date_on' },

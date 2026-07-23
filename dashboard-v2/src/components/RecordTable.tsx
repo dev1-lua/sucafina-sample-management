@@ -52,6 +52,8 @@ export type RecordTableProps = {
   // Whether column headers are clickable to sort. Defaults to true. Temporarily set
   // false by the list pages while the filter/sort-triggered page-freeze is investigated.
   sortable?: boolean;
+  // Sort applied on first render (null => the API's own default). Header clicks override it.
+  initialSort?: SortState;
 };
 
 const columnHelper = createColumnHelper<RowData>();
@@ -63,8 +65,8 @@ function displayValue(value: unknown): React.ReactNode {
   return String(value);
 }
 
-export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true }: RecordTableProps) {
-  const [sort, setSort] = React.useState<SortState>(null);
+export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true, initialSort = null }: RecordTableProps) {
+  const [sort, setSort] = React.useState<SortState>(initialSort);
   const [page, setPage] = React.useState(1);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 

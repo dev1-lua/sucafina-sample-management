@@ -44,6 +44,7 @@ export default function SampleListView({ tab }: { tab: TabKey }) {
         onRowClick={(row) => navigate(`${cfg.path}/${String(row.id)}`)}
         columnVisibility={visibility}
         highlightId={highlightId}
+        initialSort={cfg.defaultSort ?? null}
       />
       {cfg.createFields && (
         <CreateRecordDialog

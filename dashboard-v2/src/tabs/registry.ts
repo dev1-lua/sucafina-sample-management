@@ -1,4 +1,4 @@
-import type { ColumnDef, CreateFieldDef, DetailField, FilterDef, TabKey } from '@/types';
+import type { ColumnDef, CreateFieldDef, DetailField, FilterDef, SortState, TabKey } from '@/types';
 
 import { specialtyConfig } from './specialty';
 import { bulkConfig } from './bulk';
@@ -13,6 +13,10 @@ export type TabConfig = {
   filters: FilterDef[];
   detailFields: DetailField[];
   createFields?: CreateFieldDef[]; // drives CreateRecordDialog; omit for tabs with no create flow (e.g. clients)
+  // Sort applied when the tab first loads (user clicks on headers still override it).
+  // The sample books use created_at DESC — "just logged" always surfaces on top, which
+  // date_on can't guarantee (imported rows may carry future dispatch dates).
+  defaultSort?: SortState;
 };
 
 export const TAB_REGISTRY: Record<TabKey, TabConfig> = {
