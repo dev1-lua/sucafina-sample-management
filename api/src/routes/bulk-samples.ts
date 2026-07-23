@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
+import { issueRef } from '../lib/refs.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { parseId, assertIn } from '../lib/validate.js';
@@ -14,7 +15,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on'] as const;
 
 // `sample_type`/`courier_norm` are free text (migration 004) so operators can enter
 // values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -42,6 +43,15 @@ const createSchema = z.object({
   client_id: z.string().uuid().nullish(),
   // Phytosanitary certificate needed? (migration 005): "Yes"/"No"/"Client to confirm" or free text.
   phyto_cert: z.string().nullish(),
+  // New per-sample fields (migration 007). All optional free text.
+  blend: z.string().nullish(),
+  rejection_reason: z.string().nullish(),
+  shipment_month: z.string().nullish(),
+  contract_number: z.string().nullish(),
+  location: z.string().nullish(),
+  // Approved-sample attributes (migration 009, feedback ⑬).
+  strategy: z.string().nullish(),
+  highlights: z.string().nullish(),
 });
 
 const patchSchema = z.object({
@@ -61,6 +71,15 @@ const patchSchema = z.object({
   new_sample_requested: z.string().nullish(),
   new_sample: z.string().nullish(),
   phyto_cert: z.string().nullish(),
+  // New per-sample fields (migration 007).
+  blend: z.string().nullish(),
+  rejection_reason: z.string().nullish(),
+  shipment_month: z.string().nullish(),
+  contract_number: z.string().nullish(),
+  location: z.string().nullish(),
+  // Approved-sample attributes (migration 009).
+  strategy: z.string().nullish(),
+  highlights: z.string().nullish(),
 });
 
 bulkSamples.get('/', h(async (req, res) => {
@@ -93,6 +112,12 @@ bulkSamples.get('/', h(async (req, res) => {
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
   if (req.query.date_from) f.add(`date_on >= ?::date`, String(req.query.date_from));
   if (req.query.date_to) f.add(`date_on <= ?::date`, String(req.query.date_to));
+  // Location (free text) — case-insensitive multi, like country.
+  if (req.query.location) {
+    const values = String(req.query.location).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (values.length) f.add(`lower(location) = ANY (?::text[])`, values);
+  }
+  if (req.query.shipment_month) f.add(`shipment_month = ?`, String(req.query.shipment_month));
   if (req.query.moisture_min) f.add(`moisture_pct >= ?::numeric`, String(req.query.moisture_min));
   if (req.query.moisture_max) f.add(`moisture_pct <= ?::numeric`, String(req.query.moisture_max));
   if (req.query.water_min) f.add(`water_activity_num >= ?::numeric`, String(req.query.water_min));
@@ -107,7 +132,10 @@ bulkSamples.get('/', h(async (req, res) => {
 
 bulkSamples.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
-  const { rows } = await pool.query(`SELECT * FROM bulk_samples WHERE id = $1`, [id]);
+  const { rows } = await pool.query(
+    `SELECT t.*, c.number AS consignment_number, c.location AS consignment_location
+       FROM bulk_samples t LEFT JOIN consignments c ON c.id = t.consignment_id
+      WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'bulk sample not found');
   res.json({ ...rows[0], events: await entityEvents('bulk', id) });
 }));
@@ -115,22 +143,29 @@ bulkSamples.get('/:id', h(async (req, res) => {
 bulkSamples.post('/', h(async (req, res) => {
   const body = parseBody(createSchema, req.body);
   const actor = actorFrom(req);
+  // Auto-issue a Commercial ref when the trader didn't supply one, mirroring specialty-samples.
+  // Prefix is chosen from the sample type (pss→SSKE, type→TYPE, else→SL). Feedback ⑱: without this
+  // the chaser rendered these rows as "(no ref)" and Chat couldn't resolve them.
+  const sampleRef = body.sample_ref ?? (await issueRef(body.sample_type));
   const row = await runWithEvent(
     // date + date_on default to today in Nairobi time when no explicit date is given; $21 overrides.
     `INSERT INTO bulk_samples
        (sample_ref, quality, client, sample_type_norm, bags, client_ref, ico_mark, country, awb,
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
-        comments, crop_year, client_id, phyto_cert, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-             COALESCE($21, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
-             COALESCE($21::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
+        comments, crop_year, client_id, phyto_cert,
+        blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
+             COALESCE($28, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
+             COALESCE($28::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
      RETURNING *`,
-    [body.sample_ref ?? null, body.quality, body.client, body.sample_type, body.bags ?? null,
+    [sampleRef, body.quality, body.client, body.sample_type, body.bags ?? null,
      body.client_ref ?? null, body.ico_mark ?? null, body.country ?? null, body.awb ?? null,
      body.courier_norm ?? null, body.qty ?? null, body.qty_grams ?? null, body.moisture ?? null,
      body.water_activity ?? null, body.moisture_pct ?? null, body.water_activity_num ?? null,
      body.comments ?? null, body.crop_year ?? null, body.client_id ?? null, body.phyto_cert ?? null,
+     body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
+     body.strategy ?? null, body.highlights ?? null,
      body.date ?? null],
     { entityType: 'bulk', type: 'created', note: `${body.quality} for ${body.client}`, actor },
   );
@@ -175,13 +210,23 @@ bulkSamples.patch('/:id', h(async (req, res) => {
        new_sample_requested = COALESCE($14, new_sample_requested),
        new_sample = COALESCE($15, new_sample),
        phyto_cert = COALESCE($16, phyto_cert),
+       blend = COALESCE($17, blend),
+       rejection_reason = COALESCE($18, rejection_reason),
+       shipment_month = COALESCE($19, shipment_month),
+       contract_number = COALESCE($20, contract_number),
+       location = COALESCE($21, location),
+       strategy = COALESCE($22, strategy),
+       highlights = COALESCE($23, highlights),
+       result_on = CASE WHEN $5 IS NOT NULL AND result_on IS NULL THEN CURRENT_DATE ELSE result_on END,
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
      body.quality ?? null, body.country ?? null, body.qty_grams ?? null, body.client_id ?? null, body.comments ?? null,
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
-     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null],
+     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null,
+     body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
+     body.strategy ?? null, body.highlights ?? null],
     { entityType: 'bulk', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');

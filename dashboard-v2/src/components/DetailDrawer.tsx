@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { IconTrash } from '@tabler/icons-react';
+import { IconPrinter, IconTrash } from '@tabler/icons-react';
 
 import { useRecord, usePatchRecord, useDeleteRecord } from '@/lib/query';
 import type { DetailField, EventRow } from '@/types';
@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Timeline } from '@/components/Timeline';
+import { openPrintLabel, sampleLabelData } from '@/components/print-label';
 import { HighlightBanner } from '@/components/HighlightBanner';
 import { useRecordHighlight } from '@/lib/highlight';
 
@@ -186,16 +187,29 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
                 <SheetTitle className="text-base">{title}</SheetTitle>
               )}
               {!isLoading && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  aria-label={`Delete ${title}`}
-                  onClick={() => setConfirmOpen(true)}
-                >
-                  <IconTrash className="size-4" />
-                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {/* Feedback ⑫: physical label for the sample bag. */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    aria-label={`Print label for ${title}`}
+                    onClick={() => openPrintLabel(sampleLabelData(data))}
+                  >
+                    <IconPrinter className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={`Delete ${title}`}
+                    onClick={() => setConfirmOpen(true)}
+                  >
+                    <IconTrash className="size-4" />
+                  </Button>
+                </div>
               )}
             </div>
           </SheetHeader>

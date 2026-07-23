@@ -27,6 +27,15 @@ search.get('/', h(async (req, res) => {
     f.add(`status = ANY (?::sample_status_t[])`, values);
   }
   if (req.query.awb) f.add(`awb = ?`, String(req.query.awb));
+  // Filter by cupping verdict (approved/rejected/pending_feedback) — used for the approved-samples
+  // list + the "latest approved blend" lookup. Free-text CSV membership like sample_type below.
+  if (req.query.result) {
+    const values = String(req.query.result).split(',').map((s) => s.trim()).filter(Boolean);
+    if (values.length) f.add(`result_norm::text = ANY (?::text[])`, values);
+  }
+  if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
+  // Cup-profile search (feedback ⑬): match the highlights tag text, e.g. "hibiscus", "clean cup".
+  if (req.query.highlights) f.add(`highlights ILIKE '%'||?||'%'`, String(req.query.highlights));
   // sample_type_norm and country are free text in the unified view, so match by CSV membership
   // (no enum assert) — lets the agent filter a cross-book list by e.g. offer / Kenya. Country is
   // matched case-insensitively so Kenya/KENYA/kenya all match.
@@ -48,6 +57,7 @@ search.get('/', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT tab, id, ref, title, receiver, country, sample_type_norm, qty_grams,
        status, courier_norm, awb, date_on, delivery_on, result_norm, phyto_cert,
+       blend, strategy, highlights, result_on,
        count(*) OVER ()::int AS full_count
      FROM all_samples_v ${whereSql}
      ORDER BY date_on DESC NULLS LAST, id ASC

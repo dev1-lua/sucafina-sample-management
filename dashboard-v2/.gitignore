@@ -13,3 +13,4 @@ vitest.config.js
 vitest.config.d.ts
 .vercel
 .env*
+dist-v2/

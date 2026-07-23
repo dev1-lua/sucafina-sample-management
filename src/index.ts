@@ -5,6 +5,7 @@ import { dispatchLoggingSkill } from './skills/dispatch-logging.skill';
 import { statusTrackingSkill } from './skills/status-and-tracking.skill';
 import { resultsCaptureSkill } from './skills/results-capture.skill';
 import { clientBookSkill } from './skills/client-book.skill';
+import { consignmentsSkill } from './skills/consignments.skill';
 import currentDatetime from './preprocessors/current-datetime.preprocessor';
 // TEMP (2026-07-09): all jobs held aside while stabilizing the chat agent. Adding the three
 // reminder jobs in the v1.0.5 push (activeVersion 3) coincided with the live agent losing ALL
@@ -25,6 +26,7 @@ const agent = new LuaAgent({
     statusTrackingSkill,
     resultsCaptureSkill,
     clientBookSkill,
+    consignmentsSkill,
   ],
   // jobs parked — see note above. Restore incrementally after the agent is verified healthy.
   jobs: [],

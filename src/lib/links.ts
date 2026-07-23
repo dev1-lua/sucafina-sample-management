@@ -41,3 +41,9 @@ export function dashboardUrl(tab: LinkTab, id: string | number, event: LinkEvent
   const base = (env('DASHBOARD_BASE_URL') || 'https://sucafina-sample-management.vercel.app').replace(/\/+$/, '');
   return `${base}${DASH_PATH[tab]}/${id}?hl=${event}`;
 }
+
+/** Absolute dashboard URL for one consignment (route /consignments/:id in dashboard-v2). */
+export function consignmentUrl(id: string, event: LinkEvent = 'updated'): string {
+  const base = (env('DASHBOARD_BASE_URL') || 'https://sucafina-sample-management.vercel.app').replace(/\/+$/, '');
+  return `${base}/consignments/${id}?hl=${event}`;
+}

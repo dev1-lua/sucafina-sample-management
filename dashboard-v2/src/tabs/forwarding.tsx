@@ -1,7 +1,11 @@
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
+import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
+
+// Lab locations Muki named (feedback ⑦); free text elsewhere, so the select allows custom entry.
+const LOCATIONS = ['westlands', 'thika'];
 
 // Enums verbatim from the API's forwarding-samples router / global constraints.
 // Forwarding's lifecycle omits `results_in` (no result_norm on this table).
@@ -26,7 +30,10 @@ export const forwardingConfig: TabConfig = {
     // (the raw `courier` column is legacy-import-only and always empty for app data).
     // Sort by that same normalized column.
     { key: 'courier', header: 'Courier', sortKey: 'courier_norm', render: (r) => <CellValue value={r.courier_norm} humanize /> },
-    { key: 'qty', header: 'Qty', sortKey: 'qty_grams' },
+    // Feedback ⑨: unit-formatted (kg ≥1000 g, else g) off qty_grams, raw qty text as fallback.
+    { key: 'qty', header: 'Qty', sortKey: 'qty_grams', render: (r) => <CellValue value={formatQty(r.qty_grams) ?? r.qty} /> },
+    // Feedback ⑦: lab location.
+    { key: 'location', header: 'Location', sortKey: 'location', render: (r) => <CellValue value={formatLocation(r.location)} /> },
     { key: 'phyto_cert', header: 'Phyto Cert', sortKey: 'phyto_cert', defaultHidden: true },
     ...followupColumns,
     {
@@ -41,6 +48,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'courier_norm', label: 'Courier', type: 'enum', options: COURIERS, multi: true },
     { key: 'origin', label: 'Origin', type: 'text' },
     { key: 'sender', label: 'Sender', type: 'text' },
+    { key: 'location', label: 'Location', type: 'enum', options: LOCATIONS, multi: true },
     { key: 'date_range', label: 'Date', type: 'date' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
     { key: 'has_id', label: 'Has ID', type: 'bool' },
@@ -51,6 +59,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'id_number', label: 'ID Number', edit: { field: 'id_number', type: 'text' } },
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
+    { key: 'location', label: 'Location', edit: { field: 'location', type: 'select', options: LOCATIONS, allowCustom: true } },
     { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
     ...followupDetailFields,
   ],
@@ -71,6 +80,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'awb', label: 'AWB', type: 'text' },
     { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS, allowCustom: true },
     { key: 'qty', label: 'Qty', type: 'text' },
+    { key: 'location', label: 'Location', type: 'select', options: LOCATIONS, allowCustom: true },
     { key: 'phyto_cert', label: 'Phyto Cert', type: 'text' },
   ],
 };

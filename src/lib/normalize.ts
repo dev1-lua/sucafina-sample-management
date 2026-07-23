@@ -139,6 +139,30 @@ export function normalizeSampleType(raw?: string | null): SampleType | undefined
   return 'other';
 }
 
+// ---- Lab location (migration 007, feedback ⑦) ----------------------------
+// The QC labs Muki named: Westlands and Thika. Stored as free text so a new lab can appear
+// without a schema change, but known variants collapse to a canonical lowercase token
+// (matching the courier/sample_type convention) so filtering/display stay consistent.
+export const LOCATIONS = ['westlands', 'thika'] as const;
+const LOCATION_MAP: Record<string, string> = {
+  westlands: 'westlands',
+  westlandslab: 'westlands',
+  thika: 'thika',
+  thikalab: 'thika',
+};
+export function normalizeLocation(raw?: string | null): string | undefined {
+  if (!raw || !raw.trim()) return undefined;
+  const key = raw.trim().toLowerCase().replace(/[^a-z]/g, '');
+  return LOCATION_MAP[key] ?? raw.trim(); // unknown labs kept verbatim
+}
+
+/** Pulls a bare shipment month (Title Case) out of free text like "PSS June Shipment" → "June". */
+export function extractShipmentMonth(raw?: string | null): string | undefined {
+  if (!raw) return undefined;
+  const m = raw.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/i);
+  return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : undefined;
+}
+
 /** Extracts a PSS shipment-month + replacement-flag note from free text, e.g. "PSS June Shipment(replacement)". */
 export function extractPssNote(raw?: string | null): string | undefined {
   if (!raw) return undefined;

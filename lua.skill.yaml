@@ -17,6 +17,9 @@ skills:
   - name: results-capture
     skillId: efcd6fde-e46a-462a-a0ce-b02aaae0567f
     version: 1.0.10
+  - name: consignments
+    skillId: 1718a42a-7015-4a3b-9e49-717f3f796b71
+    version: 1.0.0
 webhooks: []
 jobs:
   - jobId: c2436eb0-0a8a-4653-8124-ee40d3254c79

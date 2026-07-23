@@ -5,6 +5,7 @@ import { KpiTile } from '@/components/KpiTile';
 import { ChaserSummaryCard } from '@/components/ChaserSummaryCard';
 import { FilterBar } from '@/components/FilterBar';
 import { Button } from '@/components/ui/button';
+import { ApprovalRateChart } from '@/components/charts/ApprovalRateChart';
 import { CountryBarChart } from '@/components/charts/CountryBarChart';
 import { CourierBarChart } from '@/components/charts/CourierBarChart';
 import { SampleTypeBarChart } from '@/components/charts/SampleTypeBarChart';
@@ -18,7 +19,7 @@ import type { FilterState } from '@/types';
 
 const KPI_STAGGER_MS = 40;
 const CHART_STAGGER_MS = 60;
-const CHART_BASE_DELAY_MS = 5 * KPI_STAGGER_MS; // charts settle in just after the KPI row finishes
+const CHART_BASE_DELAY_MS = 7 * KPI_STAGGER_MS; // charts settle in just after the KPI row finishes
 
 export default function DashboardPage() {
   const [filters, setFilters] = useState<FilterState>({});
@@ -35,6 +36,7 @@ export default function DashboardPage() {
   const refetching = isFetching && !isLoading;
 
   const totalSamples = stats ? Object.values(stats.by_tab).reduce((sum, n) => sum + n, 0) : 0;
+  const approvalRatePct = stats?.approval_rate == null ? null : Math.round(stats.approval_rate * 100);
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -57,7 +59,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Row */}
-      <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 transition-opacity duration-150', refetching && 'opacity-60')}>
+      <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 transition-opacity duration-150', refetching && 'opacity-60')}>
         <KpiTile
           label="Total samples"
           value={totalSamples.toLocaleString()}
@@ -90,6 +92,20 @@ export default function DashboardPage() {
           loading={isLoading}
           motionDelayMs={4 * KPI_STAGGER_MS}
         />
+        <KpiTile
+          label="Approval rate"
+          value={approvalRatePct == null ? '—' : `${approvalRatePct}%`}
+          hint="Approved share of decided samples"
+          loading={isLoading}
+          motionDelayMs={5 * KPI_STAGGER_MS}
+        />
+        <KpiTile
+          label="Avg feedback time"
+          value={stats?.avg_feedback_days == null ? '—' : `${stats.avg_feedback_days}d`}
+          hint="Delivered → cupping result"
+          loading={isLoading}
+          motionDelayMs={6 * KPI_STAGGER_MS}
+        />
       </div>
 
       {/* Chaser follow-ups at a glance — links to the full Chaser tab. */}
@@ -101,8 +117,9 @@ export default function DashboardPage() {
         <VolumeAreaChart data={stats?.volume_over_time} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 1 * CHART_STAGGER_MS} />
         <TabDonutChart data={stats?.by_tab} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 2 * CHART_STAGGER_MS} />
         <SampleTypeBarChart data={stats?.by_sample_type} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 3 * CHART_STAGGER_MS} />
-        <CourierBarChart data={stats?.by_courier} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 4 * CHART_STAGGER_MS} />
-        <CountryBarChart data={stats?.by_country} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 5 * CHART_STAGGER_MS} />
+        <ApprovalRateChart data={stats?.approval_by_type} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 4 * CHART_STAGGER_MS} />
+        <CourierBarChart data={stats?.by_courier} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 5 * CHART_STAGGER_MS} />
+        <CountryBarChart data={stats?.by_country} loading={isLoading} motionDelayMs={CHART_BASE_DELAY_MS + 6 * CHART_STAGGER_MS} />
       </div>
     </div>
   );

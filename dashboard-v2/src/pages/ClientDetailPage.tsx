@@ -11,6 +11,8 @@ import { ClientFormDialog } from '@/components/ClientFormDialog';
 import { ClientDeleteDialog } from '@/components/client-delete-dialog';
 import { ClientOwnerChip } from '@/components/client-owner-chip';
 import { ClientOrdersTable } from '@/components/client-orders-table';
+import { ClientSpecsCard } from '@/components/ClientSpecsCard';
+import { ApprovedSamplesCard } from '@/components/ApprovedSamplesCard';
 import type { ClientContact, ClientDetail } from '@/components/client-types';
 import { HighlightBanner } from '@/components/HighlightBanner';
 import { useRecordHighlight } from '@/lib/highlight';
@@ -145,6 +147,12 @@ export default function ClientDetailPage() {
           {ownerError && <span className="text-xs text-destructive">{ownerError}</span>}
         </div>
       </section>
+
+      {/* Client specs — the guide for what to send (feedback ⑯) */}
+      <ClientSpecsCard client={data} />
+
+      {/* Approved samples with strategy / blend / highlights (feedback ⑬) */}
+      <ApprovedSamplesCard orders={data.orders} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Contacts */}

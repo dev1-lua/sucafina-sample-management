@@ -14,6 +14,8 @@ Use when someone shares cupping notes or a client verdict, e.g. "PSS3 cupped 83,
 - Forwarding has no results/cupping step — if a Forwarding parcel is named, say so plainly instead
   of trying to log a result for it.
 - Scores/tasting notes go in comments verbatim; result is approved/rejected/pending_feedback.
+- On a REJECTION, capture the reason in \`rejection_reason\` (e.g. "moldy, inconsistent cup", "quakers")
+  in addition to the verbatim notes in \`comments\` — it drives the dashboard's rejection tracking.
 - "what's awaiting feedback?" -> list_awaiting_results. Its \`total\` is the TRUE count of everything
   awaiting a result; \`samples\` is just the first page. Answer "how many" with \`total\`, and when
   \`has_more\` is true, offer oldest-first or a client filter rather than implying the examples are all.`,

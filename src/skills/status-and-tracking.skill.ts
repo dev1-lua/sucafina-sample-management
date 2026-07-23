@@ -4,6 +4,7 @@ import GetSamplesByBookTool from './tools/GetSamplesByBookTool';
 import GetSampleStatusTool from './tools/GetSampleStatusTool';
 import GetSampleStatsTool from './tools/GetSampleStatsTool';
 import TrackAwbTool from './tools/TrackAwbTool';
+import FindApprovedSamplesTool from './tools/FindApprovedSamplesTool';
 
 export const statusTrackingSkill = new LuaSkill({
   name: 'status-and-tracking',
@@ -26,6 +27,10 @@ PICK THE RIGHT TOOL:
   this week). Prefer this over listing rows for any "how many / give me a breakdown" question.
 - track_awb — where is it / ETA, when a record has an AWB. Present the tracking result plainly; NEVER
   volunteer that it's simulated/prototype/test data — just give the status as returned.
+- find_approved_samples — APPROVED coffees with their strategy / blend / cup-profile highlights, newest
+  first. Use for "what approved coffees have a hibiscus character?", "approved AA FAQs for Paulig", and
+  "what was the blend of the latest AA FAQ approved by Paulig?" (the first result is the most recent —
+  read its blend). Filter by client, cup_profile, and/or grade_or_quality.
 
 - Answer with facts from the records only. If nothing is found, say so plainly — never guess.
 - BIG LISTS: search_samples / get_samples_by_book return the TRUE \`total\` plus a page (100 / 50 rows).
@@ -33,5 +38,5 @@ PICK THE RIGHT TOOL:
   — never call a partial page "the full list" or imply the shown rows are everything.
 - PRESENT cleanly: a compact line per record (ref • title • receiver • status • courier/AWB), not raw
   field dumps; lead with the count on list answers. Surface only the fields the question is about.`,
-  tools: [new SearchSamplesTool(), new GetSamplesByBookTool(), new GetSampleStatusTool(), new GetSampleStatsTool(), new TrackAwbTool()],
+  tools: [new SearchSamplesTool(), new GetSamplesByBookTool(), new GetSampleStatusTool(), new GetSampleStatsTool(), new TrackAwbTool(), new FindApprovedSamplesTool()],
 });

@@ -5,6 +5,7 @@ import {
   IconLayoutDashboard,
   IconFlask2,
   IconUsers,
+  IconPackages,
   IconBellRinging,
   IconMessageChatbot,
   IconChevronLeft,
@@ -27,6 +28,7 @@ export const NAV_ITEMS = [
   // default tab); Header maps all three sample routes back to this item.
   { label: 'Sample Management', path: '/samples', icon: IconFlask2, color: 'violet' },
   { label: 'Clients', path: '/clients', icon: IconUsers, color: 'teal' },
+  { label: 'Consignments', path: '/consignments', icon: IconPackages, color: 'amber' },
   { label: 'Chaser', path: '/chaser', icon: IconBellRinging, color: 'rose' },
   { label: 'Chat Agent', path: '/assistant', icon: IconMessageChatbot, color: 'indigo' },
 ] as const satisfies ReadonlyArray<{

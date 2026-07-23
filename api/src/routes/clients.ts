@@ -25,6 +25,12 @@ const patchSchema = z.object({
   name: z.string().nullish(),
   country: z.string().nullish(),
   account_owner_id: z.string().uuid().nullish(),
+  // Client specs (migration 009, feedback ⑯) — the desk's guide when sending samples.
+  spec_grades: z.string().nullish(),
+  spec_cup_profile: z.string().nullish(),
+  spec_moisture_max: z.number().nullish(),
+  spec_min_score: z.number().nullish(),
+  spec_notes: z.string().nullish(),
 });
 
 const SORTABLE: Record<string, string> = {
@@ -98,7 +104,8 @@ clients.get('/:id', h(async (req, res) => {
     ? (await pool.query(`SELECT id, name, role, email FROM traders WHERE id = $1`, [rows[0].account_owner_id])).rows[0] ?? null
     : null;
   const orders = await pool.query(
-    `SELECT tab, id, ref, title, status, courier_norm, awb, date_on, delivery_on, result_norm
+    `SELECT tab, id, ref, title, status, courier_norm, awb, date_on, delivery_on, result_norm,
+            blend, strategy, highlights, result_on
      FROM all_samples_v WHERE client_id = $1 AND deleted_at IS NULL
      ORDER BY date_on DESC NULLS LAST LIMIT 200`,
     [id],
@@ -121,9 +128,16 @@ clients.patch('/:id', h(async (req, res) => {
        name = COALESCE($2, name),
        country = COALESCE($3, country),
        account_owner_id = COALESCE($4::uuid, account_owner_id),
+       spec_grades = COALESCE($5, spec_grades),
+       spec_cup_profile = COALESCE($6, spec_cup_profile),
+       spec_moisture_max = COALESCE($7, spec_moisture_max),
+       spec_min_score = COALESCE($8, spec_min_score),
+       spec_notes = COALESCE($9, spec_notes),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
-    [id, body.name ?? null, body.country ?? null, body.account_owner_id ?? null],
+    [id, body.name ?? null, body.country ?? null, body.account_owner_id ?? null,
+     body.spec_grades ?? null, body.spec_cup_profile ?? null, body.spec_moisture_max ?? null,
+     body.spec_min_score ?? null, body.spec_notes ?? null],
     { entityType: 'client', type: 'edited', note: `fields updated: ${Object.keys(body).join(', ')}`, actor },
   );
   if (!row) throw new HttpError(404, 'client not found');

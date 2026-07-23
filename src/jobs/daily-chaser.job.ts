@@ -2,8 +2,10 @@ import { LuaJob, User, env } from 'lua-cli';
 import { apiFetch } from '../lib/api';
 
 function fmtItem(i: any): string {
+  // The digest projection (api/src/lib/digest.ts SUMMARY) exposes ref/quality/receiver/awb — there
+  // is no deadline column on the three active tables, so we never reference one here. Commercial
+  // rows now carry an auto-issued ref (migration 006), so "(no ref)" is a rare last-resort fallback.
   const bits = [i.ref ?? '(no ref)', i.quality, '→ ' + (i.receiver ?? '?')];
-  if (i.deadline) bits.push(`deadline ${String(i.deadline).slice(0, 10)}`);
   if (i.awb) bits.push(`AWB ${i.awb}`);
   return '• ' + bits.filter(Boolean).join(' — ');
 }

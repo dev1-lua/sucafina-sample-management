@@ -15,7 +15,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on'] as const;
 
 // `sample_type_norm`/`courier_norm` are free text (migration 004) so operators can
 // enter values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -41,6 +41,15 @@ const createSchema = z.object({
   client_id: z.string().uuid().nullish(),
   // Phytosanitary certificate needed? (migration 005): "Yes"/"No"/"Client to confirm" or free text.
   phyto_cert: z.string().nullish(),
+  // New per-sample fields (migration 007). All optional free text.
+  blend: z.string().nullish(),
+  rejection_reason: z.string().nullish(),
+  shipment_month: z.string().nullish(),
+  contract_number: z.string().nullish(),
+  location: z.string().nullish(),
+  // Approved-sample attributes (migration 009, feedback ⑬).
+  strategy: z.string().nullish(),
+  highlights: z.string().nullish(),
 });
 
 const patchSchema = z.object({
@@ -62,6 +71,15 @@ const patchSchema = z.object({
   new_sample_requested: z.string().nullish(),
   new_sample: z.string().nullish(),
   phyto_cert: z.string().nullish(),
+  // New per-sample fields (migration 007).
+  blend: z.string().nullish(),
+  rejection_reason: z.string().nullish(),
+  shipment_month: z.string().nullish(),
+  contract_number: z.string().nullish(),
+  location: z.string().nullish(),
+  // Approved-sample attributes (migration 009).
+  strategy: z.string().nullish(),
+  highlights: z.string().nullish(),
 });
 
 specialtySamples.get('/', h(async (req, res) => {
@@ -95,6 +113,12 @@ specialtySamples.get('/', h(async (req, res) => {
   if (req.query.date_from) f.add(`date_on >= ?::date`, String(req.query.date_from));
   if (req.query.date_to) f.add(`date_on <= ?::date`, String(req.query.date_to));
   if (req.query.has_awb === 'true') f.where.push(`awb IS NOT NULL AND awb <> ''`);
+  // Location (free text) — case-insensitive multi, like country.
+  if (req.query.location) {
+    const values = String(req.query.location).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (values.length) f.add(`lower(location) = ANY (?::text[])`, values);
+  }
+  if (req.query.shipment_month) f.add(`shipment_month = ?`, String(req.query.shipment_month));
   const result = await buildList(
     { table: 'specialty_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb'] },
     req.query, f.where, f.params,
@@ -104,7 +128,10 @@ specialtySamples.get('/', h(async (req, res) => {
 
 specialtySamples.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
-  const { rows } = await pool.query(`SELECT * FROM specialty_samples WHERE id = $1`, [id]);
+  const { rows } = await pool.query(
+    `SELECT t.*, c.number AS consignment_number, c.location AS consignment_location
+       FROM specialty_samples t LEFT JOIN consignments c ON c.id = t.consignment_id
+      WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'specialty sample not found');
   res.json({ ...rows[0], events: await entityEvents('specialty', id) });
 }));
@@ -118,16 +145,20 @@ specialtySamples.post('/', h(async (req, res) => {
     // both default to today in Nairobi time when no explicit date is given; $18 supplies an override.
     `INSERT INTO specialty_samples
        (ref, description, receiver_company, sample_type_norm, outturn, name, grade, bags,
-        awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-             COALESCE($18, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
-             COALESCE($18::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
+        awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert,
+        blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+             COALESCE($25, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
+             COALESCE($25::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
      RETURNING *`,
     [ref, body.description, body.receiver_company, body.sample_type_norm, body.outturn ?? null,
      body.name ?? null, body.grade ?? null, body.bags ?? null, body.awb ?? null, body.courier_norm ?? null,
      body.qty ?? null, body.qty_grams ?? null, body.comments ?? null, body.crop_year ?? null, body.client_id ?? null,
-     body.country ?? null, body.phyto_cert ?? null, body.date ?? null],
+     body.country ?? null, body.phyto_cert ?? null,
+     body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
+     body.strategy ?? null, body.highlights ?? null,
+     body.date ?? null],
     { entityType: 'specialty', type: 'created', note: `${body.description} for ${body.receiver_company}`, actor },
   );
   res.status(201).json(row);
@@ -173,6 +204,14 @@ specialtySamples.patch('/:id', h(async (req, res) => {
        new_sample_requested = COALESCE($16, new_sample_requested),
        new_sample = COALESCE($17, new_sample),
        phyto_cert = COALESCE($18, phyto_cert),
+       blend = COALESCE($19, blend),
+       rejection_reason = COALESCE($20, rejection_reason),
+       shipment_month = COALESCE($21, shipment_month),
+       contract_number = COALESCE($22, contract_number),
+       location = COALESCE($23, location),
+       strategy = COALESCE($24, strategy),
+       highlights = COALESCE($25, highlights),
+       result_on = CASE WHEN $5 IS NOT NULL AND result_on IS NULL THEN CURRENT_DATE ELSE result_on END,
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
@@ -180,7 +219,9 @@ specialtySamples.patch('/:id', h(async (req, res) => {
      body.description ?? null, body.grade ?? null, body.qty_grams ?? null, body.client_id ?? null,
      body.receiver_company ?? null, body.comments ?? null, body.country ?? null,
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
-     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null],
+     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null,
+     body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
+     body.strategy ?? null, body.highlights ?? null],
     { entityType: 'specialty', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');

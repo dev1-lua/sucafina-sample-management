@@ -2,7 +2,7 @@ import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
-import { normalizeAwb, normalizeCountry, normalizeCourier } from '../../lib/normalize';
+import { normalizeAwb, normalizeCountry, normalizeCourier, normalizeLocation } from '../../lib/normalize';
 
 export default class CreateForwardingSampleTool implements LuaTool {
   name = 'create_forwarding_sample';
@@ -25,12 +25,14 @@ export default class CreateForwardingSampleTool implements LuaTool {
       .string()
       .optional()
       .describe('Whether the shipment needs a phytosanitary certificate — "Yes", "No", or "Client to confirm".'),
+    location: z.string().optional().describe('Lab the parcel sits at — "Westlands" or "Thika".'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
     const courier = normalizeCourier(input.courier);
     const awb = normalizeAwb(input.awb);
     const origin = normalizeCountry(input.origin) ?? input.origin;
+    const location = normalizeLocation(input.location);
 
     const row = await apiFetch('/forwarding-samples', {
       method: 'POST',
@@ -47,6 +49,7 @@ export default class CreateForwardingSampleTool implements LuaTool {
         qty_grams: input.qty_grams ?? null,
         client_id: input.client_id ?? null,
         phyto_cert: input.phyto_cert ?? null,
+        location: location ?? null,
       }),
     });
 

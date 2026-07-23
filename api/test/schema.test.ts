@@ -18,6 +18,7 @@ describe('schema', () => {
   it('seeds ref counters', async () => {
     const { rows } = await pool.query(`SELECT prefix, next_val FROM ref_counters ORDER BY prefix`);
     expect(rows).toEqual([
+      { prefix: 'CN', next_val: 1000 },
       { prefix: 'SL', next_val: 8000 },
       { prefix: 'SSKE', next_val: 108000 },
       { prefix: 'TYPE', next_val: 1000 },

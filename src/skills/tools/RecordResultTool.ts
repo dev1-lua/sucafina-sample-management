@@ -16,12 +16,18 @@ export default class RecordResultTool implements LuaTool {
     id: z.string().describe('Sample row id (resolve via search_samples / get_sample_status first)'),
     result: z.enum(['approved', 'rejected', 'pending_feedback']),
     comments: z.string().optional().describe('Tasting notes / verdict text, verbatim, e.g. "83p, citrus driven, clean"'),
+    rejection_reason: z
+      .string()
+      .optional()
+      .describe('Why it was rejected, e.g. "moldy, inconsistent cup", "quakers". Only meaningful when result is "rejected".'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
+    // Only attach a rejection reason when the verdict is actually a rejection.
+    const rejectionReason = input.result === 'rejected' ? input.rejection_reason ?? null : null;
     const row = await apiFetch(`/${TAB_ENDPOINT[input.tab]}/${input.id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ result_norm: input.result, comments: input.comments ?? null }),
+      body: JSON.stringify({ result_norm: input.result, comments: input.comments ?? null, rejection_reason: rejectionReason }),
     });
     return {
       tab: input.tab,
@@ -30,6 +36,7 @@ export default class RecordResultTool implements LuaTool {
       status: row.status,
       result: row.result_norm,
       comments: row.comments,
+      rejection_reason: row.rejection_reason,
       url: dashboardUrl(input.tab, row.id, 'updated'),
     };
   }

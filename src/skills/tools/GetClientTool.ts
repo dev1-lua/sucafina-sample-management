@@ -45,6 +45,14 @@ export default class GetClientTool implements LuaTool {
       account_owner: c.account_owner
         ? { name: c.account_owner.name, role: c.account_owner.role, email: c.account_owner.email }
         : null,
+      // Client specs (migration 009) — the desk's guide when sending samples. Null when unset.
+      specs: {
+        grades: c.spec_grades ?? null,
+        cup_profile: c.spec_cup_profile ?? null,
+        moisture_max: c.spec_moisture_max ?? null,
+        min_score: c.spec_min_score ?? null,
+        notes: c.spec_notes ?? null,
+      },
       // Server caps the embedded order list at 200; flag when it's likely truncated.
       orders_shown: orders.length,
       orders_capped: orders.length >= 200,

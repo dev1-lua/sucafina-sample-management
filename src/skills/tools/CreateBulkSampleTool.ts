@@ -5,9 +5,11 @@ import { dashboardUrl } from '../../lib/links';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
+  extractShipmentMonth,
   normalizeAwb,
   normalizeCountry,
   normalizeCourier,
+  normalizeLocation,
   normalizeSampleType,
 } from '../../lib/normalize';
 
@@ -50,6 +52,12 @@ export default class CreateBulkSampleTool implements LuaTool {
       .string()
       .optional()
       .describe('Whether the shipment needs a phytosanitary certificate — "Yes", "No", or "Client to confirm".'),
+    blend: z.string().optional().describe('Canonical blend composition if this is a blend, e.g. "AA PLUS 30% / AB 70%".'),
+    shipment_month: z.string().optional().describe('Shipment month for a PSS/pre-shipment sample, e.g. "June" (auto-derived from a "PSS June Shipment" type if omitted).'),
+    contract_number: z.string().optional().describe('Contract number for a PSS/shipment sample, e.g. "CT-2026-14".'),
+    location: z.string().optional().describe('Lab the sample sits at — "Westlands" or "Thika".'),
+    strategy: z.string().optional().describe('Assigned strategy for this sample, if stated.'),
+    highlights: z.string().optional().describe('Cup-profile highlights/tags, e.g. "Blackcurrant bomb, Strict Clean Cups".'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -60,6 +68,9 @@ export default class CreateBulkSampleTool implements LuaTool {
     const qtyGrams = input.qty_grams ?? DEFAULT_QTY_GRAMS[sampleType];
     const pssNote = sampleType === 'pss' ? extractPssNote(input.sample_type) : undefined;
     const comments = [input.comments, pssNote].filter(Boolean).join(' — ') || undefined;
+    // For a PSS, derive the shipment month from the type string ("PSS June Shipment") if not given.
+    const shipmentMonth = input.shipment_month ?? (sampleType === 'pss' ? extractShipmentMonth(input.sample_type) : undefined);
+    const location = normalizeLocation(input.location);
 
     const row = await apiFetch('/bulk-samples', {
       method: 'POST',
@@ -84,6 +95,12 @@ export default class CreateBulkSampleTool implements LuaTool {
         crop_year: input.crop_year ?? null,
         client_id: input.client_id ?? null,
         phyto_cert: input.phyto_cert ?? null,
+        blend: input.blend ?? null,
+        shipment_month: shipmentMonth ?? null,
+        contract_number: input.contract_number ?? null,
+        location: location ?? null,
+        strategy: input.strategy ?? null,
+        highlights: input.highlights ?? null,
       }),
     });
 
@@ -99,6 +116,10 @@ export default class CreateBulkSampleTool implements LuaTool {
       qty_grams: row.qty_grams,
       status: row.status,
       phyto_cert: row.phyto_cert,
+      blend: row.blend,
+      shipment_month: row.shipment_month,
+      contract_number: row.contract_number,
+      location: row.location,
       url: dashboardUrl('bulk', row.id, 'created'),
     };
   }

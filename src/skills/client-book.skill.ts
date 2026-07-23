@@ -17,6 +17,9 @@ Use for "what's X's address", "who owns X", "what has X ordered", "add new clien
 - PRESENT cleanly, don't dump fields: address as one block — attention_to · full_address · phone · email;
   then "Owner: <name>" if set, and a short "recent orders" line (ref • title • status) only if asked or relevant.
 - get_client returns 0 contacts when the company exists but has no address on file — say that plainly and
-  offer to add one, rather than implying the client is unknown.`,
+  offer to add one, rather than implying the client is unknown.
+- get_client also returns the client's SPECS (preferred grades, target cup profile, moisture ceiling,
+  minimum score, notes) — the guide for what to send them. Quote them when asked "what does X want" /
+  "what are X's specs", and consult them when preparing a sample for that client.`,
   tools: [new FindClientTool(), new GetClientTool(), new UpsertClientTool()],
 });

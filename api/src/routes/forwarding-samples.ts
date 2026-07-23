@@ -11,7 +11,7 @@ export const forwardingSamples = Router();
 
 const STATUSES = ['requested','preparing','dispatched','delivered','cancelled'] as const; // no results_in
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
-const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert'] as const;
+const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','location'] as const;
 
 // `courier_norm` is free text (migration 004) so operators can enter values outside
 // COURIERS; that array is a UI suggestion list only.
@@ -31,6 +31,8 @@ const createSchema = z.object({
   client_id: z.string().uuid().nullish(),
   // Phytosanitary certificate needed? (migration 005): "Yes"/"No"/"Client to confirm" or free text.
   phyto_cert: z.string().nullish(),
+  // Lab location (migration 007): free text with UI suggestions (Westlands / Thika).
+  location: z.string().nullish(),
 });
 
 const patchSchema = z.object({
@@ -48,6 +50,7 @@ const patchSchema = z.object({
   new_sample_requested: z.string().nullish(),
   new_sample: z.string().nullish(),
   phyto_cert: z.string().nullish(),
+  location: z.string().nullish(),
 });
 
 forwardingSamples.get('/', h(async (req, res) => {
@@ -64,6 +67,10 @@ forwardingSamples.get('/', h(async (req, res) => {
   }
   if (req.query.origin) f.add(`origin = ?`, String(req.query.origin));
   if (req.query.sender) f.add(`sender = ?`, String(req.query.sender));
+  if (req.query.location) {
+    const values = String(req.query.location).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (values.length) f.add(`lower(location) = ANY (?::text[])`, values);
+  }
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
   if (req.query.date_from) f.add(`date_on >= ?::date`, String(req.query.date_from));
   if (req.query.date_to) f.add(`date_on <= ?::date`, String(req.query.date_to));
@@ -79,7 +86,10 @@ forwardingSamples.get('/', h(async (req, res) => {
 
 forwardingSamples.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
-  const { rows } = await pool.query(`SELECT * FROM forwarding_samples WHERE id = $1`, [id]);
+  const { rows } = await pool.query(
+    `SELECT t.*, c.number AS consignment_number, c.location AS consignment_location
+       FROM forwarding_samples t LEFT JOIN consignments c ON c.id = t.consignment_id
+      WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'forwarding sample not found');
   res.json({ ...rows[0], events: await entityEvents('forwarding', id) });
 }));
@@ -92,15 +102,16 @@ forwardingSamples.post('/', h(async (req, res) => {
     // date + date_on default to today in Nairobi time when no explicit date is given; $14 overrides.
     `INSERT INTO forwarding_samples
        (sender, origin, sample_ref, coffee_quality, receiver_company, id_number, awb, courier_norm,
-        qty, qty_grams, client_id, phyto_cert, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+        qty, qty_grams, client_id, phyto_cert, location, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$15,
              COALESCE($14, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($14::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              $13::sample_status_t)
      RETURNING *`,
     [body.sender, body.origin, body.sample_ref, body.coffee_quality, body.receiver_company,
      body.id_number ?? null, body.awb ?? null, body.courier_norm ?? null, body.qty ?? null,
-     body.qty_grams ?? null, body.client_id ?? null, body.phyto_cert ?? null, status, body.date ?? null],
+     body.qty_grams ?? null, body.client_id ?? null, body.phyto_cert ?? null, status, body.date ?? null,
+     body.location ?? null],
     { entityType: 'forwarding', type: 'created', note: `${body.sample_ref} from ${body.origin} → ${body.receiver_company}`, actor },
   );
   res.status(201).json(row);
@@ -142,12 +153,14 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
        new_sample_requested = COALESCE($12, new_sample_requested),
        new_sample = COALESCE($13, new_sample),
        phyto_cert = COALESCE($14, phyto_cert),
+       location = COALESCE($15, location),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.id_number ?? null,
      body.receiver_company ?? null, body.qty_grams ?? null, body.client_id ?? null,
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
-     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null],
+     body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null,
+     body.location ?? null],
     { entityType: 'forwarding', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'forwarding sample not found');

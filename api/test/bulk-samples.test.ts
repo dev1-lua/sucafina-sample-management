@@ -60,6 +60,39 @@ describe('bulk-samples', () => {
     expect(res.body.date).toBe(nairobiToday);
   });
 
+  it('auto-issues a Commercial ref when none is supplied (feedback ⑱)', async () => {
+    // Prefix mapping mirrors issueRef: pss→SSKE, type→TYPE, everything else (incl. offer)→SL.
+    const pss = await auth(request(app).post('/bulk-samples')).send({ quality: 'AB', client: 'Paulig', sample_type: 'pss' });
+    expect(pss.status).toBe(201);
+    expect(pss.body.sample_ref).toMatch(/^SSKE-\d+$/);
+    const type = await auth(request(app).post('/bulk-samples')).send({ quality: 'AA', client: 'Paulig', sample_type: 'type' });
+    expect(type.body.sample_ref).toMatch(/^TYPE-\d+$/);
+    const offer = await auth(request(app).post('/bulk-samples')).send({ quality: 'C', client: 'Paulig', sample_type: 'offer' });
+    expect(offer.body.sample_ref).toMatch(/^SL-\d+$/);
+    // An explicitly supplied ref is preserved untouched.
+    const explicit = await auth(request(app).post('/bulk-samples')).send({ quality: 'PB', client: 'Paulig', sample_type: 'offer', sample_ref: 'CUSTOM-1' });
+    expect(explicit.body.sample_ref).toBe('CUSTOM-1');
+  });
+
+  it('roundtrips blend / rejection_reason / shipment_month / contract_number / location (migration 007)', async () => {
+    const created = await auth(request(app).post('/bulk-samples')).send({
+      quality: 'AA PLUS (30%), AB (70%)', client: 'Paulig', sample_type: 'pss',
+      blend: 'AA PLUS 30% / AB 70%', shipment_month: 'June', contract_number: 'CT-2026-14', location: 'westlands',
+    });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      blend: 'AA PLUS 30% / AB 70%', shipment_month: 'June', contract_number: 'CT-2026-14', location: 'westlands',
+    });
+    const patched = await auth(request(app).patch(`/bulk-samples/${created.body.id}`)).send({
+      result_norm: 'rejected', rejection_reason: 'moldy, inconsistent cup',
+    });
+    expect(patched.body.result_norm).toBe('rejected');
+    expect(patched.body.rejection_reason).toBe('moldy, inconsistent cup');
+    // Location filter (case-insensitive) finds it.
+    const listed = await auth(request(app).get('/bulk-samples?location=Westlands'));
+    expect(listed.body.data.some((r: { id: string }) => r.id === created.body.id)).toBe(true);
+  });
+
   it('roundtrips phyto_cert on create and patch', async () => {
     const created = await auth(request(app).post('/bulk-samples')).send({
       quality: 'Phyto fixture', client: 'X', phyto_cert: 'Yes',

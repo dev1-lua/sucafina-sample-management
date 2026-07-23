@@ -9,6 +9,8 @@ import SampleManagementLayout from '@/pages/SampleManagementLayout';
 import SampleListView from '@/pages/SampleListView';
 import ClientsPage from '@/pages/ClientsPage';
 import ClientDetailPage from '@/pages/ClientDetailPage';
+import ConsignmentsPage from '@/pages/ConsignmentsPage';
+import ConsignmentDetailPage from '@/pages/ConsignmentDetailPage';
 import ChaserPage from '@/pages/ChaserPage';
 import AssistantPage from '@/pages/AssistantPage';
 import { TAB_REGISTRY } from '@/tabs/registry';
@@ -74,6 +76,9 @@ export default function App() {
                 Navigating here fully replaces the list instead of stacking a panel on it. */}
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/clients/:id" element={<ClientDetailPage />} />
+            {/* Consignments: list + full show-page (feedback ⑥⑦⑧), same sibling-route shape as Clients. */}
+            <Route path="/consignments" element={<ConsignmentsPage />} />
+            <Route path="/consignments/:id" element={<ConsignmentDetailPage />} />
             <Route path="/chaser" element={<ChaserPage />} />
             {/* Conversational data-in surface — the (heavy) Lua widget lives on
                 this one route so its bundle only loads when the tab is opened. */}

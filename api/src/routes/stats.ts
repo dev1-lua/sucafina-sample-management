@@ -83,7 +83,7 @@ stats.get('/', h(async (req, res) => {
   // just whatever the current filter leaves behind.
   const optBase = `FROM all_samples_v WHERE deleted_at IS NULL`;
 
-  const [byStatus, byTab, bySampleType, byResult, byCourier, byCountry, volume, scalars, dispatchedThisWeek, months, countries, qualities] =
+  const [byStatus, byTab, bySampleType, byResult, byCourier, byCountry, volume, scalars, dispatchedThisWeek, approvalByType, feedbackTiming, months, countries, qualities] =
     await Promise.all([
       pool.query(`SELECT status AS k, count(*)::int AS n ${base} GROUP BY status`, params),
       pool.query(`SELECT tab AS k, count(*)::int AS n ${base} GROUP BY tab`, params),
@@ -106,6 +106,23 @@ stats.get('/', h(async (req, res) => {
       // by the sample-dimension filters, which don't map onto the event log).
       pool.query(`SELECT count(*)::int AS n FROM events
                   WHERE type = 'dispatched' AND created_at >= date_trunc('week', now())`),
+      // Feedback ⑮: approval outcomes per sample type (Offer / Type / PSS / …). Only rows that
+      // reached a verdict count toward the rate, so `total` = approved + rejected (pending_feedback
+      // is excluded); `rate` is the approved share of decided samples. Forwarding never carries a
+      // result, so it naturally contributes nothing here.
+      pool.query(`
+        SELECT sample_type_norm::text AS k,
+               count(*) FILTER (WHERE result_norm = 'approved')::int AS approved,
+               count(*) FILTER (WHERE result_norm = 'rejected')::int AS rejected
+          ${base} AND sample_type_norm IS NOT NULL AND result_norm IN ('approved','rejected')
+         GROUP BY sample_type_norm`, params),
+      // Feedback ⑭: average delivered→result turnaround, in days. Only rows where both dates were
+      // captured count (result_on lands from migration 009 onward), so historical rows without a
+      // recorded verdict date don't skew it. `n` is how many rows the average is based on.
+      pool.query(`
+        SELECT avg(result_on - delivery_on)::numeric(10,1) AS avg_days,
+               count(*)::int AS n
+          ${base} AND result_on IS NOT NULL AND delivery_on IS NOT NULL AND result_on >= delivery_on`, params),
       pool.query(`SELECT to_char(date_trunc('month', date_on), 'YYYY-MM') AS m ${optBase} AND date_on IS NOT NULL GROUP BY 1 ORDER BY 1 DESC`),
       pool.query(`SELECT initcap(country) AS c ${optBase} AND country IS NOT NULL GROUP BY 1 ORDER BY 1`),
       // Quality (unified `title`) is free text — return every distinct value, verbatim, for the
@@ -113,6 +130,16 @@ stats.get('/', h(async (req, res) => {
       // filters to its row(s) and the agent's substring quality filter is unaffected.
       pool.query(`SELECT DISTINCT title AS q ${optBase} AND title IS NOT NULL AND title <> '' ORDER BY 1`),
     ]);
+  // Shape the per-type approval rows into { type: {approved, rejected, total, rate} } and roll
+  // them up into an overall rate. `rate` is null when nothing was decided (avoids 0/0 → NaN).
+  const approvalMap: Record<string, { approved: number; rejected: number; total: number; rate: number | null }> = {};
+  let totApproved = 0, totDecided = 0;
+  for (const row of approvalByType.rows as { k: string; approved: number; rejected: number }[]) {
+    const total = row.approved + row.rejected;
+    approvalMap[row.k] = { approved: row.approved, rejected: row.rejected, total, rate: total ? row.approved / total : null };
+    totApproved += row.approved; totDecided += total;
+  }
+
   res.json({
     by_status: groupToMap(byStatus.rows),
     by_tab: groupToMap(byTab.rows),
@@ -123,6 +150,11 @@ stats.get('/', h(async (req, res) => {
     volume_over_time: volume.rows,
     ...scalars.rows[0],
     dispatched_this_week: dispatchedThisWeek.rows[0].n,
+    approval_by_type: approvalMap,
+    approval_rate: totDecided ? totApproved / totDecided : null,
+    // Average feedback turnaround (days) + the sample count it's based on (null when none captured).
+    avg_feedback_days: feedbackTiming.rows[0].avg_days == null ? null : Number(feedbackTiming.rows[0].avg_days),
+    feedback_sample_count: feedbackTiming.rows[0].n,
     months: months.rows.map((r) => r.m),
     countries: countries.rows.map((r) => r.c),
     qualities: qualities.rows.map((r) => r.q),
