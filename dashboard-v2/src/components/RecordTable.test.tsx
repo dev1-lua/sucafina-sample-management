@@ -44,3 +44,21 @@ it('sortable header adds sort/order to the request; row click fires callback', a
   fireEvent.click(screen.getByText('R1'));
   expect(onRow).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
 });
+
+it('a pinned column renders sticky-right header and body cells with an opaque background', async () => {
+  stubFetch([{ id: '1', ref: 'R1', status: 'dispatched' }]);
+  const pinnedCols = [
+    { key: 'ref', header: 'Ref' },
+    { key: 'status', header: 'Status', pinned: 'right' as const },
+  ];
+  render(wrap(<RecordTable endpoint="/specialty-samples" columns={pinnedCols} filters={{}} onRowClick={() => {}} />));
+  await waitFor(() => screen.getByText('R1'));
+  const headerCell = screen.getByText('Status').closest('th')!;
+  expect(headerCell.className).toContain('sticky');
+  expect(headerCell.className).toContain('right-0');
+  const bodyCell = screen.getByText('dispatched').closest('td')!;
+  expect(bodyCell.className).toContain('sticky');
+  expect(bodyCell.className).toContain('bg-background');
+  // Unpinned neighbors stay static.
+  expect(screen.getByText('R1').closest('td')!.className).not.toContain('sticky');
+});

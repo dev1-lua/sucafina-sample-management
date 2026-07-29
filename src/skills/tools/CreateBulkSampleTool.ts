@@ -2,6 +2,7 @@ import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
+import { currentUserName } from '../../lib/current-user';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
@@ -58,6 +59,8 @@ export default class CreateBulkSampleTool implements LuaTool {
     location: z.string().optional().describe('Lab the sample sits at — "Westlands" or "Thika".'),
     strategy: z.string().optional().describe('Assigned strategy for this sample, if stated.'),
     highlights: z.string().optional().describe('Cup-profile highlights/tags, e.g. "Blackcurrant bomb, Strict Clean Cups".'),
+    requested_by: z.string().optional().describe('Who placed the request, if someone other than the chatting user; defaults to the chatting user.'),
+    stock_grams: z.number().int().optional().describe('Grams of this lot the lab still holds in stock, when stated (e.g. "Westlands has 300g left").'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -71,6 +74,7 @@ export default class CreateBulkSampleTool implements LuaTool {
     // For a PSS, derive the shipment month from the type string ("PSS June Shipment") if not given.
     const shipmentMonth = input.shipment_month ?? (sampleType === 'pss' ? extractShipmentMonth(input.sample_type) : undefined);
     const location = normalizeLocation(input.location);
+    const requestedBy = input.requested_by ?? (await currentUserName());
 
     const row = await apiFetch('/bulk-samples', {
       method: 'POST',
@@ -101,6 +105,8 @@ export default class CreateBulkSampleTool implements LuaTool {
         location: location ?? null,
         strategy: input.strategy ?? null,
         highlights: input.highlights ?? null,
+        requested_by: requestedBy ?? null,
+        stock_grams: input.stock_grams ?? null,
       }),
     });
 
@@ -120,6 +126,8 @@ export default class CreateBulkSampleTool implements LuaTool {
       shipment_month: row.shipment_month,
       contract_number: row.contract_number,
       location: row.location,
+      requested_by: row.requested_by,
+      stock_grams: row.stock_grams,
       url: dashboardUrl('bulk', row.id, 'created'),
     };
   }

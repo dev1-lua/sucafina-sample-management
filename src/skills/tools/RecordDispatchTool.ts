@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { normalizeAwb, normalizeCourier, TABS, TAB_ENDPOINT } from '../../lib/normalize';
+import { currentUserName } from '../../lib/current-user';
 
 const item = z.object({
   tab: z.enum(TABS).describe('Which table the sample lives in (from find_open_samples / search_samples).'),
@@ -27,6 +28,8 @@ export default class RecordDispatchTool implements LuaTool {
   async execute(input: z.infer<typeof this.inputSchema>) {
     const courier = normalizeCourier(input.courier);
     const awb = normalizeAwb(input.awb);
+    // Who completed the request (Muki): the human running the dispatch chat.
+    const completedBy = await currentUserName();
     const updated = [];
     for (const it of input.items) {
       const row = await apiFetch(`/${TAB_ENDPOINT[it.tab]}/${it.id}`, {
@@ -36,6 +39,7 @@ export default class RecordDispatchTool implements LuaTool {
           courier_norm: courier ?? null,
           awb: awb ?? null,
           phyto_cert: input.phyto_cert ?? null,
+          completed_by: completedBy ?? null,
         }),
       });
       updated.push({
@@ -46,6 +50,9 @@ export default class RecordDispatchTool implements LuaTool {
         courier: row.courier_norm,
         awb: row.awb,
         phyto_cert: row.phyto_cert,
+        completed_by: row.completed_by,
+        // Grams left after the dispatch decrement — lets the agent flag depleted lots.
+        stock_grams: row.stock_grams,
         url: dashboardUrl(it.tab, row.id, 'updated'),
       });
     }

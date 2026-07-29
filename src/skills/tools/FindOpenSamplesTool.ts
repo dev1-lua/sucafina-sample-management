@@ -39,6 +39,10 @@ export default class FindOpenSamplesTool implements LuaTool {
         courier: s.courier_norm,
         awb: s.awb,
         phyto_cert: s.phyto_cert,
+        location: s.location,
+        // Stock check before dispatch: warn when stock_grams < qty_grams (null = untracked).
+        qty_grams: s.qty_grams,
+        stock_grams: s.stock_grams,
         date: s.date_on,
       })),
     };

@@ -15,7 +15,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on'] as const;
 
 // `sample_type`/`courier_norm` are free text (migration 004) so operators can enter
 // values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -52,6 +52,9 @@ const createSchema = z.object({
   // Approved-sample attributes (migration 009, feedback ⑬).
   strategy: z.string().nullish(),
   highlights: z.string().nullish(),
+  // Migration 010: who placed the request, and grams of the lot held at the lab.
+  requested_by: z.string().nullish(),
+  stock_grams: z.number().int().nullish(),
 });
 
 const patchSchema = z.object({
@@ -80,6 +83,10 @@ const patchSchema = z.object({
   // Approved-sample attributes (migration 009).
   strategy: z.string().nullish(),
   highlights: z.string().nullish(),
+  // Migration 010.
+  requested_by: z.string().nullish(),
+  completed_by: z.string().nullish(),
+  stock_grams: z.number().int().nullish(),
 });
 
 bulkSamples.get('/', h(async (req, res) => {
@@ -123,8 +130,10 @@ bulkSamples.get('/', h(async (req, res) => {
   if (req.query.water_min) f.add(`water_activity_num >= ?::numeric`, String(req.query.water_min));
   if (req.query.water_max) f.add(`water_activity_num <= ?::numeric`, String(req.query.water_max));
   if (req.query.has_awb === 'true') f.where.push(`awb IS NOT NULL AND awb <> ''`);
+  // Low stock (migration 010): lab holds less of the lot than this row needs to send.
+  if (req.query.low_stock === 'true') f.where.push(`stock_grams IS NOT NULL AND qty_grams IS NOT NULL AND stock_grams < qty_grams`);
   const result = await buildList(
-    { table: 'bulk_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref'] },
+    { table: 'bulk_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -153,8 +162,11 @@ bulkSamples.post('/', h(async (req, res) => {
        (sample_ref, quality, client, sample_type_norm, bags, client_ref, ico_mark, country, awb,
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
         comments, crop_year, client_id, phyto_cert,
-        blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
+        blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
+        requested_by, stock_grams, date, date_on, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+             COALESCE($20, (SELECT default_phyto_cert FROM clients WHERE id = $19::uuid)),
+             $21,$22,$23,$24,$25,$26,$27,$29,$30,
              COALESCE($28, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($28::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -166,7 +178,7 @@ bulkSamples.post('/', h(async (req, res) => {
      body.comments ?? null, body.crop_year ?? null, body.client_id ?? null, body.phyto_cert ?? null,
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
-     body.date ?? null],
+     body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null],
     { entityType: 'bulk', type: 'created', note: `${body.quality} for ${body.client}`, actor },
   );
   res.status(201).json(row);
@@ -217,8 +229,16 @@ bulkSamples.patch('/:id', h(async (req, res) => {
        location = COALESCE($21, location),
        strategy = COALESCE($22, strategy),
        highlights = COALESCE($23, highlights),
+       requested_by = COALESCE($24, requested_by),
+       completed_by = COALESCE($25, completed_by),
+       -- Stock decrement (migration 010): on the transition INTO 'dispatched' (old status differs),
+       -- tracked stock drops by the grams sent, floored at 0. NULL stock = not tracked, untouched.
+       stock_grams = CASE WHEN $2 = 'dispatched' AND status IS DISTINCT FROM 'dispatched' AND stock_grams IS NOT NULL
+                          THEN GREATEST(stock_grams - COALESCE($8, qty_grams, 0), 0)
+                          ELSE COALESCE($26, stock_grams) END,
        result_on = CASE WHEN $5 IS NOT NULL AND result_on IS NULL THEN CURRENT_DATE ELSE result_on END,
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
+       dispatched_on = CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END,
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
@@ -226,7 +246,8 @@ bulkSamples.patch('/:id', h(async (req, res) => {
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
      body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null,
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
-     body.strategy ?? null, body.highlights ?? null],
+     body.strategy ?? null, body.highlights ?? null,
+     body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null],
     { entityType: 'bulk', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');

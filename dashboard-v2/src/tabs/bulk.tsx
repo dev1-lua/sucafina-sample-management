@@ -3,6 +3,7 @@ import { CellValue } from '@/components/CellValue';
 import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
+import { round3Columns, round3DetailFields, round3CreateFields } from './round3-fields';
 
 // Lab locations Muki named (feedback ⑦); free text elsewhere, so the select allows custom entry.
 const LOCATIONS = ['westlands', 'thika'];
@@ -78,10 +79,13 @@ export const bulkConfig: TabConfig = {
     { key: 'crop_year', header: 'Crop Year', defaultHidden: true },
     { key: 'crop_area_details', header: 'Crop Area Details', defaultHidden: true },
     ...followupColumns,
+    ...round3Columns,
     {
       key: 'status',
       header: 'Status',
       sortKey: 'status',
+      // Feedback (Ivo): status stays visible while the wide grid pans — frozen far right.
+      pinned: 'right',
       render: (r) => <StatusBadge kind="status" value={r.status as string | null} />,
     },
   ],
@@ -97,6 +101,7 @@ export const bulkConfig: TabConfig = {
     { key: 'moisture', label: 'Moisture %', type: 'numrange', minKey: 'moisture_min', maxKey: 'moisture_max' },
     { key: 'water', label: 'Water Activity', type: 'numrange', minKey: 'water_min', maxKey: 'water_max' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
+    { key: 'low_stock', label: 'Low Stock', type: 'bool' },
   ],
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
@@ -114,6 +119,7 @@ export const bulkConfig: TabConfig = {
     { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
     { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
     { key: 'comments', label: 'Comments', edit: { field: 'comments', type: 'text' } },
+    ...round3DetailFields,
     ...followupDetailFields,
   ],
   // Exact field names from bulk-samples' POST createSchema (api/src/routes/bulk-samples.ts).
@@ -144,5 +150,6 @@ export const bulkConfig: TabConfig = {
     { key: 'crop_year', label: 'Crop Year', type: 'text' },
     { key: 'phyto_cert', label: 'Phyto Cert', type: 'text' },
     { key: 'comments', label: 'Comments', type: 'text' },
+    ...round3CreateFields,
   ],
 };

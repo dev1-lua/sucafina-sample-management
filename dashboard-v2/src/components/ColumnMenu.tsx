@@ -35,7 +35,9 @@ export function useColumnVisibility(
   const [visibility, setVisibility] = React.useState<ColumnVisibilityState>(() => {
     try {
       const raw = window.localStorage.getItem(storageKey);
-      if (raw) return JSON.parse(raw) as ColumnVisibilityState;
+      // Defaults under, stored choices over: a column added after the user's blob was
+      // written keeps its curated defaultHidden instead of popping in visible.
+      if (raw) return { ...defaultVisibility(columns), ...(JSON.parse(raw) as ColumnVisibilityState) };
     } catch {
       // malformed/unavailable storage — fall through to curated defaults
     }

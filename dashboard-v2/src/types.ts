@@ -64,6 +64,7 @@ export type ColumnDef = {
   width?: number; // px
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom cell (e.g. StatusBadge)
   defaultHidden?: boolean; // hidden by default in the Columns show/hide menu (still user-toggleable, still persisted)
+  pinned?: 'right'; // frozen at the right edge while the grid pans horizontally (e.g. Status)
 };
 
 // Sibling to ColumnDef (RecordTable) / FilterDef (FilterBar): describes one row in
@@ -75,8 +76,9 @@ export type DetailField = {
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom read-only rendering (e.g. StatusBadge)
   // inline edit → PATCH {field: value}. `allowCustom` turns a select into an
   // editable one (EditableSelect): picking "Other…" lets the user type a value
-  // outside `options` (requires the backing column to be free text).
-  edit?: { field: string; type: 'text' | 'select'; options?: string[]; allowCustom?: boolean };
+  // outside `options` (requires the backing column to be free text). `number`
+  // commits a real number (for int-typed API fields like stock_grams).
+  edit?: { field: string; type: 'text' | 'select' | 'number'; options?: string[]; allowCustom?: boolean };
 };
 
 // Drives CreateRecordDialog's form. `key` must be the EXACT field name accepted by the

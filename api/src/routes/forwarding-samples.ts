@@ -11,7 +11,7 @@ export const forwardingSamples = Router();
 
 const STATUSES = ['requested','preparing','dispatched','delivered','cancelled'] as const; // no results_in
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
-const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','location'] as const;
+const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','location','requested_by','completed_by','stock_grams','dispatched_on'] as const;
 
 // `courier_norm` is free text (migration 004) so operators can enter values outside
 // COURIERS; that array is a UI suggestion list only.
@@ -33,6 +33,9 @@ const createSchema = z.object({
   phyto_cert: z.string().nullish(),
   // Lab location (migration 007): free text with UI suggestions (Westlands / Thika).
   location: z.string().nullish(),
+  // Migration 010: who placed the request, and grams of the lot held at the lab.
+  requested_by: z.string().nullish(),
+  stock_grams: z.number().int().nullish(),
 });
 
 const patchSchema = z.object({
@@ -51,6 +54,10 @@ const patchSchema = z.object({
   new_sample: z.string().nullish(),
   phyto_cert: z.string().nullish(),
   location: z.string().nullish(),
+  // Migration 010.
+  requested_by: z.string().nullish(),
+  completed_by: z.string().nullish(),
+  stock_grams: z.number().int().nullish(),
 });
 
 forwardingSamples.get('/', h(async (req, res) => {
@@ -78,7 +85,7 @@ forwardingSamples.get('/', h(async (req, res) => {
   if (req.query.has_id === 'true') f.where.push(`id_number IS NOT NULL AND id_number <> ''`);
   if (req.query.has_id === 'false') f.where.push(`(id_number IS NULL OR id_number = '')`);
   const result = await buildList(
-    { table: 'forwarding_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb'] },
+    { table: 'forwarding_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb','requested_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -102,16 +109,21 @@ forwardingSamples.post('/', h(async (req, res) => {
     // date + date_on default to today in Nairobi time when no explicit date is given; $14 overrides.
     `INSERT INTO forwarding_samples
        (sender, origin, sample_ref, coffee_quality, receiver_company, id_number, awb, courier_norm,
-        qty, qty_grams, client_id, phyto_cert, location, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$15,
+        qty, qty_grams, client_id, phyto_cert, location, requested_by, stock_grams, date, date_on, status, dispatched_on)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+             COALESCE($12, (SELECT default_phyto_cert FROM clients WHERE id = $11::uuid)),
+             $15,$16,$17,
              COALESCE($14, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($14::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
-             $13::sample_status_t)
+             $13::sample_status_t,
+             -- Forwarding rows can be born dispatched (AWB/courier supplied at create);
+             -- stamp dispatched_on so the dispatch-confirmation email still finds them.
+             CASE WHEN $13 = 'dispatched' THEN (now() AT TIME ZONE 'Africa/Nairobi')::date ELSE NULL END)
      RETURNING *`,
     [body.sender, body.origin, body.sample_ref, body.coffee_quality, body.receiver_company,
      body.id_number ?? null, body.awb ?? null, body.courier_norm ?? null, body.qty ?? null,
      body.qty_grams ?? null, body.client_id ?? null, body.phyto_cert ?? null, status, body.date ?? null,
-     body.location ?? null],
+     body.location ?? null, body.requested_by ?? null, body.stock_grams ?? null],
     { entityType: 'forwarding', type: 'created', note: `${body.sample_ref} from ${body.origin} → ${body.receiver_company}`, actor },
   );
   res.status(201).json(row);
@@ -154,13 +166,21 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
        new_sample = COALESCE($13, new_sample),
        phyto_cert = COALESCE($14, phyto_cert),
        location = COALESCE($15, location),
+       requested_by = COALESCE($16, requested_by),
+       completed_by = COALESCE($17, completed_by),
+       -- Stock decrement (migration 010): on the transition INTO 'dispatched' (old status differs),
+       -- tracked stock drops by the grams sent, floored at 0. NULL stock = not tracked, untouched.
+       stock_grams = CASE WHEN $2 = 'dispatched' AND status IS DISTINCT FROM 'dispatched' AND stock_grams IS NOT NULL
+                          THEN GREATEST(stock_grams - COALESCE($7, qty_grams, 0), 0)
+                          ELSE COALESCE($18, stock_grams) END,
+       dispatched_on = CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END,
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.id_number ?? null,
      body.receiver_company ?? null, body.qty_grams ?? null, body.client_id ?? null,
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
      body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null,
-     body.location ?? null],
+     body.location ?? null, body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null],
     { entityType: 'forwarding', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'forwarding sample not found');

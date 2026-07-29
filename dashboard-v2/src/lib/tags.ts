@@ -27,7 +27,7 @@ const PALETTE = {
 
 type Color = keyof typeof PALETTE;
 
-export type TagKind = 'status' | 'result' | 'sample_type';
+export type TagKind = 'status' | 'result' | 'sample_type' | 'stock';
 
 const STATUS: Record<string, Color> = {
   requested: 'gray',
@@ -56,7 +56,23 @@ const SAMPLE_TYPE: Record<string, Color> = {
   other: 'gray',
 };
 
+// Stock availability against the row's send quantity (migration 010).
+const STOCK: Record<string, Color> = {
+  low_stock: 'amber',
+  out_of_stock: 'red',
+};
+
 export function tagColor(kind: TagKind, value: string): string {
-  const map = kind === 'status' ? STATUS : kind === 'result' ? RESULT : SAMPLE_TYPE;
+  const map = kind === 'status' ? STATUS : kind === 'result' ? RESULT : kind === 'stock' ? STOCK : SAMPLE_TYPE;
   return PALETTE[map[value] ?? 'gray'];
+}
+
+/** 'out_of_stock' at zero grams, 'low_stock' when the lab holds less than the row
+ * needs to send, null when untracked or sufficient (no badge). Values double as
+ * StatusBadge labels ("low stock" / "out of stock"). */
+export function stockTag(stock: unknown, qty: unknown): 'low_stock' | 'out_of_stock' | null {
+  if (typeof stock !== 'number') return null;
+  if (stock <= 0) return 'out_of_stock';
+  if (typeof qty === 'number' && stock < qty) return 'low_stock';
+  return null;
 }

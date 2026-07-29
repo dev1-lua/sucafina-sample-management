@@ -54,7 +54,7 @@ function InlineEditField({
 }: {
   editDef: NonNullable<DetailField['edit']>;
   row: RowData;
-  onCommit: (field: string, value: string) => void;
+  onCommit: (field: string, value: string | number) => void;
 }) {
   const initial = row[editDef.field];
   const initialStr = initial === null || initial === undefined ? '' : String(initial);
@@ -65,7 +65,15 @@ function InlineEditField({
   }, [initialStr]);
 
   function commit(next: string) {
-    if (next !== initialStr) onCommit(editDef.field, next);
+    if (next === initialStr) return;
+    // Number fields PATCH a real number (int-typed API columns reject strings);
+    // an emptied number input is a no-op — COALESCE can't null a field anyway.
+    if (editDef.type === 'number') {
+      if (next.trim() === '' || Number.isNaN(Number(next))) return;
+      onCommit(editDef.field, Number(next));
+      return;
+    }
+    onCommit(editDef.field, next);
   }
 
   if (editDef.type === 'select') {
@@ -100,6 +108,7 @@ function InlineEditField({
   return (
     <Input
       className="h-8 text-sm"
+      type={editDef.type === 'number' ? 'number' : 'text'}
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => commit(value)}
@@ -149,7 +158,7 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
     entityLabel ??
     'Record';
 
-  function commitEdit(field: string, value: string) {
+  function commitEdit(field: string, value: string | number) {
     patchRecord({ id, body: { [field]: value } });
   }
 

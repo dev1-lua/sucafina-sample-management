@@ -14,16 +14,18 @@ export interface ReminderItem {
   delivery_on: string | null;
 }
 
+// Markdown `- ` bullets (not literal `•`): Teams renders bot messages as markdown, where plain lines
+// separated by single \n can collapse into one paragraph — real list items keep their own lines.
 function fmtItem(i: ReminderItem): string {
   const head = [i.ref || '(no ref)', i.title].filter(Boolean).join(' — ');
-  return `• ${head} → ${i.receiver || '?'}`;
+  return `- ${head} → ${i.receiver || '?'}`;
 }
 
 // `header` is the section title without the count; we append "(N)". The endpoint already caps items
 // at 50, but we show at most 15 per nudge and note the overflow so a big backlog stays chat-friendly.
 export function formatReminder(header: string, count: number, items: ReminderItem[]): string {
-  if (count === 0) return `${header} (0)\n• nothing pending 🎉`;
+  if (count === 0) return `**${header} (0)**\n- nothing pending 🎉`;
   const shown = items.slice(0, 15).map(fmtItem);
-  if (count > shown.length) shown.push(`…and ${count - shown.length} more`);
-  return `${header} (${count})\n${shown.join('\n')}`;
+  if (count > shown.length) shown.push(`- …and ${count - shown.length} more`);
+  return `**${header} (${count})**\n${shown.join('\n')}`;
 }

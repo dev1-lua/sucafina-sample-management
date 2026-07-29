@@ -2,6 +2,7 @@ import { LuaSkill } from 'lua-cli';
 import FindClientTool from './tools/FindClientTool';
 import GetClientTool from './tools/GetClientTool';
 import UpsertClientTool from './tools/UpsertClientTool';
+import SetClientDefaultTool from './tools/SetClientDefaultTool';
 
 export const clientBookSkill = new LuaSkill({
   name: 'client-book',
@@ -20,6 +21,9 @@ Use for "what's X's address", "who owns X", "what has X ordered", "add new clien
   offer to add one, rather than implying the client is unknown.
 - get_client also returns the client's SPECS (preferred grades, target cup profile, moisture ceiling,
   minimum score, notes) — the guide for what to send them. Quote them when asked "what does X want" /
-  "what are X's specs", and consult them when preparing a sample for that client.`,
-  tools: [new FindClientTool(), new GetClientTool(), new UpsertClientTool()],
+  "what are X's specs", and consult them when preparing a sample for that client.
+- specs also carry default_phyto_cert — the client's standing phyto answer. "Paulig always needs a
+  phyto" / "never ask X about phyto again" -> set_client_default { client_id, default_phyto_cert }.
+  Once set, new samples for that client fill it automatically.`,
+  tools: [new FindClientTool(), new GetClientTool(), new UpsertClientTool(), new SetClientDefaultTool()],
 });

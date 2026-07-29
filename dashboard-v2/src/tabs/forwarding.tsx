@@ -3,6 +3,7 @@ import { CellValue } from '@/components/CellValue';
 import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
+import { round3Columns, round3DetailFields, round3CreateFields } from './round3-fields';
 
 // Lab locations Muki named (feedback ⑦); free text elsewhere, so the select allows custom entry.
 const LOCATIONS = ['westlands', 'thika'];
@@ -37,10 +38,13 @@ export const forwardingConfig: TabConfig = {
     { key: 'location', header: 'Location', sortKey: 'location', render: (r) => <CellValue value={formatLocation(r.location)} /> },
     { key: 'phyto_cert', header: 'Phyto Cert', sortKey: 'phyto_cert', defaultHidden: true },
     ...followupColumns,
+    ...round3Columns,
     {
       key: 'status',
       header: 'Status',
       sortKey: 'status',
+      // Feedback (Ivo): status stays visible while the wide grid pans — frozen far right.
+      pinned: 'right',
       render: (r) => <StatusBadge kind="status" value={r.status as string | null} />,
     },
   ],
@@ -62,6 +66,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
     { key: 'location', label: 'Location', edit: { field: 'location', type: 'select', options: LOCATIONS, allowCustom: true } },
     { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
+    ...round3DetailFields,
     ...followupDetailFields,
   ],
   // Exact field names from forwarding-samples' POST createSchema
@@ -83,5 +88,6 @@ export const forwardingConfig: TabConfig = {
     { key: 'qty', label: 'Qty', type: 'text' },
     { key: 'location', label: 'Location', type: 'select', options: LOCATIONS, allowCustom: true },
     { key: 'phyto_cert', label: 'Phyto Cert', type: 'text' },
+    ...round3CreateFields,
   ],
 };

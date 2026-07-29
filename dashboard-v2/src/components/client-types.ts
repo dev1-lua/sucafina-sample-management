@@ -51,4 +51,6 @@ export type ClientDetail = {
   spec_moisture_max: number | null;
   spec_min_score: number | null;
   spec_notes: string | null;
+  // Per-client phyto default (migration 010) — pre-fills new samples for this client.
+  default_phyto_cert: string | null;
 };

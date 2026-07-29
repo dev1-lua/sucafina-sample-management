@@ -7,10 +7,12 @@ const FOLLOWUP = ['feedback_requested','feedback_received','order_placed','new_s
 // the two cupped books, location on all three. Migration 009 (⑬) adds strategy/highlights to both.
 const FIELDS_007 = ['blend','rejection_reason','shipment_month','contract_number','location'];
 const FIELDS_009 = ['strategy','highlights'];
+// Migration 010: request ownership, stock on hand, dispatch date — on all three books.
+const FIELDS_010 = ['requested_by','completed_by','stock_grams','dispatched_on'];
 const WL = {
-  specialty: ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country',...FOLLOWUP,...FIELDS_007,...FIELDS_009],
-  bulk: ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm',...FOLLOWUP,...FIELDS_007,...FIELDS_009],
-  forwarding: ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm',...FOLLOWUP,'location'],
+  specialty: ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country',...FOLLOWUP,...FIELDS_007,...FIELDS_009,...FIELDS_010],
+  bulk: ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm',...FOLLOWUP,...FIELDS_007,...FIELDS_009,...FIELDS_010],
+  forwarding: ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm',...FOLLOWUP,'location',...FIELDS_010],
   clients: ['name','country','latest_order_date'],
 } as Record<string, string[]>;
 

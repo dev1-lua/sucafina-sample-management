@@ -13,6 +13,7 @@ export function ClientSpecsCard({ client }: { client: ClientDetail }) {
   const [moisture, setMoisture] = React.useState(client.spec_moisture_max?.toString() ?? '');
   const [score, setScore] = React.useState(client.spec_min_score?.toString() ?? '');
   const [notes, setNotes] = React.useState(client.spec_notes ?? '');
+  const [phyto, setPhyto] = React.useState(client.default_phyto_cert ?? '');
   const [saved, setSaved] = React.useState(false);
 
   const num = (s: string) => (s.trim() === '' ? null : Number(s));
@@ -21,7 +22,8 @@ export function ClientSpecsCard({ client }: { client: ClientDetail }) {
     cup !== (client.spec_cup_profile ?? '') ||
     moisture !== (client.spec_moisture_max?.toString() ?? '') ||
     score !== (client.spec_min_score?.toString() ?? '') ||
-    notes !== (client.spec_notes ?? '');
+    notes !== (client.spec_notes ?? '') ||
+    phyto !== (client.default_phyto_cert ?? '');
 
   function save() {
     setSaved(false);
@@ -34,6 +36,7 @@ export function ClientSpecsCard({ client }: { client: ClientDetail }) {
           spec_moisture_max: num(moisture),
           spec_min_score: num(score),
           spec_notes: notes.trim() || null,
+          default_phyto_cert: phyto.trim() || null,
         },
       },
       { onSuccess: () => setSaved(true) },
@@ -72,7 +75,17 @@ export function ClientSpecsCard({ client }: { client: ClientDetail }) {
           <span className={label}>Min cup score</span>
           <input className={input} type="number" step="0.5" value={score} onChange={(e) => setScore(e.target.value)} placeholder="e.g. 84" />
         </label>
-        <label className="flex flex-col gap-1 sm:col-span-2">
+        <label className="flex flex-col gap-1">
+          <span className={label}>Phyto cert default</span>
+          {/* Pre-fills every new sample for this client unless overridden (migration 010). */}
+          <input className={input} value={phyto} onChange={(e) => setPhyto(e.target.value)} placeholder="Yes / No / Client to confirm" list="phyto-defaults" />
+          <datalist id="phyto-defaults">
+            <option value="Yes" />
+            <option value="No" />
+            <option value="Client to confirm" />
+          </datalist>
+        </label>
+        <label className="flex flex-col gap-1">
           <span className={label}>Notes</span>
           <input className={input} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything else the desk should know" />
         </label>

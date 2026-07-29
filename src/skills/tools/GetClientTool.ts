@@ -52,6 +52,9 @@ export default class GetClientTool implements LuaTool {
         moisture_max: c.spec_moisture_max ?? null,
         min_score: c.spec_min_score ?? null,
         notes: c.spec_notes ?? null,
+        // Per-client phyto default (migration 010): when set, sample creation applies it
+        // automatically — don't ask the phyto question for this client.
+        default_phyto_cert: c.default_phyto_cert ?? null,
       },
       // Server caps the embedded order list at 200; flag when it's likely truncated.
       orders_shown: orders.length,

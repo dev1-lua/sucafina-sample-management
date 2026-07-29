@@ -2,6 +2,7 @@ import { LuaSkill } from 'lua-cli';
 import FindClientTool from './tools/FindClientTool';
 import GetClientTool from './tools/GetClientTool';
 import UpsertClientTool from './tools/UpsertClientTool';
+import SetClientDefaultTool from './tools/SetClientDefaultTool';
 import CreateSpecialtySampleTool from './tools/CreateSpecialtySampleTool';
 import CreateBulkSampleTool from './tools/CreateBulkSampleTool';
 import CreateForwardingSampleTool from './tools/CreateForwardingSampleTool';
@@ -87,12 +88,21 @@ Commercial row for a screen grade (it lives in the quality text) or a Forwarding
   then loop the ID Numbers.
 
 PHYTOSANITARY CERTIFICATE — coffee crossing a border may need a phytosanitary certificate, and the
-desk must know before it's sent. Once the destination is known and it's outside Kenya (a sample to a
-client or office abroad — any book; every Forwarding parcel qualifies), ask ONE short question before
-creating the record: "Will this need a phytosanitary certificate?" Record the answer as phyto_cert on
-the create call — "Yes" or "No"; if they're not sure, store "Client to confirm". Never block the
-record on it: if it stays unanswered, leave it empty — the dispatch step chases it before anything
-goes out. Samples staying within Kenya don't need the question.
+desk must know before it's sent. FIRST check the client's default: get_client returns
+specs.default_phyto_cert — when it's set, apply it SILENTLY (the create call fills it in
+automatically when client_id is passed) and DON'T ask the question. Only when the client has no
+default (or there's no client on file): once the destination is known and it's outside Kenya (a
+sample to a client or office abroad — any book; every Forwarding parcel qualifies), ask ONE short
+question before creating the record: "Will this need a phytosanitary certificate?" Record the answer
+as phyto_cert on the create call — "Yes" or "No"; if they're not sure, store "Client to confirm".
+When a clear Yes/No is given for a KNOWN client, offer once to make it their standing default
+("Always for Paulig? I can remember that") and save it via set_client_default on a yes. Never block
+the record on it: if it stays unanswered, leave it empty — the dispatch step chases it before
+anything goes out. Samples staying within Kenya don't need the question.
+
+STOCK ON HAND — if the trader mentions how much of the lot the lab is holding ("Westlands only has
+300g left"), record it as stock_grams on the create call. Don't ask for it — it's opportunistic
+capture; dispatch warns automatically when stock runs short of the send quantity.
 
 GRADE GLOSSARY — plain one-liners to quote when asked "what's grade?" / "what's AB?" (Kenyan screen
 grades), then carry straight on with the intake:
@@ -111,8 +121,10 @@ say "let me check the client book"; just do it). Use the company, not the person
   file — do NOT re-ask for details already there. Silently call get_client on the match to see what IS
   on file: if NO phone number is on file for any contact, ASK for the client's phone number (the
   courier needs it to deliver) and save it via upsert_client — only move on if the person explicitly
-  says they don't have it; don't offer to skip it. If no address is on file yet you may offer to add
-  one, but never block the sample on it. Internal Sucafina offices (Geneva, NV, Yunnan) are exempt —
+  says they don't have it; don't offer to skip it. Same for email: if NO contact has an email on
+  file, ASK for the client's email (dispatch confirmations and feedback chasers go there
+  automatically) and save it via upsert_client — only move on if they explicitly don't have one.
+  If no address is on file yet you may offer to add one, but never block the sample on it. Internal Sucafina offices (Geneva, NV, Yunnan) are exempt —
   don't badger them for a phone. get_client also returns the client's SPECS (preferred grades, target
   cup profile, moisture ceiling, min score) — if set, use them as a guide and gently flag a mismatch
   ("Paulig want screen 17+, ≥84 — this is AB") rather than silently logging something off-spec.
@@ -137,6 +149,7 @@ calling the create tool. After creating, confirm again with the issued ref.`,
     new FindClientTool(),
     new GetClientTool(),
     new UpsertClientTool(),
+    new SetClientDefaultTool(),
     new CreateSpecialtySampleTool(),
     new CreateBulkSampleTool(),
     new CreateForwardingSampleTool(),

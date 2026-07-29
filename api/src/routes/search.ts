@@ -58,6 +58,7 @@ search.get('/', h(async (req, res) => {
     `SELECT tab, id, ref, title, receiver, country, sample_type_norm, qty_grams,
        status, courier_norm, awb, date_on, delivery_on, result_norm, phyto_cert,
        blend, strategy, highlights, result_on,
+       location, requested_by, completed_by, stock_grams, dispatched_on,
        count(*) OVER ()::int AS full_count
      FROM all_samples_v ${whereSql}
      ORDER BY date_on DESC NULLS LAST, id ASC

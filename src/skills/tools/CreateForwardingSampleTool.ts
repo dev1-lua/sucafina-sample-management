@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { normalizeAwb, normalizeCountry, normalizeCourier, normalizeLocation } from '../../lib/normalize';
+import { currentUserName } from '../../lib/current-user';
 
 export default class CreateForwardingSampleTool implements LuaTool {
   name = 'create_forwarding_sample';
@@ -26,6 +27,8 @@ export default class CreateForwardingSampleTool implements LuaTool {
       .optional()
       .describe('Whether the shipment needs a phytosanitary certificate — "Yes", "No", or "Client to confirm".'),
     location: z.string().optional().describe('Lab the parcel sits at — "Westlands" or "Thika".'),
+    requested_by: z.string().optional().describe('Who placed the request, if someone other than the chatting user; defaults to the chatting user.'),
+    stock_grams: z.number().int().optional().describe('Grams of this lot the lab still holds in stock, when stated.'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -33,6 +36,7 @@ export default class CreateForwardingSampleTool implements LuaTool {
     const awb = normalizeAwb(input.awb);
     const origin = normalizeCountry(input.origin) ?? input.origin;
     const location = normalizeLocation(input.location);
+    const requestedBy = input.requested_by ?? (await currentUserName());
 
     const row = await apiFetch('/forwarding-samples', {
       method: 'POST',
@@ -50,6 +54,8 @@ export default class CreateForwardingSampleTool implements LuaTool {
         client_id: input.client_id ?? null,
         phyto_cert: input.phyto_cert ?? null,
         location: location ?? null,
+        requested_by: requestedBy ?? null,
+        stock_grams: input.stock_grams ?? null,
       }),
     });
 
@@ -64,6 +70,8 @@ export default class CreateForwardingSampleTool implements LuaTool {
       id_number: row.id_number,
       status: row.status,
       phyto_cert: row.phyto_cert,
+      requested_by: row.requested_by,
+      stock_grams: row.stock_grams,
       url: dashboardUrl('forwarding', row.id, 'created'),
     };
   }

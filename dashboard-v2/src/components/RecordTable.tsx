@@ -58,6 +58,18 @@ export type RecordTableProps = {
 
 const columnHelper = createColumnHelper<RowData>();
 
+// Frozen-right column treatment. A sticky cell needs its own opaque background (row
+// content pans beneath it), which hides the tr-level hover tint and deep-link flash —
+// both are replicated on the cell via arbitrary variants. The seam is an inset shadow,
+// not a border: border-collapse swallows borders on sticky cells while scrolling.
+const PINNED_CELL =
+  'sticky right-0 bg-background shadow-[inset_1px_0_0_hsl(var(--border))]';
+const PINNED_BODY_CELL = cn(
+  PINNED_CELL,
+  'z-[1] [tr:hover>&]:bg-muted [tr.animate-row-flash>&]:animate-row-flash',
+);
+const PINNED_HEADER_CELL = cn(PINNED_CELL, 'z-20');
+
 function displayValue(value: unknown): React.ReactNode {
   if (value === null || value === undefined || value === '') {
     return <span className="text-muted-foreground">—</span>;
@@ -200,6 +212,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
                       className={cn(
                         'whitespace-nowrap text-xs uppercase tracking-wide text-muted-foreground',
                         isSortable && 'cursor-pointer select-none hover:text-foreground',
+                        col.pinned === 'right' && PINNED_HEADER_CELL,
                       )}
                       onClick={isSortable ? () => handleSort(col) : undefined}
                       tabIndex={isSortable ? 0 : undefined}
@@ -274,7 +287,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
                           <TableCell
                             key={cell.id}
                             style={{ width: col.width ?? DEFAULT_COL_WIDTH }}
-                            className="truncate"
+                            className={cn('truncate', col.pinned === 'right' && PINNED_BODY_CELL)}
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </TableCell>

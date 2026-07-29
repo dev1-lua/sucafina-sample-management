@@ -31,6 +31,8 @@ const patchSchema = z.object({
   spec_moisture_max: z.number().nullish(),
   spec_min_score: z.number().nullish(),
   spec_notes: z.string().nullish(),
+  // Migration 010: per-client phyto-cert default — sample creation falls back to it.
+  default_phyto_cert: z.string().nullish(),
 });
 
 const SORTABLE: Record<string, string> = {
@@ -133,11 +135,12 @@ clients.patch('/:id', h(async (req, res) => {
        spec_moisture_max = COALESCE($7, spec_moisture_max),
        spec_min_score = COALESCE($8, spec_min_score),
        spec_notes = COALESCE($9, spec_notes),
+       default_phyto_cert = COALESCE($10, default_phyto_cert),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, body.name ?? null, body.country ?? null, body.account_owner_id ?? null,
      body.spec_grades ?? null, body.spec_cup_profile ?? null, body.spec_moisture_max ?? null,
-     body.spec_min_score ?? null, body.spec_notes ?? null],
+     body.spec_min_score ?? null, body.spec_notes ?? null, body.default_phyto_cert ?? null],
     { entityType: 'client', type: 'edited', note: `fields updated: ${Object.keys(body).join(', ')}`, actor },
   );
   if (!row) throw new HttpError(404, 'client not found');

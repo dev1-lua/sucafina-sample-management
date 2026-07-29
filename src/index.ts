@@ -15,6 +15,11 @@ import currentDatetime from './preprocessors/current-datetime.preprocessor';
 // import { courierAwbReminderJob } from './jobs/courier-awb-reminder.job';
 // import { feedbackReminderJob } from './jobs/feedback-reminder.job';
 // import { orderPlacedReminderJob } from './jobs/order-placed-reminder.job';
+// 2026-07-29: client-email jobs, re-introduced ONE at a time per the protocol above —
+// dispatch-notifier first; add clientFeedbackChaserJob only after a healthy soak
+// (sandbox chat still executes tools, then ~1 day live).
+import { dispatchNotifierJob } from './jobs/dispatch-notifier.job';
+// import { clientFeedbackChaserJob } from './jobs/client-feedback-chaser.job';
 
 const agent = new LuaAgent({
   name: 'Sample-management-agent',
@@ -28,8 +33,9 @@ const agent = new LuaAgent({
     clientBookSkill,
     consignmentsSkill,
   ],
-  // jobs parked — see note above. Restore incrementally after the agent is verified healthy.
-  jobs: [],
+  // Legacy reminder jobs stay parked — see note above. New email jobs enter one per
+  // version: dispatch-notifier now, client-feedback-chaser after the soak.
+  jobs: [dispatchNotifierJob],
   // The model has no clock — this stamps every message with the real current date/time
   // so "today", relative dates, and recorded dates are never guessed.
   preProcessors: [currentDatetime],
