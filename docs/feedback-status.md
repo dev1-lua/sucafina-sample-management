@@ -1,0 +1,32 @@
+# Sucafina Sample Management — Feedback Status
+
+Status of every stakeholder feedback item as of **29 July 2026**. All items are live in production unless noted.
+
+| # | Provider | Feedback | Lua Comment |
+|---|----------|----------|-------------|
+| 1 | Ivo Jr. Sarjanovic | Agent must request phone number of the end receiver if unavailable | ✅ Done. When a sample is logged for a client with no phone on file, the agent asks for it and saves it to the client book before proceeding (internal Sucafina offices exempt). It now does the same for a missing email. |
+| 2 | Ivo Jr. Sarjanovic | Agent must clarify/know/ask if coffee needs a phytosanitary certificate before being sent — *Anicka: can we set it as "default" for a client?* | ✅ Done, including the per-client default. The agent asks the phyto question once the destination is known to be abroad. Each client can carry a standing default (set on their profile in the dashboard, or just tell the chat "Paulig always needs a phyto") — after that, new samples fill it in automatically and the question is skipped. |
+| 3 | Ivo Jr. Sarjanovic | Rename "bulk" to "commercial" | ✅ Done. The book is labeled Commercial everywhere in the dashboard and chat; the agent still understands people who say "bulk". |
+| 4 | Omar | Blend for each sample + historical data on blends ("What was the blend of the latest AA FAQ approved by Paulig") | ✅ Done. Every sample carries a Blend field, and the chat answers history questions exactly like that one. |
+| 5 | Bernard | On sample status clarify — approved / rejected per sample, if possible reason for rejection | ✅ Done. Each sample shows approved / rejected / pending feedback, and rejected samples carry a Rejection Reason captured with the verdict. |
+| 6 | Muki | Group samples to consignment and generate consignment number/reference | ✅ Done. Samples group into consignments with auto-issued CN numbers (CN-1000, CN-1001…), viewable on their own dashboard pages. |
+| 7 | Muki | Assign location to samples (Westlands Lab, Thika Lab) | ✅ Done. Every sample carries a lab location (Westlands / Thika), filterable in the dashboard. |
+| 8 | Muki | Assign sample-out consignment to location | ✅ Done. Consignments carry their own location, settable from chat or dashboard. |
+| 9 | Bernard | Specify sample quantity in kgs — *Muki: I suggest in grams* | ✅ Done, in grams as Muki suggested. Stored in grams, displayed smartly (300 g, 1.5 kg), with sensible defaults by sample type (offer 200 g, type 300 g, PSS 1 kg). |
+| 10 | Bernard | For pre-shipment samples add shipment month | ✅ Done. PSS samples carry a Shipment Month (auto-detected from phrases like "PSS June Shipment"). |
+| 11 | Muki | For PSS/shipment samples add contract number | ✅ Done. PSS/shipment samples carry a Contract # field. |
+| 12 | Muki | Generate automatic printable labels | ✅ Done. One-click printable labels with barcode from any sample or consignment page. |
+| 13 | Omar | In Clients: list of all "approved samples" with Strategy Assigned, Blend composition, and Highlights (Blackcurrant bomb, Strict Clean Cups, Hibiscus character…) | ✅ Done. Each client page lists their approved samples with Strategy, Blend, and Highlights, and the chat can search by cup profile. |
+| 14 | Omar | In Clients: average time we wait for feedback/approval + recording feedback on rejected samples | ✅ Done. The dashboard tracks average delivered→verdict turnaround, and rejection feedback is recorded per sample. |
+| 15 | Omar | In Clients: statistics — % of Offer samples approved / Type samples approved / PSS approved | ✅ Done. Approval-rate chart by sample type (Offer / Type / PSS) on the dashboard. |
+| 16 | Lynne | Include client specs, which will be a guide when sending out samples | ✅ Done. Each client carries specs (preferred grades, cup profile, moisture max, min score, notes); the agent consults them and flags off-spec sends. |
+| 17 | Omar | Automatic email chaser if no response by client 7 days after they receive the sample | ✅ Built & deployed. Clients with an email on file get one automatic chaser 7 days after delivery if no feedback has landed (each sample chased only once). Sending switches on as soon as the email account is connected — final wiring step in progress. |
+| 18 | Omar | When asking Chat about a reference in the chaser, chat fails | ✅ Fixed. Sample lookup was made robust — chat now resolves refs from the chaser correctly. |
+| 19 | Anicka | Stock management of samples / showing availability of a specific sample (e.g. alert that QC Westlands has only 300g) | ✅ Done. Samples carry grams-in-stock; the dashboard shows Low stock / Out of stock badges, and the agent warns before dispatch if the lab holds less than the send quantity ("Only 300g left against a 500g send — go ahead?"). Stock auto-decrements on dispatch. |
+| 20 | Anicka | Automatic reply to the client about the dispatch of samples (including AWB or rider number), once marked "dispatched" | ✅ Built & deployed. Once marked dispatched (from chat or dashboard), the client is automatically emailed the courier + AWB — one email per shipment. Same note as #17: activates with the email account connection. |
+| 21 | Muki | Assign user who placed the request | ✅ Done. Every sample records Requested By — auto-filled from whoever is chatting with the agent, editable in the dashboard. |
+| 22 | Muki | Assign user who completed the request | ✅ Done. Completed By is stamped automatically when the dispatch is recorded. |
+| 23 | Ivo Jr. Sarjanovic | Show status as first column, or freeze on the far right | ✅ Done. Status is frozen on the far right — always visible while scrolling across the table, on all three books. |
+| 24 | Bavo | Connection to historical sales data — have we already sent the same lot-name sample to this client; if yes, how much and at what margin did we sell? | ⏳ Not yet built. Sample history per client/lot is available today ("have we sent this lot to X before?"), but volumes sold and margin live in the trading/sales system, which isn't connected — needs a data feed from that side. Scoped for the next round. |
+
+**Summary:** 23 of 24 items complete. Items 17 & 20 are fully built and deployed; client emails begin flowing the moment the email account is connected. Item 24 (Bavo) is new scope requiring a feed from the trading/sales system.
