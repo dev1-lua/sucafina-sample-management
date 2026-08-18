@@ -4,6 +4,7 @@ import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { normalizeAwb, normalizeCourier, TABS, TAB_ENDPOINT } from '../../lib/normalize';
 import { currentUserName } from '../../lib/current-user';
+import { getClient, hasDeliveryAddress, isInternalOffice } from '../../lib/client-guard';
 
 const item = z.object({
   tab: z.enum(TABS).describe('Which table the sample lives in (from find_open_samples / search_samples).'),
@@ -31,6 +32,7 @@ export default class RecordDispatchTool implements LuaTool {
     // Who completed the request (Muki): the human running the dispatch chat.
     const completedBy = await currentUserName();
     const updated = [];
+    const addressCache = new Map<string, boolean>();
     for (const it of input.items) {
       const row = await apiFetch(`/${TAB_ENDPOINT[it.tab]}/${it.id}`, {
         method: 'PATCH',
@@ -42,11 +44,27 @@ export default class RecordDispatchTool implements LuaTool {
           completed_by: completedBy ?? null,
         }),
       });
+      // Delivery-address check (does not block — the parcel has already gone): flag rows whose client
+      // book entry has no street address so the desk fixes the book before the next send.
+      let clientAddressMissing = false;
+      if (row.client_id) {
+        if (!addressCache.has(row.client_id)) {
+          try {
+            const c = await getClient(row.client_id);
+            addressCache.set(row.client_id, isInternalOffice(c.name) || hasDeliveryAddress(c));
+          } catch {
+            addressCache.set(row.client_id, true);
+          }
+        }
+        clientAddressMissing = !addressCache.get(row.client_id);
+      }
       updated.push({
         tab: it.tab,
         id: row.id,
         ref: row.ref ?? row.sample_ref,
         status: row.status,
+        priority: row.priority,
+        client_address_missing: clientAddressMissing,
         courier: row.courier_norm,
         awb: row.awb,
         phyto_cert: row.phyto_cert,

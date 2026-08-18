@@ -1,6 +1,6 @@
 # Sucafina Sample Management — Feedback Status
 
-Status of every stakeholder feedback item as of **29 July 2026**. All items are live in production unless noted.
+Status of every stakeholder feedback item as of **18 August 2026**. All items are live in production unless noted.
 
 | # | Provider | Feedback | Lua Comment |
 |---|----------|----------|-------------|
@@ -29,4 +29,7 @@ Status of every stakeholder feedback item as of **29 July 2026**. All items are 
 | 23 | Ivo Jr. Sarjanovic | Show status as first column, or freeze on the far right | ✅ Done. Status is frozen on the far right — always visible while scrolling across the table, on all three books. |
 | 24 | Bavo | Connection to historical sales data — have we already sent the same lot-name sample to this client; if yes, how much and at what margin did we sell? | ⏳ Not yet built. Sample history per client/lot is available today ("have we sent this lot to X before?"), but volumes sold and margin live in the trading/sales system, which isn't connected — needs a data feed from that side. Scoped for the next round. |
 
-**Summary:** 23 of 24 items complete. Items 17 & 20 are fully built and deployed; client emails begin flowing the moment the email account is connected. Item 24 (Bavo) is new scope requiring a feed from the trading/sales system.
+| 25 | Ivo Jr. Sarjanovic (Teams, 24 Jul) | Add a column to flag importance/urgency of a sample | ✅ Done. Every sample carries a Priority (normal / urgent) — a red URGENT badge and "Urgent only" filter in all three books, editable in the drawer and on create. In chat, "send it urgently" flags it at creation and "mark TYPE-1006 as urgent" flags an existing one; urgent rows sort first on QC's pending list. |
+| 26 | Ivo Jr. Sarjanovic (Teams, 24 Jul) | "How do you plan to send the sample without having the address?" — agent logged Folgers samples with no delivery address on file | ✅ Fixed. A sample can no longer be logged for an external client unless their book entry has a full street address (and country for Commercial). New clients are refused without contact person, address, country and phone; the agent asks for each before creating. Adding an address to an existing contact now completes that person's row instead of creating a duplicate. Internal Sucafina offices are exempt. |
+
+**Summary:** 25 of 26 items complete. Items 17 & 20 are fully built and deployed; client emails begin flowing the moment the email account is connected. Item 24 (Bavo) is new scope requiring a feed from the trading/sales system.

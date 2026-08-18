@@ -35,6 +35,48 @@ const patchSchema = z.object({
   default_phyto_cert: z.string().nullish(),
 });
 
+type ContactInput = z.infer<typeof contactSchema>;
+
+/**
+ * Add a contact to a client WITHOUT creating a duplicate person: if a contact row already matches on
+ * attention_to (case-insensitive), phone, or email, fill in that row's empty fields instead of
+ * inserting a second row. (Folgers, 2026-07-24: "update the address" produced two rows for the same
+ * contact — one with the phone, one with the address.) Returns the resulting contact row.
+ */
+async function upsertContact(db: { query: typeof pool.query }, clientId: string, c: ContactInput) {
+  const attention = c.attention_to?.trim() || null;
+  const address = c.full_address?.trim() || null;
+  const phone = c.phone?.trim() || null;
+  const email = c.email?.trim() || null;
+  const match = await db.query(
+    `SELECT id FROM client_contacts
+      WHERE client_id = $1
+        AND (($2::text IS NOT NULL AND lower(attention_to) = lower($2))
+          OR ($3::text IS NOT NULL AND phone = $3)
+          OR ($4::text IS NOT NULL AND lower(email) = lower($4)))
+      ORDER BY created_at ASC LIMIT 1`,
+    [clientId, attention, phone, email],
+  );
+  if (match.rows[0]) {
+    const { rows } = await db.query(
+      `UPDATE client_contacts SET
+         attention_to = COALESCE(attention_to, $2),
+         full_address = COALESCE($3, full_address),
+         phone        = COALESCE(phone, $4),
+         email        = COALESCE(email, $5)
+       WHERE id = $1 RETURNING *`,
+      [match.rows[0].id, attention, address, phone, email],
+    );
+    return rows[0];
+  }
+  const { rows } = await db.query(
+    `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [clientId, attention, address, phone, email],
+  );
+  return rows[0];
+}
+
 const SORTABLE: Record<string, string> = {
   name: 'c.name',
   country: 'c.country',
@@ -67,12 +109,15 @@ clients.post('/', h(async (req, res) => {
   const body = parseBody(clientSchema, req.body);
   const existing = await pool.query(`SELECT * FROM clients WHERE lower(name) = lower($1) AND deleted_at IS NULL`, [body.name]);
   if (existing.rows[0]) {
-    const client = existing.rows[0];
-    if (body.contact) {
-      await pool.query(
-        `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email) VALUES ($1, $2, $3, $4, $5)`,
-        [client.id, body.contact.attention_to ?? null, body.contact.full_address ?? null, body.contact.phone ?? null, body.contact.email ?? null],
+    let client = existing.rows[0];
+    if (body.contact) await upsertContact(pool, client.id, body.contact);
+    // Backfill country when the book had none (never overwrite a country already on file).
+    if (body.country && !client.country) {
+      const { rows } = await pool.query(
+        `UPDATE clients SET country = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+        [client.id, body.country],
       );
+      client = rows[0] ?? client;
     }
     res.status(200).json(client);
     return;
@@ -163,9 +208,6 @@ clients.post('/:id/contacts', h(async (req, res) => {
   const body = parseBody(contactSchema, req.body);
   const existing = await pool.query(`SELECT 1 FROM clients WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!existing.rows[0]) throw new HttpError(404, 'client not found');
-  const { rows } = await pool.query(
-    `INSERT INTO client_contacts (client_id, attention_to, full_address, phone, email) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [id, body.attention_to ?? null, body.full_address ?? null, body.phone ?? null, body.email ?? null],
-  );
-  res.status(201).json(rows[0]);
+  const row = await upsertContact(pool, id, body);
+  res.status(201).json(row);
 }));

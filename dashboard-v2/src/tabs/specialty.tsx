@@ -91,6 +91,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'date_range', label: 'Date', type: 'date' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
     { key: 'low_stock', label: 'Low Stock', type: 'bool' },
+    { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
   ],
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },

@@ -27,7 +27,7 @@ const PALETTE = {
 
 type Color = keyof typeof PALETTE;
 
-export type TagKind = 'status' | 'result' | 'sample_type' | 'stock';
+export type TagKind = 'status' | 'result' | 'sample_type' | 'stock' | 'priority';
 
 const STATUS: Record<string, Color> = {
   requested: 'gray',
@@ -62,8 +62,14 @@ const STOCK: Record<string, Color> = {
   out_of_stock: 'red',
 };
 
+// Urgency flag (migration 011, feedback #25 — Ivo). 'normal' is the default and renders no badge.
+const PRIORITY: Record<string, Color> = {
+  urgent: 'red',
+  normal: 'gray',
+};
+
 export function tagColor(kind: TagKind, value: string): string {
-  const map = kind === 'status' ? STATUS : kind === 'result' ? RESULT : kind === 'stock' ? STOCK : SAMPLE_TYPE;
+  const map = kind === 'status' ? STATUS : kind === 'result' ? RESULT : kind === 'stock' ? STOCK : kind === 'priority' ? PRIORITY : SAMPLE_TYPE;
   return PALETTE[map[value] ?? 'gray'];
 }
 

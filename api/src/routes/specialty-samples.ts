@@ -15,7 +15,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority'] as const;
 
 // `sample_type_norm`/`courier_norm` are free text (migration 004) so operators can
 // enter values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -53,6 +53,8 @@ const createSchema = z.object({
   // Migration 010: who placed the request, and grams of the lot held at the lab.
   requested_by: z.string().nullish(),
   stock_grams: z.number().int().nullish(),
+  // Migration 011 (feedback #25): urgency flag — 'normal' | 'urgent'.
+  priority: z.enum(['normal', 'urgent']).nullish(),
 });
 
 const patchSchema = z.object({
@@ -87,6 +89,8 @@ const patchSchema = z.object({
   requested_by: z.string().nullish(),
   completed_by: z.string().nullish(),
   stock_grams: z.number().int().nullish(),
+  // Migration 011 (feedback #25): urgency flag — 'normal' | 'urgent'.
+  priority: z.enum(['normal', 'urgent']).nullish(),
 });
 
 specialtySamples.get('/', h(async (req, res) => {
@@ -128,6 +132,8 @@ specialtySamples.get('/', h(async (req, res) => {
   if (req.query.shipment_month) f.add(`shipment_month = ?`, String(req.query.shipment_month));
   // Low stock (migration 010): lab holds less of the lot than this row needs to send.
   if (req.query.low_stock === 'true') f.where.push(`stock_grams IS NOT NULL AND qty_grams IS NOT NULL AND stock_grams < qty_grams`);
+  // Priority (migration 011): ?priority=urgent.
+  if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
   const result = await buildList(
     { table: 'specialty_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb','requested_by'] },
     req.query, f.where, f.params,
@@ -156,10 +162,10 @@ specialtySamples.post('/', h(async (req, res) => {
        (ref, description, receiver_company, sample_type_norm, outturn, name, grade, bags,
         awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, date, date_on, status)
+        requested_by, stock_grams, priority, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              COALESCE($17, (SELECT default_phyto_cert FROM clients WHERE id = $15::uuid)),
-             $18,$19,$20,$21,$22,$23,$24,$26,$27,
+             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),
              COALESCE($25, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($25::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -170,7 +176,7 @@ specialtySamples.post('/', h(async (req, res) => {
      body.country ?? null, body.phyto_cert ?? null,
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
-     body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null],
+     body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null],
     { entityType: 'specialty', type: 'created', note: `${body.description} for ${body.receiver_company}`, actor },
   );
   res.status(201).json(row);
@@ -230,6 +236,7 @@ specialtySamples.patch('/:id', h(async (req, res) => {
        stock_grams = CASE WHEN $2 = 'dispatched' AND status IS DISTINCT FROM 'dispatched' AND stock_grams IS NOT NULL
                           THEN GREATEST(stock_grams - COALESCE($8, qty_grams, 0), 0)
                           ELSE COALESCE($28, stock_grams) END,
+       priority = COALESCE($29, priority),
        result_on = CASE WHEN $5 IS NOT NULL AND result_on IS NULL THEN CURRENT_DATE ELSE result_on END,
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        dispatched_on = CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END,
@@ -242,7 +249,7 @@ specialtySamples.patch('/:id', h(async (req, res) => {
      body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null,
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
-     body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null],
+     body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null],
     { entityType: 'specialty', type: eventType, note, actor },
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');

@@ -102,6 +102,7 @@ export const bulkConfig: TabConfig = {
     { key: 'water', label: 'Water Activity', type: 'numrange', minKey: 'water_min', maxKey: 'water_max' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
     { key: 'low_stock', label: 'Low Stock', type: 'bool' },
+    { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
   ],
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },

@@ -6,6 +6,7 @@ import SetClientDefaultTool from './tools/SetClientDefaultTool';
 import CreateSpecialtySampleTool from './tools/CreateSpecialtySampleTool';
 import CreateBulkSampleTool from './tools/CreateBulkSampleTool';
 import CreateForwardingSampleTool from './tools/CreateForwardingSampleTool';
+import SetSamplePriorityTool from './tools/SetSamplePriorityTool';
 
 // NOTE: the GRADE GLOSSARY wording below is a first pass — the Sucafina QC team is to verify it.
 export const sampleIntakeSkill = new LuaSkill({
@@ -124,20 +125,33 @@ say "let me check the client book"; just do it). Use the company, not the person
   says they don't have it; don't offer to skip it. Same for email: if NO contact has an email on
   file, ASK for the client's email (dispatch confirmations and feedback chasers go there
   automatically) and save it via upsert_client — only move on if they explicitly don't have one.
-  If no address is on file yet you may offer to add one, but never block the sample on it. Internal Sucafina offices (Geneva, NV, Yunnan) are exempt —
-  don't badger them for a phone. get_client also returns the client's SPECS (preferred grades, target
+  DELIVERY ADDRESS IS MANDATORY: if NO contact has a full_address on file, the sample CANNOT be logged
+  yet — ask for the client's full street address (and country if the book has none), save it via
+  upsert_client, THEN create. The create tools REFUSE an external client with no address on file — if
+  one errors with that message, ask for the address, save it, and retry; never tell the trader it's
+  logged when the tool refused. Internal Sucafina offices (Geneva, NV, Germany, Yunnan) are exempt —
+  don't badger them for a phone or address. get_client also returns the client's SPECS (preferred grades, target
   cup profile, moisture ceiling, min score) — if set, use them as a guide and gently flag a mismatch
   ("Paulig want screen 17+, ≥84 — this is AB") rather than silently logging something off-spec.
 - NEW client (find_client total 0) — CRUCIAL: before you create the sample, capture the client's
-  details one gentle step at a time — contact person, email, phone, and address (you already have the
-  company name). ASK for each of these — do NOT offer to skip them and do NOT say "happy to skip any";
-  they must be added. Only move on from a field if the person explicitly says they don't have it. Then
-  call upsert_client { name, country, attention_to (contact person), full_address, phone, email } to add
-  them to the book. Take the id it returns and pass it as client_id on the create call. Internal Sucafina
-  offices (Geneva, NV, Yunnan) can be added with just the name — don't badger an internal office for a
+  details one gentle step at a time, in this order — contact person, full street address, country,
+  phone, email (you already have the company name). ASK for each of these — do NOT offer to skip them
+  and do NOT say "happy to skip any"; they must be added. Only move on from a field if the person
+  explicitly says they don't have it — but address + country are NEVER skippable: nothing can be sent
+  without them, and upsert_client REFUSES a new external client that has no country / contact / street
+  address / phone. Then call upsert_client { name, country, attention_to (contact person), full_address,
+  phone, email } to add them to the book. Take the id it returns and pass it as client_id on the create
+  call. Never create the sample first and "add the address later". Internal Sucafina offices (Geneva,
+  NV, Germany, Yunnan) can be added with just the name — don't badger an internal office for a
   phone/address.
 - MULTIPLE matches: ask which one; don't guess. Only if it stays unresolvable, log with the client text
   as stated and say you couldn't pin the client down.
+
+URGENCY — samples carry a priority flag (normal | urgent). If the trader says urgent / ASAP / rush /
+"needs to go today", pass priority "urgent" on the create call and show 🔴 URGENT on the row card. To
+flag or un-flag an EXISTING sample ("mark TYPE-1006 as urgent"), call set_sample_priority with the ref.
+Urgent rows sort first on QC's open-sample list and carry a red badge in the dashboard — that IS the
+escalation; never claim to have "informed QC", "flagged it verbally", or contacted anyone.
 
 MULTIPLE SAMPLES — each distinct quality/lot is its own record. "AB FAQ, ABC FAQ and Heavy Mbuni to
 Beyers" = 3 separate create calls.
@@ -153,5 +167,6 @@ calling the create tool. After creating, confirm again with the issued ref.`,
     new CreateSpecialtySampleTool(),
     new CreateBulkSampleTool(),
     new CreateForwardingSampleTool(),
+    new SetSamplePriorityTool(),
   ],
 });

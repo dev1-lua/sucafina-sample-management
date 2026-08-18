@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { currentUserName } from '../../lib/current-user';
+import { assertDeliverable } from '../../lib/client-guard';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
@@ -17,7 +18,7 @@ import {
 export default class CreateBulkSampleTool implements LuaTool {
   name = 'create_bulk_sample';
   description =
-    'Create one Commercial-book sample record (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. Returns the row (Commercial refs are not auto-issued — pass one if the trader gave it).';
+    'Create one Commercial-book sample record (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. REFUSES to write when the client is not in the book or has no delivery address on file (internal Sucafina offices exempt) — the error tells you what to ask for and to save it via upsert_client first. Returns the row (Commercial refs are not auto-issued — pass one if the trader gave it).';
 
   inputSchema = z.object({
     quality: z
@@ -61,6 +62,10 @@ export default class CreateBulkSampleTool implements LuaTool {
     highlights: z.string().optional().describe('Cup-profile highlights/tags, e.g. "Blackcurrant bomb, Strict Clean Cups".'),
     requested_by: z.string().optional().describe('Who placed the request, if someone other than the chatting user; defaults to the chatting user.'),
     stock_grams: z.number().int().optional().describe('Grams of this lot the lab still holds in stock, when stated (e.g. "Westlands has 300g left").'),
+    priority: z
+      .enum(['normal', 'urgent'])
+      .optional()
+      .describe('Urgency flag. Set "urgent" when the trader says urgent / ASAP / rush / needs to go today; defaults to normal.'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -75,6 +80,13 @@ export default class CreateBulkSampleTool implements LuaTool {
     const shipmentMonth = input.shipment_month ?? (sampleType === 'pss' ? extractShipmentMonth(input.sample_type) : undefined);
     const location = normalizeLocation(input.location);
     const requestedBy = input.requested_by ?? (await currentUserName());
+    // Delivery-address gate: no external sample without a client on file WITH an address (+ destination country).
+    const deliverable = await assertDeliverable({ client_id: input.client_id, name: input.client, country, requireCountry: true });
+    const clientId = input.client_id ?? deliverable.client_id;
+    // Backfill the client's country from the destination when the book had none (never overwrites).
+    if (deliverable.client && !deliverable.client.country && country) {
+      await apiFetch('/clients', { method: 'POST', body: JSON.stringify({ name: deliverable.client.name, country }) }).catch(() => undefined);
+    }
 
     const row = await apiFetch('/bulk-samples', {
       method: 'POST',
@@ -97,7 +109,7 @@ export default class CreateBulkSampleTool implements LuaTool {
         water_activity_num: input.water_activity_num ?? null,
         comments: comments ?? null,
         crop_year: input.crop_year ?? null,
-        client_id: input.client_id ?? null,
+        client_id: clientId ?? null,
         phyto_cert: input.phyto_cert ?? null,
         blend: input.blend ?? null,
         shipment_month: shipmentMonth ?? null,
@@ -107,6 +119,7 @@ export default class CreateBulkSampleTool implements LuaTool {
         highlights: input.highlights ?? null,
         requested_by: requestedBy ?? null,
         stock_grams: input.stock_grams ?? null,
+        priority: input.priority ?? null,
       }),
     });
 
@@ -128,6 +141,7 @@ export default class CreateBulkSampleTool implements LuaTool {
       location: row.location,
       requested_by: row.requested_by,
       stock_grams: row.stock_grams,
+      priority: row.priority,
       url: dashboardUrl('bulk', row.id, 'created'),
     };
   }

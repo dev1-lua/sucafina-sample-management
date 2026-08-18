@@ -14,7 +14,9 @@ Use for "what's X's address", "who owns X", "what has X ordered", "add new clien
   about a client's address, contacts, account owner, or order history, then call get_client with that id
   (or pass the name straight to get_client — it resolves a single match). find_client alone does NOT carry
   the address; never claim you can't find an address without calling get_client first.
-- upsert_client to add a company or attach a new contact/address.
+- upsert_client to add a company or attach a new contact/address. A NEW external client needs country,
+  contact person, full street address and phone — the tool refuses without them; ask for each, one at a
+  time. Adding an address/phone to an existing contact merges into that person's row (no duplicates).
 - PRESENT cleanly, don't dump fields: address as one block — attention_to · full_address · phone · email;
   then "Owner: <name>" if set, and a short "recent orders" line (ref • title • status) only if asked or relevant.
 - get_client returns 0 contacts when the company exists but has no address on file — say that plainly and

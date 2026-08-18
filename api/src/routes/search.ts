@@ -34,6 +34,8 @@ search.get('/', h(async (req, res) => {
     if (values.length) f.add(`result_norm::text = ANY (?::text[])`, values);
   }
   if (req.query.client_id) f.add(`client_id = ?::uuid`, String(req.query.client_id));
+  // Priority (migration 011): ?priority=urgent.
+  if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
   // Cup-profile search (feedback ⑬): match the highlights tag text, e.g. "hibiscus", "clean cup".
   if (req.query.highlights) f.add(`highlights ILIKE '%'||?||'%'`, String(req.query.highlights));
   // sample_type_norm and country are free text in the unified view, so match by CSV membership
@@ -58,7 +60,7 @@ search.get('/', h(async (req, res) => {
     `SELECT tab, id, ref, title, receiver, country, sample_type_norm, qty_grams,
        status, courier_norm, awb, date_on, delivery_on, result_norm, phyto_cert,
        blend, strategy, highlights, result_on,
-       location, requested_by, completed_by, stock_grams, dispatched_on,
+       location, requested_by, completed_by, stock_grams, dispatched_on, priority,
        count(*) OVER ()::int AS full_count
      FROM all_samples_v ${whereSql}
      ORDER BY date_on DESC NULLS LAST, id ASC

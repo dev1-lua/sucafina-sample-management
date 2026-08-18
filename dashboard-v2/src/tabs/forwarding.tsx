@@ -57,6 +57,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'date_range', label: 'Date', type: 'date' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
     { key: 'has_id', label: 'Has ID', type: 'bool' },
+    { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
   ],
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },

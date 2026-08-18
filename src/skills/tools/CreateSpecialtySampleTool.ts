@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { currentUserName } from '../../lib/current-user';
+import { assertDeliverable } from '../../lib/client-guard';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
@@ -17,7 +18,7 @@ import {
 export default class CreateSpecialtySampleTool implements LuaTool {
   name = 'create_specialty_sample';
   description =
-    'Create one Specialty-book sample record (single specialty-position lot). Hard-requires description, sample type, receiver, estate/station name, and country of origin. Returns the server-issued ref.';
+    'Create one Specialty-book sample record (single specialty-position lot). Hard-requires description, sample type, receiver, estate/station name, and country of origin. Returns the server-issued ref. REFUSES to write when an external receiver is not in the client book or has no delivery address on file (internal Sucafina offices exempt) — the error tells you what to ask for and to save it via upsert_client first.';
 
   inputSchema = z.object({
     description: z
@@ -60,6 +61,10 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     highlights: z.string().optional().describe('Cup-profile highlights/tags, e.g. "Blackcurrant bomb, Strict Clean Cups".'),
     requested_by: z.string().optional().describe('Who placed the request, if someone other than the chatting user; defaults to the chatting user.'),
     stock_grams: z.number().int().optional().describe('Grams of this lot the lab still holds in stock, when stated (e.g. "Westlands has 300g left").'),
+    priority: z
+      .enum(['normal', 'urgent'])
+      .optional()
+      .describe('Urgency flag. Set "urgent" when the trader says urgent / ASAP / rush / needs to go today; defaults to normal.'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -73,6 +78,9 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     const shipmentMonth = input.shipment_month ?? (sampleType === 'pss' ? extractShipmentMonth(input.sample_type) : undefined);
     const location = normalizeLocation(input.location);
     const requestedBy = input.requested_by ?? (await currentUserName());
+    // Delivery-address gate: an external receiver must be in the book with an address (internal offices exempt).
+    const deliverable = await assertDeliverable({ client_id: input.client_id, name: input.receiver_company });
+    const clientId = input.client_id ?? deliverable.client_id;
 
     const row = await apiFetch('/specialty-samples', {
       method: 'POST',
@@ -92,7 +100,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
         qty_grams: qtyGrams ?? null,
         comments: comments ?? null,
         crop_year: input.crop_year ?? null,
-        client_id: input.client_id ?? null,
+        client_id: clientId ?? null,
         phyto_cert: input.phyto_cert ?? null,
         blend: input.blend ?? null,
         shipment_month: shipmentMonth ?? null,
@@ -102,6 +110,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
         highlights: input.highlights ?? null,
         requested_by: requestedBy ?? null,
         stock_grams: input.stock_grams ?? null,
+        priority: input.priority ?? null,
       }),
     });
 
@@ -125,6 +134,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       location: row.location,
       requested_by: row.requested_by,
       stock_grams: row.stock_grams,
+      priority: row.priority,
       url: dashboardUrl('specialty', row.id, 'created'),
     };
   }

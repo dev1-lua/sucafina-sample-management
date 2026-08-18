@@ -10,6 +10,8 @@ export const dispatchLoggingSkill = new LuaSkill({
 Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking details :872526345980 Fedex".
 - find_open_samples with the client/receiver/ref text to locate what was pending. It returns each
   hit's tab + id — you need both to record the dispatch on the right table.
+- URGENT FIRST: find_open_samples returns each row's priority; urgent rows come first — when listing
+  what's pending, lead with the 🔴 urgent ones so QC ships them first.
 - Exactly one plausible match -> record_dispatch on it. Multiple plausible matches or none -> ask ONE
   short question listing the candidates by ref (and tab, if it's ambiguous which book).
 - One AWB can cover several rows at once (e.g. a batch of Type samples, or several Forwarding
@@ -32,6 +34,10 @@ Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking 
   when their book entry has an email — no need to draft one; don't promise an email for a client
   with no address on file.
 - AWB numbers are normalized to digits-only automatically; pass the number as given.
+- ADDRESS GAP: record_dispatch returns client_address_missing: true when the receiver's book entry has
+  no street address. The dispatch still records (the parcel has gone), but ask ONCE afterwards:
+  "Which address did it go to? I'll save it on <client>'s book entry" — and save it via upsert_client
+  (client-book) so the next sample isn't logged blind. Skip for internal Sucafina offices.
 - Confirm with ref(s) + AWB, then show each dispatched row as a row card + open-link, exactly as the
   persona's write-result format describes — one card per row (a shared AWB still gets one card each).`,
   tools: [new FindOpenSamplesTool(), new RecordDispatchTool()],

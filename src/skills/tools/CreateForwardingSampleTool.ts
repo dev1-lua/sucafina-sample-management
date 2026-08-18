@@ -4,11 +4,12 @@ import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { normalizeAwb, normalizeCountry, normalizeCourier, normalizeLocation } from '../../lib/normalize';
 import { currentUserName } from '../../lib/current-user';
+import { assertDeliverable } from '../../lib/client-guard';
 
 export default class CreateForwardingSampleTool implements LuaTool {
   name = 'create_forwarding_sample';
   description =
-    'Create one Forwarding-book row (one row per per-bag ID Number under a single AWB). Hard-requires sender, origin, sample ref, coffee quality, receiver, and the bag ID Number — the API rejects an incomplete record. For a multi-parcel shipment, call this once per ID Number.';
+    'Create one Forwarding-book row (one row per per-bag ID Number under a single AWB). Hard-requires sender, origin, sample ref, coffee quality, receiver, and the bag ID Number — the API rejects an incomplete record. For a multi-parcel shipment, call this once per ID Number. REFUSES to write when the receiver is not in the client book or has no delivery address on file (internal Sucafina offices exempt) — the error tells you what to ask for and to save it via upsert_client first.';
 
   inputSchema = z.object({
     sender: z.string().min(1).describe('Who is forwarding the shipment, e.g. "Kenyacof".'),
@@ -29,6 +30,10 @@ export default class CreateForwardingSampleTool implements LuaTool {
     location: z.string().optional().describe('Lab the parcel sits at — "Westlands" or "Thika".'),
     requested_by: z.string().optional().describe('Who placed the request, if someone other than the chatting user; defaults to the chatting user.'),
     stock_grams: z.number().int().optional().describe('Grams of this lot the lab still holds in stock, when stated.'),
+    priority: z
+      .enum(['normal', 'urgent'])
+      .optional()
+      .describe('Urgency flag. Set "urgent" when the trader says urgent / ASAP / rush; defaults to normal.'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -37,6 +42,9 @@ export default class CreateForwardingSampleTool implements LuaTool {
     const origin = normalizeCountry(input.origin) ?? input.origin;
     const location = normalizeLocation(input.location);
     const requestedBy = input.requested_by ?? (await currentUserName());
+    // Delivery-address gate: the receiver must be in the book with an address (internal offices exempt).
+    const deliverable = await assertDeliverable({ client_id: input.client_id, name: input.receiver_company });
+    const clientId = input.client_id ?? deliverable.client_id;
 
     const row = await apiFetch('/forwarding-samples', {
       method: 'POST',
@@ -51,11 +59,12 @@ export default class CreateForwardingSampleTool implements LuaTool {
         courier_norm: courier ?? null,
         qty: input.qty ?? null,
         qty_grams: input.qty_grams ?? null,
-        client_id: input.client_id ?? null,
+        client_id: clientId ?? null,
         phyto_cert: input.phyto_cert ?? null,
         location: location ?? null,
         requested_by: requestedBy ?? null,
         stock_grams: input.stock_grams ?? null,
+        priority: input.priority ?? null,
       }),
     });
 
@@ -72,6 +81,7 @@ export default class CreateForwardingSampleTool implements LuaTool {
       phyto_cert: row.phyto_cert,
       requested_by: row.requested_by,
       stock_grams: row.stock_grams,
+      priority: row.priority,
       url: dashboardUrl('forwarding', row.id, 'created'),
     };
   }
