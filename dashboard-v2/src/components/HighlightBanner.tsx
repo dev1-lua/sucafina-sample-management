@@ -20,8 +20,17 @@ export function HighlightBanner({ event }: { event: HighlightEvent }) {
       transition={BANNER_TRANSITION}
       className="flex items-center gap-2 rounded-[4px] bg-accent px-3 py-2 text-sm text-accent-foreground"
     >
-      <Badge>✨ {event === 'created' ? 'Just created' : 'Just updated'}</Badge>
-      <span className="opacity-70">Opened from the assistant.</span>
+      {event === 'merged' ? (
+        <>
+          <Badge>✨ Merged</Badge>
+          <span className="opacity-70">Duplicate folded into this client — samples and contacts moved here.</span>
+        </>
+      ) : (
+        <>
+          <Badge>✨ {event === 'created' ? 'Just created' : 'Just updated'}</Badge>
+          <span className="opacity-70">Opened from the assistant.</span>
+        </>
+      )}
     </motion.div>
   );
 }

@@ -3,6 +3,7 @@ import FindClientTool from './tools/FindClientTool';
 import GetClientTool from './tools/GetClientTool';
 import UpsertClientTool from './tools/UpsertClientTool';
 import SetClientDefaultTool from './tools/SetClientDefaultTool';
+import MergeClientsTool from './tools/MergeClientsTool';
 
 export const clientBookSkill = new LuaSkill({
   name: 'client-book',
@@ -26,6 +27,21 @@ Use for "what's X's address", "who owns X", "what has X ordered", "add new clien
   "what are X's specs", and consult them when preparing a sample for that client.
 - specs also carry default_phyto_cert — the client's standing phyto answer. "Paulig always needs a
   phyto" / "never ask X about phyto again" -> set_client_default { client_id, default_phyto_cert }.
-  Once set, new samples for that client fill it automatically.`,
-  tools: [new FindClientTool(), new GetClientTool(), new UpsertClientTool(), new SetClientDefaultTool()],
+  Once set, new samples for that client fill it automatically.
+- DUPLICATES — when find_client returns several entries that are clearly the same company (e.g. "Paulig"
+  and "Gustav Paulig Ltd (NEW) Jan 23", or "Beyers Koffie" / "Beyers Koffie NV"), offer a merge ONCE:
+  "Same company? I can merge them into <the fullest entry>." Never merge on your own initiative — only
+  on an explicit yes ("yes", "merge them", "it's the same"). Then:
+  · pick the TARGET = the entry that has a delivery address on file (get_client to check); if both do,
+    the one with more contacts / orders. Sources = the others.
+  · echo the plan and confirm before calling: "Keep <target> (address on file, N contacts) — fold in
+    <source> (M samples, K contacts). Go ahead?" Only after that confirm call merge_clients
+    { target: <id>, sources: [<ids>], new_name? }. Pass ids, not names, once resolved.
+  · after it runs, show the returned summary as a card (name, what moved, contacts now on file) plus the
+    open-link. If the trader wants the short name kept, use new_name (e.g. keep the address entry but
+    call it "Paulig").
+  · NEVER merge an internal Sucafina/Kenyacof office with an external client — the tool refuses; say so.
+  · If the trader says "merge them" and you have NOT already listed the candidates, call find_client
+    first, then follow the steps above. Never answer "I can't merge client entries" — you can.`,
+  tools: [new FindClientTool(), new GetClientTool(), new UpsertClientTool(), new SetClientDefaultTool(), new MergeClientsTool()],
 });

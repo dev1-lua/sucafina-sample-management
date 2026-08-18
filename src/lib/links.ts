@@ -28,7 +28,7 @@ const DASH_PATH: Record<LinkTab, string> = {
   clients: '/clients',
 };
 
-export type LinkEvent = 'created' | 'updated';
+export type LinkEvent = 'created' | 'updated' | 'merged';
 
 /**
  * Absolute dashboard URL for one record. `?hl=` drives the landing highlight

@@ -6,6 +6,7 @@ import CreateSpecialtySampleTool from '../src/skills/tools/CreateSpecialtySample
 import SetSamplePriorityTool from '../src/skills/tools/SetSamplePriorityTool';
 import FindOpenSamplesTool from '../src/skills/tools/FindOpenSamplesTool';
 import RecordDispatchTool from '../src/skills/tools/RecordDispatchTool';
+import MergeClientsTool from '../src/skills/tools/MergeClientsTool';
 
 if (!/localhost|127\.0\.0\.1/.test(process.env.API_BASE_URL ?? '')) {
   throw new Error('Refusing to run: API_BASE_URL must point at a local API');
@@ -20,6 +21,7 @@ const spec = new CreateSpecialtySampleTool();
 const prio = new SetSamplePriorityTool();
 const open = new FindOpenSamplesTool();
 const dispatch = new RecordDispatchTool();
+const merge = new MergeClientsTool();
 
 async function expectThrow(label: string, fn: () => Promise<unknown>, needle: RegExp) {
   try {
@@ -65,4 +67,15 @@ const list = await open.execute({ query: NOADDR });
 console.log(`✅ find_open_samples: first=${list.samples[0]?.ref} priority=${list.samples[0]?.priority}`);
 const d = await dispatch.execute({ items: [{ tab: 'specialty', id: s2.id }], courier: 'DHL', awb: '123' });
 console.log(`✅ record_dispatch: client_address_missing=${d.updated[0].client_address_missing} priority=${d.updated[0].priority}`);
+// 7. Merge duplicates (feedback #27): "Paulig"-style dupe folds into the address-bearing entry.
+const DUPE = `Harness Client ${stamp} Ltd (NEW) Jan 23`;   // no address, one contact (Sam)
+await fetch(`${process.env.API_BASE_URL}/clients`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': process.env.API_KEY!, 'x-actor': 'harness' }, body: JSON.stringify({ name: DUPE, contact: { attention_to: 'Sam', email: 'sam@example.com' } }) });
+const dupeRow = await bulk.execute({ quality: 'ABC FAQ', sample_type: 'type', client: DUPE } as any).catch(() => null); // refused: no address
+console.log(`✅ dupe created without address (bulk create refused as expected: ${dupeRow === null})`);
+await expectThrow('merge_clients refuses ambiguous name', () => merge.execute({ target: `Harness Client ${stamp}`.slice(0, 12), sources: [DUPE] }), /ambiguous|No client named/);
+await expectThrow('merge_clients refuses office↔client', () => merge.execute({ target: NEW, sources: [`Sucafina Harness ${stamp}`] }), /internal Sucafina/);
+const m = await merge.execute({ target: NEW, sources: [DUPE] });
+console.log(`✅ merge_clients: ${m.summary}`);
+console.log(`   contacts_now=${m.contacts_now} address_on_file=${m.delivery_address_on_file} url=${m.url}`);
+await expectThrow('merged source is gone from the book', () => merge.execute({ target: NEW, sources: [DUPE] }), /No client named/);
 console.log(process.exitCode ? 'FAILURES' : 'ALL GOOD');

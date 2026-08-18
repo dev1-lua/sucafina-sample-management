@@ -9,10 +9,10 @@ import { useMatch, useSearchParams } from 'react-router-dom';
  * `?hl=` marker to (a) flash the row in the list and (b) show a banner on the
  * opened record — see HighlightBanner, RecordTable, DetailDrawer, ClientDetailPage.
  */
-export type HighlightEvent = 'created' | 'updated';
+export type HighlightEvent = 'created' | 'updated' | 'merged';
 
 function asEvent(value: string | null): HighlightEvent | null {
-  return value === 'created' || value === 'updated' ? value : null;
+  return value === 'created' || value === 'updated' || value === 'merged' ? value : null;
 }
 
 /**

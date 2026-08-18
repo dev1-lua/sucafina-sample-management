@@ -3,6 +3,7 @@ import FindClientTool from './tools/FindClientTool';
 import GetClientTool from './tools/GetClientTool';
 import UpsertClientTool from './tools/UpsertClientTool';
 import SetClientDefaultTool from './tools/SetClientDefaultTool';
+import MergeClientsTool from './tools/MergeClientsTool';
 import CreateSpecialtySampleTool from './tools/CreateSpecialtySampleTool';
 import CreateBulkSampleTool from './tools/CreateBulkSampleTool';
 import CreateForwardingSampleTool from './tools/CreateForwardingSampleTool';
@@ -145,7 +146,12 @@ say "let me check the client book"; just do it). Use the company, not the person
   NV, Germany, Yunnan) can be added with just the name — don't badger an internal office for a
   phone/address.
 - MULTIPLE matches: ask which one; don't guess. Only if it stays unresolvable, log with the client text
-  as stated and say you couldn't pin the client down.
+  as stated and say you couldn't pin the client down. If the matches are clearly the SAME company under
+  two spellings ("Paulig" / "Gustav Paulig Ltd (NEW) Jan 23") offer once: "Same company? I can merge them
+  into <the entry with the address>." If the trader says yes / "merge them" / "it's the same" — DON'T say
+  you can't: keep the entry that has a delivery address as target, echo the plan (keep X, fold in Y),
+  get a confirm, call merge_clients { target, sources }, then carry on with the sample using the
+  surviving client_id. Never merge an internal Sucafina office with a client.
 
 URGENCY — samples carry a priority flag (normal | urgent). If the trader says urgent / ASAP / rush /
 "needs to go today", pass priority "urgent" on the create call and show 🔴 URGENT on the row card. To
@@ -164,6 +170,7 @@ calling the create tool. After creating, confirm again with the issued ref.`,
     new GetClientTool(),
     new UpsertClientTool(),
     new SetClientDefaultTool(),
+    new MergeClientsTool(),
     new CreateSpecialtySampleTool(),
     new CreateBulkSampleTool(),
     new CreateForwardingSampleTool(),

@@ -56,6 +56,44 @@ export function usePatchRecord(endpoint: string) {
 
 export function useClients(q: ListQuery) { return useRecords('/clients', q); }
 
+// --- Merge duplicate clients (feedback #27) -----------------------------------------------------
+export type MergeCandidate = {
+  id: string; name: string; country: string | null;
+  contact_count: number; sample_count: number; has_address: boolean;
+};
+/** Other live clients whose normalized name matches this one — pre-suggested merge targets. */
+export function useMergeCandidates(id: string) {
+  return useQuery({
+    queryKey: ['/clients', 'merge-candidates', id],
+    queryFn: () => api<{ normalized: string; data: MergeCandidate[] }>(`/clients/${id}/merge-candidates`),
+    enabled: !!id,
+    // The source is soft-deleted right after a merge; a refetch would 404 — don't retry it.
+    retry: false,
+  });
+}
+
+export type MergeResult = {
+  target: Record<string, unknown> & { id: string; name: string };
+  merged: Array<{ id: string; name: string }>;
+  repointed: { specialty: number; bulk: number; forwarding: number; legacy: number };
+  contacts_folded: number;
+};
+/** POST /clients/:target/merge — sources fold INTO the target; sources are soft-deleted server-side. */
+export function useMergeClients() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { targetId: string; sourceIds: string[]; name?: string | null }) =>
+      api<MergeResult>(`/clients/${vars.targetId}/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ source_ids: vars.sourceIds, ...(vars.name ? { name: vars.name } : {}) }),
+      }),
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({ queryKey: ['/clients'] });
+      for (const id of [vars.targetId, ...vars.sourceIds]) qc.invalidateQueries({ queryKey: ['/clients', 'detail', id] });
+    },
+  });
+}
+
 // --- Phase 4 mutations + aggregates -------------------------------------------------
 // Create: POST /{endpoint} (server issues the ref); invalidate the tab's list on settle.
 export function useCreateRecord(endpoint: string) {

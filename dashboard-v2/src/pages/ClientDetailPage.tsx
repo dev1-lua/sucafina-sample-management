@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { IconArrowLeft, IconPencil, IconTrash } from '@tabler/icons-react';
+import { IconArrowLeft, IconArrowMerge, IconPencil, IconTrash } from '@tabler/icons-react';
 
 import { useRecord, usePatchRecord, useTraders } from '@/lib/query';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Timeline } from '@/components/Timeline';
 import { ClientFormDialog } from '@/components/ClientFormDialog';
 import { ClientDeleteDialog } from '@/components/client-delete-dialog';
+import { ClientMergeDialog } from '@/components/ClientMergeDialog';
 import { ClientOwnerChip } from '@/components/client-owner-chip';
 import { ClientOrdersTable } from '@/components/client-orders-table';
 import { ClientSpecsCard } from '@/components/ClientSpecsCard';
@@ -61,6 +62,7 @@ export default function ClientDetailPage() {
 
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [mergeOpen, setMergeOpen] = React.useState(false);
   const [ownerError, setOwnerError] = React.useState<string | null>(null);
   const event = useRecordHighlight(id);
 
@@ -116,6 +118,9 @@ export default function ClientDetailPage() {
         <div className="flex shrink-0 gap-2">
           <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
             <IconPencil className="size-3.5" /> Edit
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setMergeOpen(true)}>
+            <IconArrowMerge className="size-3.5" /> Merge into…
           </Button>
           <Button variant="outline" size="sm" onClick={() => setDeleteOpen(true)}>
             <IconTrash className="size-3.5" /> Delete
@@ -198,6 +203,12 @@ export default function ClientDetailPage() {
         clientId={data.id}
         clientName={data.name}
         onDeleted={() => navigate('/clients')}
+      />
+      <ClientMergeDialog
+        open={mergeOpen}
+        onOpenChange={setMergeOpen}
+        client={data}
+        onMerged={(targetId) => navigate(`/clients/${targetId}?hl=merged`)}
       />
     </div>
   );
