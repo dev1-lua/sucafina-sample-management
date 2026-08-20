@@ -10,7 +10,7 @@ export const samples = Router();
 
 const SAMPLE_TYPES = ['offer','type','pss','woc','retention','flavor_mapping','marketing','calibration','other'] as const;
 const STATUSES = ['requested','preparing','dispatched','delivered','results_in','cancelled'] as const;
-const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
+const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
 const uuidSchema = z.string().uuid();

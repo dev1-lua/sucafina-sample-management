@@ -59,7 +59,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     location: z.string().optional().describe('Lab the sample sits at — "Westlands" or "Thika".'),
     strategy: z.string().optional().describe('Assigned strategy for this sample, if stated.'),
     highlights: z.string().optional().describe('Cup-profile highlights/tags, e.g. "Blackcurrant bomb, Strict Clean Cups".'),
-    requested_by: z.string().optional().describe('Who placed the request, if someone other than the chatting user; defaults to the chatting user.'),
+    requested_by: z.string().optional().describe('Sales Trader who wants this sample sent, e.g. "Muki" — pass it when someone logs on a trader\'s behalf ("Muki wants…", "for Ivo"). Defaults to the chatting user when they are the trader.'),
     stock_grams: z.number().int().optional().describe('Grams of this lot the lab still holds in stock, when stated (e.g. "Westlands has 300g left").'),
     priority: z
       .enum(['normal', 'urgent'])
@@ -77,7 +77,10 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     const comments = [input.comments, pssNote].filter(Boolean).join(' — ') || undefined;
     const shipmentMonth = input.shipment_month ?? (sampleType === 'pss' ? extractShipmentMonth(input.sample_type) : undefined);
     const location = normalizeLocation(input.location);
-    const requestedBy = input.requested_by ?? (await currentUserName());
+    // Logged by = the chatting user, always auto-stamped (never a model input);
+    // requested_by = the Sales Trader, defaulting to the same person when they log their own ask.
+    const loggedBy = await currentUserName();
+    const requestedBy = input.requested_by ?? loggedBy;
     // Delivery-address gate: an external receiver must be in the book with an address (internal offices exempt).
     const deliverable = await assertDeliverable({ client_id: input.client_id, name: input.receiver_company });
     const clientId = input.client_id ?? deliverable.client_id;
@@ -109,6 +112,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
         strategy: input.strategy ?? null,
         highlights: input.highlights ?? null,
         requested_by: requestedBy ?? null,
+        logged_by: loggedBy ?? null,
         stock_grams: input.stock_grams ?? null,
         priority: input.priority ?? null,
       }),
@@ -133,6 +137,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       contract_number: row.contract_number,
       location: row.location,
       requested_by: row.requested_by,
+      logged_by: row.logged_by,
       stock_grams: row.stock_grams,
       priority: row.priority,
       url: dashboardUrl('specialty', row.id, 'created'),

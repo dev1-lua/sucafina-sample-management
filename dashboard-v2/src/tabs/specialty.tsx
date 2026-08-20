@@ -10,7 +10,7 @@ const LOCATIONS = ['westlands', 'thika'];
 
 // Enums verbatim from the API's specialty-samples router / global constraints.
 const STATUSES = ['requested', 'preparing', 'dispatched', 'delivered', 'results_in', 'cancelled'];
-const COURIERS = ['dhl', 'fedex', 'ups', 'rider', 'hand_delivery', 'client_pickup', 'other'];
+const COURIERS = ['dhl', 'fedex', 'ups', 'rider', 'hand_delivery', 'client_pickup', 'wells_fargo', 'other'];
 const RESULTS = ['approved', 'rejected', 'pending_feedback'];
 const SAMPLE_TYPES = [
   'offer',

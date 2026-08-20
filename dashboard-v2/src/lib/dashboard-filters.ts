@@ -5,7 +5,7 @@ import type { FilterDef } from '@/types';
 // set of sample tables. Month + Country are open data domains, so their options are
 // passed in from the (unfiltered) /stats response instead of hardcoded here.
 const STATUSES = ['requested', 'preparing', 'dispatched', 'delivered', 'results_in', 'cancelled'];
-const COURIERS = ['dhl', 'fedex', 'ups', 'rider', 'hand_delivery', 'client_pickup', 'other'];
+const COURIERS = ['dhl', 'fedex', 'ups', 'rider', 'hand_delivery', 'client_pickup', 'wells_fargo', 'other'];
 const RESULTS = ['approved', 'rejected', 'pending_feedback'];
 const SAMPLE_TYPES = ['offer', 'type', 'pss', 'woc', 'retention', 'flavor_mapping', 'marketing', 'calibration', 'other'];
 const TABS = ['specialty', 'bulk', 'forwarding'];

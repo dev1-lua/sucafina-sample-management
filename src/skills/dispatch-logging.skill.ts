@@ -1,6 +1,7 @@
 import { LuaSkill } from 'lua-cli';
 import FindOpenSamplesTool from './tools/FindOpenSamplesTool';
 import RecordDispatchTool from './tools/RecordDispatchTool';
+import UpdateSampleStatusTool from './tools/UpdateSampleStatusTool';
 
 export const dispatchLoggingSkill = new LuaSkill({
   name: 'dispatch-logging',
@@ -8,6 +9,10 @@ export const dispatchLoggingSkill = new LuaSkill({
   context: `NO NARRATION — never think out loud to the user: no "Let me check…", "I need to clarify…", "I'm noticing…", "I can offer to…", "before we proceed". Call tools SILENTLY; reply with only the result or the single next question.
 
 Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking details :872526345980 Fedex".
+- PREPARING: when QC says they're pulling / preparing / working on a sample ("pulling SL-8007 now",
+  "starting on the Beyers types"), call set_sample_status with the ref — the sales trader is pinged
+  automatically as it progresses; you don't message anyone yourself. Dispatches stay with
+  record_dispatch; don't use set_sample_status for those.
 - find_open_samples with the client/receiver/ref text to locate what was pending. It returns each
   hit's tab + id — you need both to record the dispatch on the right table.
 - URGENT FIRST: find_open_samples returns each row's priority; urgent rows come first — when listing
@@ -29,7 +34,8 @@ Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking 
   Proceed if they confirm — the desk decides, the record just tracks it (stock is decremented
   automatically on dispatch, floored at 0). Untracked stock (empty) needs no comment.
 - Courier words map: DHL->dhl, Fedex->fedex, UPS->ups, Kiptoo/rider->rider, HD/by hand->hand_delivery,
-  picked by client->client_pickup — just pass the word as said, the tool normalizes it.
+  picked by client->client_pickup, Wells Fargo->wells_fargo — just pass the word as said, the tool
+  normalizes it.
 - After recording, the client is emailed the dispatch confirmation (courier + AWB) automatically
   when their book entry has an email — no need to draft one; don't promise an email for a client
   with no address on file.
@@ -40,5 +46,5 @@ Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking 
   (client-book) so the next sample isn't logged blind. Skip for internal Sucafina offices.
 - Confirm with ref(s) + AWB, then show each dispatched row as a row card + open-link, exactly as the
   persona's write-result format describes — one card per row (a shared AWB still gets one card each).`,
-  tools: [new FindOpenSamplesTool(), new RecordDispatchTool()],
+  tools: [new FindOpenSamplesTool(), new RecordDispatchTool(), new UpdateSampleStatusTool()],
 });

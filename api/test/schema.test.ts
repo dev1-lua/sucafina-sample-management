@@ -15,6 +15,14 @@ describe('schema', () => {
     );
   });
 
+  it('exposes logged_by on all_samples_v (migration 013)', async () => {
+    const { rows } = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'all_samples_v'`
+    );
+    const cols = rows.map((r) => r.column_name);
+    expect(cols).toEqual(expect.arrayContaining(['requested_by', 'completed_by', 'priority', 'logged_by']));
+  });
+
   it('seeds ref counters', async () => {
     const { rows } = await pool.query(`SELECT prefix, next_val FROM ref_counters ORDER BY prefix`);
     expect(rows).toEqual([

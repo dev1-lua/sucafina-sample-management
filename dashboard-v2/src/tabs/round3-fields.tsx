@@ -8,6 +8,8 @@ import type { ColumnDef, CreateFieldDef, DetailField } from '@/types';
 // requested_by / completed_by (Muki), stock on hand with a low-stock badge (Anicka),
 // and the dispatch date that anchors the automatic client emails.
 // Plus migration 011 (feedback #25 — Ivo): the priority / urgency flag.
+// Round 5 (migration 013 — Ivo Jr.): requested_by is re-badged "Sales Trader" (whose
+// request it is) and logged_by is "Logged By" (who typed it to the bot; agent-stamped).
 
 export const PRIORITIES = ['normal', 'urgent'];
 
@@ -33,14 +35,16 @@ export function StockCell({ row }: { row: Record<string, unknown> }) {
 export const round3Columns: ColumnDef[] = [
   { key: 'priority', header: 'Priority', sortKey: 'priority', render: (r) => <PriorityCell row={r} /> },
   { key: 'stock_grams', header: 'Stock', sortKey: 'stock_grams', render: (r) => <StockCell row={r} /> },
-  { key: 'requested_by', header: 'Requested By', sortKey: 'requested_by', defaultHidden: true },
+  { key: 'requested_by', header: 'Sales Trader', sortKey: 'requested_by', defaultHidden: true },
+  { key: 'logged_by', header: 'Logged By', sortKey: 'logged_by', defaultHidden: true },
   { key: 'completed_by', header: 'Completed By', sortKey: 'completed_by', defaultHidden: true },
   { key: 'dispatched_on', header: 'Dispatched', sortKey: 'dispatched_on', defaultHidden: true },
 ];
 
 export const round3DetailFields: DetailField[] = [
   { key: 'priority', label: 'Priority', edit: { field: 'priority', type: 'select', options: PRIORITIES } },
-  { key: 'requested_by', label: 'Requested By', edit: { field: 'requested_by', type: 'text' } },
+  { key: 'requested_by', label: 'Sales Trader', edit: { field: 'requested_by', type: 'text' } },
+  { key: 'logged_by', label: 'Logged By', edit: { field: 'logged_by', type: 'text' } },
   { key: 'completed_by', label: 'Completed By', edit: { field: 'completed_by', type: 'text' } },
   { key: 'stock_grams', label: 'Stock (g)', edit: { field: 'stock_grams', type: 'number' } },
   { key: 'dispatched_on', label: 'Dispatched On' },
@@ -48,6 +52,7 @@ export const round3DetailFields: DetailField[] = [
 
 export const round3CreateFields: CreateFieldDef[] = [
   { key: 'priority', label: 'Priority', type: 'select', options: PRIORITIES, defaultValue: 'normal' },
-  { key: 'requested_by', label: 'Requested By', type: 'text' },
+  { key: 'requested_by', label: 'Sales Trader', type: 'text' },
+  { key: 'logged_by', label: 'Logged By', type: 'text', placeholder: 'who is logging this' },
   { key: 'stock_grams', label: 'Stock (g)', type: 'number', placeholder: 'grams held at the lab' },
 ];

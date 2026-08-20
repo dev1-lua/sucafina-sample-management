@@ -13,7 +13,7 @@ export default class GetSamplesByBookTool implements LuaTool {
     q: z.string().optional().describe("Free text over that book's ref / quality / receiver / name / awb"),
     status: z.string().optional().describe('Comma list: requested,preparing,dispatched,delivered,results_in,cancelled'),
     sample_type: z.string().optional().describe('specialty/bulk only: offer, type, pss, woc, …'),
-    courier: z.string().optional().describe('dhl, fedex, ups, rider, hand_delivery, client_pickup, other'),
+    courier: z.string().optional().describe('dhl, fedex, ups, rider, hand_delivery, client_pickup, wells_fargo, other'),
     result: z.string().optional().describe('specialty/bulk only: approved, rejected, pending_feedback'),
     country: z.string().optional().describe('specialty/bulk'),
     origin: z.string().optional().describe('forwarding'),

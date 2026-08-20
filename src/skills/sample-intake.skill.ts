@@ -8,6 +8,7 @@ import CreateSpecialtySampleTool from './tools/CreateSpecialtySampleTool';
 import CreateBulkSampleTool from './tools/CreateBulkSampleTool';
 import CreateForwardingSampleTool from './tools/CreateForwardingSampleTool';
 import SetSamplePriorityTool from './tools/SetSamplePriorityTool';
+import NotifyTraderMissingDetailsTool from './tools/NotifyTraderMissingDetailsTool';
 
 // NOTE: the GRADE GLOSSARY wording below is a first pass — the Sucafina QC team is to verify it.
 export const sampleIntakeSkill = new LuaSkill({
@@ -66,6 +67,22 @@ Gather what's missing one gentle step at a time — acknowledge what's given, as
 next gap, never dump a checklist. Use sensible defaults instead of asking wherever you reasonably
 can: qty defaults offer 200g / type 300g / PSS 1kg. Only fall back to sample type "other" after
 asking once (e.g. "as Types?") comes back unclear.
+
+PEOPLE ON THE RECORD — every sample records two people:
+- Logged by: whoever is typing to you right now. Filled automatically — NEVER ask for it.
+- Sales Trader (requested_by): the trader who wants the sample sent. When the person logging IS the
+  trader, it defaults to them — don't ask. When they're clearly logging on someone's behalf ("Muki
+  wants 300g AB to Beyers", "for Ivo", "Ivo asked me to log this"), pass that trader's name as
+  requested_by. Only ask "whose request is this?" when the message names another person ambiguously.
+
+MISSING DETAILS — REACH THE TRADER: when the record is blocked on missing client details (address /
+phone / email / country) AND the Sales Trader is someone OTHER than the person logging, do both:
+keep collecting from the person in the chat as usual, AND call notify_trader_missing_details ONCE
+for this sample (trader name + one-line sample summary + the exact missing items) so the trader gets
+a direct Teams ask too. On delivered:true say "I've also pinged <trader> directly for these." On
+delivered:false do NOT claim any message went out — relay the reason and ask the logger to chase the
+trader for the details. Never call it twice for the same sample, and never when the logger is the
+trader themselves.
 
 PER-BOOK FIELDS — in guided mode, walk the full field set for the chosen book so the row is rich, not
 merely valid. Required (the tool errors without them) are marked ✱; ask the rest where they apply and
@@ -156,8 +173,10 @@ say "let me check the client book"; just do it). Use the company, not the person
 URGENCY — samples carry a priority flag (normal | urgent). If the trader says urgent / ASAP / rush /
 "needs to go today", pass priority "urgent" on the create call and show 🔴 URGENT on the row card. To
 flag or un-flag an EXISTING sample ("mark TYPE-1006 as urgent"), call set_sample_priority with the ref.
-Urgent rows sort first on QC's open-sample list and carry a red badge in the dashboard — that IS the
-escalation; never claim to have "informed QC", "flagged it verbally", or contacted anyone.
+Urgent rows sort first on QC's open-sample list, carry a red badge in the dashboard, and QC's
+automatic new-request ping shows the 🔴 — beyond that, never claim to have called, escalated, or
+"flagged it verbally" with anyone. (QC is pinged automatically for EVERY request logged in full —
+you may say "QC will get a ping", but never that a ping already went out.)
 
 MULTIPLE SAMPLES — each distinct quality/lot is its own record. "AB FAQ, ABC FAQ and Heavy Mbuni to
 Beyers" = 3 separate create calls.
@@ -175,5 +194,6 @@ calling the create tool. After creating, confirm again with the issued ref.`,
     new CreateBulkSampleTool(),
     new CreateForwardingSampleTool(),
     new SetSamplePriorityTool(),
+    new NotifyTraderMissingDetailsTool(),
   ],
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the API to the Contabo VPS: apply migrations 011 + 012 (both idempotent), rebuild containers.
+# Deploy the API to the Contabo VPS: apply migrations 011–013 (all idempotent), rebuild containers.
 # Assumes sucafina-deploy.tar.gz has already been rsync'd to root@156.67.105.74:~/ and extracted
 # (re-extracts anyway; harmless).
 #
@@ -18,6 +18,8 @@ echo "== migration 011 (idempotent)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/011_priority.sql
 echo "== migration 012 (client merge event types)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/012_client_merge_events.sql
+echo "== migration 013 (logged_by + notifications outbox)"
+$DC exec -T postgres psql -U sucafina sucafina < api/migrations/013_logged_by_and_outbox.sql
 echo "== rebuild"
 $DC up -d --build
 $DC ps

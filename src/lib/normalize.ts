@@ -27,6 +27,7 @@ export const COURIERS = [
   'rider',
   'hand_delivery',
   'client_pickup',
+  'wells_fargo',
   'other',
 ] as const;
 export type Courier = (typeof COURIERS)[number];
@@ -63,8 +64,10 @@ const COURIER_MAP: Record<string, Courier> = {
   handdelivery: 'hand_delivery',
   pickedbyclient: 'client_pickup',
   clientpickup: 'client_pickup',
-  wellsfargo: 'other',
-  fargo: 'other',
+  // Wells Fargo (Kenyan courier) got its own bucket in feedback round 5 (QC ask);
+  // it previously collapsed into 'other'.
+  wellsfargo: 'wells_fargo',
+  fargo: 'wells_fargo',
   sgskenya: 'other',
 };
 

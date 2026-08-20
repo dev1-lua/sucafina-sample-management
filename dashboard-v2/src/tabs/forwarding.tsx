@@ -11,7 +11,7 @@ const LOCATIONS = ['westlands', 'thika'];
 // Enums verbatim from the API's forwarding-samples router / global constraints.
 // Forwarding's lifecycle omits `results_in` (no result_norm on this table).
 const STATUSES = ['requested', 'preparing', 'dispatched', 'delivered', 'cancelled'];
-const COURIERS = ['dhl', 'fedex', 'ups', 'rider', 'hand_delivery', 'client_pickup', 'other'];
+const COURIERS = ['dhl', 'fedex', 'ups', 'rider', 'hand_delivery', 'client_pickup', 'wells_fargo', 'other'];
 
 export const forwardingConfig: TabConfig = {
   endpoint: '/forwarding-samples',

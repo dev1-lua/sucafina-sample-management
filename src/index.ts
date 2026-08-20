@@ -20,6 +20,11 @@ import currentDatetime from './preprocessors/current-datetime.preprocessor';
 // (sandbox chat still executes tools, then ~1 day live).
 import { dispatchNotifierJob } from './jobs/dispatch-notifier.job';
 // import { clientFeedbackChaserJob } from './jobs/client-feedback-chaser.job';
+// 2026-08-20 (feedback #29/#30): status-notifier drains the notifications_outbox queue
+// (QC ping on new requests, trader pings on preparing/dispatched/AWB). Ships one version
+// AFTER the round-5 tools/skills/persona, per the one-job-per-version protocol above;
+// it takes the next-in-line slot ahead of clientFeedbackChaserJob.
+// import { statusNotifierJob } from './jobs/status-notifier.job';
 
 const agent = new LuaAgent({
   name: 'Sample-management-agent',
@@ -33,8 +38,9 @@ const agent = new LuaAgent({
     clientBookSkill,
     consignmentsSkill,
   ],
-  // Legacy reminder jobs stay parked — see note above. New email jobs enter one per
-  // version: dispatch-notifier now, client-feedback-chaser after the soak.
+  // Legacy reminder jobs stay parked — see note above. New jobs enter one per version:
+  // dispatch-notifier live; statusNotifierJob next (add it here after the round-5
+  // tools version soaks healthy); client-feedback-chaser after that.
   jobs: [dispatchNotifierJob],
   // The model has no clock — this stamps every message with the real current date/time
   // so "today", relative dates, and recorded dates are never guessed.

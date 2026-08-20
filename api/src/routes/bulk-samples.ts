@@ -6,16 +6,17 @@ import { actorFrom } from '../auth.js';
 import { issueRef } from '../lib/refs.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
+import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
 
 export const bulkSamples = Router();
 
 const SAMPLE_TYPES = ['offer','type','pss','woc','retention','flavor_mapping','marketing','calibration','other'] as const;
 const STATUSES = ['requested','preparing','dispatched','delivered','results_in','cancelled'] as const;
-const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','other'] as const;
+const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by'] as const;
 
 // `sample_type`/`courier_norm` are free text (migration 004) so operators can enter
 // values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -52,11 +53,13 @@ const createSchema = z.object({
   // Approved-sample attributes (migration 009, feedback ⑬).
   strategy: z.string().nullish(),
   highlights: z.string().nullish(),
-  // Migration 010: who placed the request, and grams of the lot held at the lab.
+  // Migration 010: who placed the request (Sales Trader), and grams of the lot held at the lab.
   requested_by: z.string().nullish(),
   stock_grams: z.number().int().nullish(),
   // Migration 011 (feedback #25): urgency flag — 'normal' | 'urgent'.
   priority: z.enum(['normal', 'urgent']).nullish(),
+  // Migration 013 (feedback #28): who typed the request into the bot (agent auto-stamps).
+  logged_by: z.string().nullish(),
 });
 
 const patchSchema = z.object({
@@ -91,6 +94,8 @@ const patchSchema = z.object({
   stock_grams: z.number().int().nullish(),
   // Migration 011 (feedback #25): urgency flag — 'normal' | 'urgent'.
   priority: z.enum(['normal', 'urgent']).nullish(),
+  // Migration 013 (feedback #28).
+  logged_by: z.string().nullish(),
 });
 
 bulkSamples.get('/', h(async (req, res) => {
@@ -139,7 +144,7 @@ bulkSamples.get('/', h(async (req, res) => {
   // Priority (migration 011): ?priority=urgent.
   if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
   const result = await buildList(
-    { table: 'bulk_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by'] },
+    { table: 'bulk_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by','logged_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -169,10 +174,10 @@ bulkSamples.post('/', h(async (req, res) => {
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
         comments, crop_year, client_id, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, priority, date, date_on, status)
+        requested_by, stock_grams, priority, logged_by, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
              COALESCE($20, (SELECT default_phyto_cert FROM clients WHERE id = $19::uuid)),
-             $21,$22,$23,$24,$25,$26,$27,$29,$30,COALESCE($31,'normal'),
+             $21,$22,$23,$24,$25,$26,$27,$29,$30,COALESCE($31,'normal'),$32,
              COALESCE($28, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($28::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -184,8 +189,11 @@ bulkSamples.post('/', h(async (req, res) => {
      body.comments ?? null, body.crop_year ?? null, body.client_id ?? null, body.phyto_cert ?? null,
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
-     body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null],
+     body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
+     body.logged_by ?? null],
     { entityType: 'bulk', type: 'created', note: `${body.quality} for ${body.client}`, actor },
+    // Feedback #29: Quality is pinged for every request added in full (create implies the intake gates passed).
+    async (client, row) => enqueueOutbox(client, { tab: 'bulk', sampleId: String(row.id), event: 'created', recipient: 'qc' }),
   );
   res.status(201).json(row);
 }));
@@ -243,6 +251,7 @@ bulkSamples.patch('/:id', h(async (req, res) => {
                           THEN GREATEST(stock_grams - COALESCE($8, qty_grams, 0), 0)
                           ELSE COALESCE($26, stock_grams) END,
        priority = COALESCE($27, priority),
+       logged_by = COALESCE($28, logged_by),
        result_on = CASE WHEN $5 IS NOT NULL AND result_on IS NULL THEN CURRENT_DATE ELSE result_on END,
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        dispatched_on = CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END,
@@ -254,8 +263,11 @@ bulkSamples.patch('/:id', h(async (req, res) => {
      body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null,
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
-     body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null],
+     body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null,
+     body.logged_by ?? null],
     { entityType: 'bulk', type: eventType, note, actor },
+    // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
+    async (client, row) => enqueueStatusEvents(client, 'bulk', row, prev, body, nextStatus),
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');
   res.json(row);
