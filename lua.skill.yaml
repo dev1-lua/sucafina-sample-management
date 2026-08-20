@@ -4,46 +4,34 @@ agent:
 skills:
   - name: sample-intake
     skillId: c956a600-f604-419a-b3d6-4be4863fedfa
-    version: 1.0.15
+    version: 1.0.16
   - name: client-book
     skillId: d4dfd7a4-2577-4839-88cf-5461847785ef
-    version: 1.0.15
+    version: 1.0.16
   - name: dispatch-logging
     skillId: 7d224af8-424d-4606-9c08-9bfc28c1e1f7
-    version: 1.0.15
+    version: 1.0.16
   - name: status-and-tracking
     skillId: 7e0234a6-d3c6-48a0-8023-c3f8de47ccf4
-    version: 1.0.15
+    version: 1.0.16
   - name: results-capture
     skillId: efcd6fde-e46a-462a-a0ce-b02aaae0567f
-    version: 1.0.15
+    version: 1.0.16
   - name: consignments
     skillId: 1718a42a-7015-4a3b-9e49-717f3f796b71
-    version: 1.0.5
+    version: 1.0.6
 webhooks: []
 jobs:
   - jobId: d1a9b23b-3748-4eb7-a9c8-dc8c11e1cb15
     name: dispatch-notifier
-    version: 1.0.3
-  - jobId: c2436eb0-0a8a-4653-8124-ee40d3254c79
-    name: daily-chaser
-    version: 1.0.5
-  - jobId: 8753c99d-7a1c-4785-a102-088ea20d1992
-    name: courier-awb-reminder
-    version: 1.0.1
-  - jobId: 8c6c7faa-e6ec-44c6-b3f6-fe9f04f9d528
-    name: feedback-reminder
-    version: 1.0.1
-  - jobId: 41b1815d-9790-47f3-b4e2-0e2c7a43d4bd
-    name: order-placed-reminder
-    version: 1.0.1
+    version: 1.0.4
 preprocessors:
   - name: current-datetime
     preprocessorId: preprocessor_4f12f92f-446b-4d8b-b13d-3bd61248a664
-    version: 1.0.6
+    version: 1.0.7
 postprocessors: []
 mcpServers: []
 backup:
-  activeVersion: 13
-  lastHash: e73e4937f373cfddec20620a30a6ddd0827f07b75e69375e43d725841424606c
-  lastPushedAt: '2026-08-18T13:57:57.437Z'
+  activeVersion: 14
+  lastHash: ed059b50789a8b826b5d9c9af0d0c08f5d9b963b8afe191ac6480c50e9d8d5f0
+  lastPushedAt: '2026-08-20T12:23:29.399Z'
