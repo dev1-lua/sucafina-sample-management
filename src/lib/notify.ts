@@ -61,14 +61,13 @@ export async function notifyContactGap(
 }
 
 /**
- * Whether the agent has a working outbound email channel. Flip to true ONLY after
- * an email inbox is generated/connected for the agent (`lua channels`, interactive).
- * Until then Channels.email.send silently ACCEPTS mail that never lands anywhere
- * (verified 2026-08-24: agent has only webchat + Teams channels, outboundChannels
- * feature inactive, yet the send doesn't throw) — so attempting it would mark
- * notifications delivered when they weren't.
+ * Whether the agent has a working outbound email channel. True since 2026-08-24:
+ * generated inbox ping@heymail.ai (display name "Sucafina Samples") via the admin
+ * dashboard. If the channel is ever removed, flip this back to false — without a
+ * channel Channels.email.send silently ACCEPTS mail that never lands, which would
+ * mark notifications delivered when they weren't.
  */
-export const EMAIL_CHANNEL_READY = false;
+export const EMAIL_CHANNEL_READY = true;
 
 /**
  * Deliver one message to one person: warm Teams DM first, email fallback.
