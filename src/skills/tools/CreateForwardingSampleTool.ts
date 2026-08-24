@@ -5,6 +5,7 @@ import { dashboardUrl } from '../../lib/links';
 import { normalizeAwb, normalizeCountry, normalizeCourier, normalizeLocation } from '../../lib/normalize';
 import { currentUserName } from '../../lib/current-user';
 import { assertDeliverable } from '../../lib/client-guard';
+import { notifyContactGap } from '../../lib/notify';
 
 export default class CreateForwardingSampleTool implements LuaTool {
   name = 'create_forwarding_sample';
@@ -72,7 +73,12 @@ export default class CreateForwardingSampleTool implements LuaTool {
       }),
     });
 
+    // Present only when the Sales Trader has no email on the roster — the intake
+    // skill's NOTIFY CONTACT step keys off this field (feedback #34).
+    const gap = await notifyContactGap(row.requested_by);
+
     return {
+      ...(gap ? { notify_contact_gap: gap } : {}),
       tab: 'forwarding',
       id: row.id,
       date: row.date,

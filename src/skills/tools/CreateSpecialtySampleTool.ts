@@ -4,6 +4,7 @@ import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { currentUserName } from '../../lib/current-user';
 import { assertDeliverable } from '../../lib/client-guard';
+import { notifyContactGap } from '../../lib/notify';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
@@ -118,7 +119,12 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       }),
     });
 
+    // Present only when the Sales Trader has no email on the roster — the intake
+    // skill's NOTIFY CONTACT step keys off this field (feedback #34).
+    const gap = await notifyContactGap(row.requested_by);
+
     return {
+      ...(gap ? { notify_contact_gap: gap } : {}),
       tab: 'specialty',
       id: row.id,
       ref: row.ref,

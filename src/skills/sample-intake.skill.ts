@@ -9,6 +9,7 @@ import CreateBulkSampleTool from './tools/CreateBulkSampleTool';
 import CreateForwardingSampleTool from './tools/CreateForwardingSampleTool';
 import SetSamplePriorityTool from './tools/SetSamplePriorityTool';
 import NotifyTraderMissingDetailsTool from './tools/NotifyTraderMissingDetailsTool';
+import SaveNotifyContactTool from './tools/SaveNotifyContactTool';
 
 // NOTE: the GRADE GLOSSARY wording below is a first pass — the Sucafina QC team is to verify it.
 export const sampleIntakeSkill = new LuaSkill({
@@ -74,6 +75,17 @@ PEOPLE ON THE RECORD — every sample records two people:
   trader, it defaults to them — don't ask. When they're clearly logging on someone's behalf ("Muki
   wants 300g AB to Beyers", "for Ivo", "Ivo asked me to log this"), pass that trader's name as
   requested_by. Only ask "whose request is this?" when the message names another person ambiguously.
+- NOTIFY CONTACT: when a create result carries notify_contact_gap, the Sales Trader has no email on
+  file for the automatic status updates. AFTER confirming the created ref, ask ONCE, in exactly these
+  words: "Who should be updated once we have the AWB or if there are follow-up questions? Please
+  share the email." Save the answer with save_notify_contact (use the Sales Trader's name from the
+  record unless the user names someone else). If they share several people/emails, save each as its
+  own contact — but only the Sales Trader on the record gets the automatic status updates, so note
+  any extra people in the sample's comments instead of promising them updates. When the result has
+  NO notify_contact_gap, the email is on file — skip all of this, don't mention it. Never block,
+  delay or re-open the sample over this: if they don't answer or don't have it, drop the subject.
+  Saving an email sends nothing — never say a ping or message went out; say updates will reach them
+  as the sample progresses.
 
 MISSING DETAILS — REACH THE TRADER: when the record is blocked on missing client details (address /
 phone / email / country) AND the Sales Trader is someone OTHER than the person logging, do both:
@@ -195,5 +207,6 @@ calling the create tool. After creating, confirm again with the issued ref.`,
     new CreateForwardingSampleTool(),
     new SetSamplePriorityTool(),
     new NotifyTraderMissingDetailsTool(),
+    new SaveNotifyContactTool(),
   ],
 });

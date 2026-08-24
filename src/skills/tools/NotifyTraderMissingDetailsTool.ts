@@ -24,6 +24,9 @@ export default class NotifyTraderMissingDetailsTool implements LuaTool {
     const traders = await loadTraders();
     const trader = matchTrader(input.trader_name, traders);
     if (!trader || !trader.email) {
+      console.log(
+        `notify_trader_missing_details: no deliverable contact for "${input.trader_name}" (matched: ${trader?.name ?? 'none'}, email: ${trader?.email ?? 'none'}) — returning delivered:false`,
+      );
       return {
         delivered: false,
         reason: `No contact on file for "${input.trader_name}" — ask the person logging to get the missing details from them directly.`,
@@ -40,6 +43,9 @@ export default class NotifyTraderMissingDetailsTool implements LuaTool {
       user = null;
     }
     if (!user) {
+      console.log(
+        `notify_trader_missing_details: ${trader.name} <${trader.email}> has never DM'd the bot (cold Teams contact) — returning delivered:false`,
+      );
       return {
         delivered: false,
         reason: `${trader.name} hasn't chatted with me yet, so I can't message them — ask the person logging to get the missing details from them directly.`,
@@ -56,12 +62,14 @@ export default class NotifyTraderMissingDetailsTool implements LuaTool {
 
     try {
       await user.send([{ type: 'text', text }]);
-    } catch {
+    } catch (e) {
+      console.error(`notify_trader_missing_details: Teams send to ${trader.name} <${trader.email}> failed`, e);
       return {
         delivered: false,
         reason: `Couldn't reach ${trader.name} on Teams — ask the person logging to get the missing details from them directly.`,
       };
     }
+    console.log(`notify_trader_missing_details: Teams DM delivered to ${trader.name} <${trader.email}> (${input.sample_summary})`);
     return { delivered: true, via: 'teams', trader: trader.name };
   }
 }

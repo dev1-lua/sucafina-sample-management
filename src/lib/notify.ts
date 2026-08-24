@@ -37,6 +37,30 @@ export function matchTrader(name: string | null | undefined, traders: TraderRow[
 }
 
 /**
+ * Roster gap-check for a sample's Sales Trader (feedback #34). Returns null when
+ * the trader already has an email on file (or no name was recorded) — the intake
+ * skill then skips its notify-contact question. Never throws: a create must not
+ * fail because the roster couldn't be read.
+ */
+export async function notifyContactGap(
+  requestedBy: string | null | undefined,
+): Promise<{ sales_trader: string; email_on_file: false } | null> {
+  const name = (requestedBy ?? '').trim();
+  if (!name) return null;
+  try {
+    const match = matchTrader(name, await loadTraders());
+    if (match?.email) return null;
+    console.log(
+      `notify: no email on file for Sales Trader "${match?.name ?? name}"${match ? '' : ' (not on the roster)'} — intake will ask for a notify contact`,
+    );
+    return { sales_trader: match?.name ?? name, email_on_file: false };
+  } catch (e) {
+    console.warn(`notify: roster check for "${name}" failed — skipping notify-contact gap`, e);
+    return null;
+  }
+}
+
+/**
  * Deliver one message to one person: warm Teams DM first, email fallback.
  * Returns how it went out, or null when neither channel could deliver.
  */
