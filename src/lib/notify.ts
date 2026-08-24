@@ -61,6 +61,16 @@ export async function notifyContactGap(
 }
 
 /**
+ * Whether the agent has a working outbound email channel. Flip to true ONLY after
+ * an email inbox is generated/connected for the agent (`lua channels`, interactive).
+ * Until then Channels.email.send silently ACCEPTS mail that never lands anywhere
+ * (verified 2026-08-24: agent has only webchat + Teams channels, outboundChannels
+ * feature inactive, yet the send doesn't throw) — so attempting it would mark
+ * notifications delivered when they weren't.
+ */
+export const EMAIL_CHANNEL_READY = false;
+
+/**
  * Deliver one message to one person: warm Teams DM first, email fallback.
  * Returns how it went out, or null when neither channel could deliver.
  */
@@ -75,6 +85,10 @@ export async function sendToPerson(
     }
   } catch (e) {
     console.warn(`notify: Teams DM to ${o.email} failed, falling back to email`, e);
+  }
+  if (!EMAIL_CHANNEL_READY) {
+    console.warn(`notify: email to ${o.email} not attempted — no email channel wired yet (Teams-only until then)`);
+    return null;
   }
   try {
     const html = `<p>${o.text.replace(/\n/g, '<br>')}</p>`;

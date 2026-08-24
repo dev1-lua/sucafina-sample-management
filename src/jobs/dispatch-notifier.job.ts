@@ -1,6 +1,7 @@
 import { Channels, LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
 import { dispatchEmail, groupBy, type DispatchItem } from '../lib/client-email';
+import { EMAIL_CHANNEL_READY } from '../lib/notify';
 
 // Anicka: once samples are marked dispatched, the client gets the courier + AWB by
 // email automatically. Polls the API's queue (rows with dispatched_on stamped, a client
@@ -14,6 +15,13 @@ export const dispatchNotifierJob = new LuaJob({
   description: 'Email the client courier + AWB once their samples are marked dispatched',
   schedule: { type: 'cron', expression: '*/15 7-19 * * 1-6', timezone: 'Africa/Nairobi' },
   execute: async () => {
+    if (!EMAIL_CHANNEL_READY) {
+      // No email channel wired yet — Channels.email.send would silently accept mail
+      // that never lands AND we'd stamp dispatch_notified_at, losing the notification
+      // for good. Leave the queue untouched; it drains for real once email is wired.
+      console.warn('dispatch-notifier: email channel not wired — leaving dispatch queue pending');
+      return { success: true, pending: 0, emails_sent: 0, failures: 0, note: 'email channel not wired' };
+    }
     const { items } = (await apiFetch('/notifications/dispatch-pending')) as { items: DispatchItem[] };
     // One shipment = one email: rows sharing the client email + AWB travel together.
     const groups = groupBy(items, (i) => `${i.email}|${i.awb ?? i.id}`);

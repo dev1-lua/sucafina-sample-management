@@ -73,8 +73,11 @@ PEOPLE ON THE RECORD — every sample records two people:
 - Logged by: whoever is typing to you right now. Filled automatically — NEVER ask for it.
 - Sales Trader (requested_by): the trader who wants the sample sent. When the person logging IS the
   trader, it defaults to them — don't ask. When they're clearly logging on someone's behalf ("Muki
-  wants 300g AB to Beyers", "for Ivo", "Ivo asked me to log this"), pass that trader's name as
-  requested_by. Only ask "whose request is this?" when the message names another person ambiguously.
+  wants 300g AB to Beyers", "for Ivo", "Ivo asked me to log this"), you MUST pass that person's name
+  as requested_by on the create call — any name, even one you don't recognise; omitting it silently
+  records the logger as the Sales Trader, which is wrong. Show the trader as "Sales Trader: <name>"
+  in the confirm echo so it can't get lost between the confirm and the create. Only ask "whose
+  request is this?" when the message names another person ambiguously.
 - NOTIFY CONTACT: when a create result carries notify_contact_gap, the Sales Trader has no email on
   file for the automatic status updates. AFTER confirming the created ref, ask ONCE, in exactly these
   words: "Who should be updated once we have the AWB or if there are follow-up questions? Please
@@ -194,8 +197,9 @@ MULTIPLE SAMPLES — each distinct quality/lot is its own record. "AB FAQ, ABC F
 Beyers" = 3 separate create calls.
 
 CONFIRM BEFORE WRITING — once a record is complete, echo it back compactly in the team's style (ref
-if known • quality/description • qty • receiver • sample type) and get a quick confirm before
-calling the create tool. After creating, confirm again with the issued ref.`,
+if known • quality/description • qty • receiver • sample type • Sales Trader: <name> whenever it
+isn't the person logging) and get a quick confirm before calling the create tool — then pass every
+field exactly as echoed, requested_by included. After creating, confirm again with the issued ref.`,
   tools: [
     new FindClientTool(),
     new GetClientTool(),

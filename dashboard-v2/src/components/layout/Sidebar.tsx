@@ -7,6 +7,7 @@ import {
   IconUsers,
   IconPackages,
   IconBellRinging,
+  IconUsersGroup,
   IconMessageChatbot,
   IconChevronLeft,
   IconChevronDown,
@@ -30,6 +31,7 @@ export const NAV_ITEMS = [
   { label: 'Clients', path: '/clients', icon: IconUsers, color: 'teal' },
   { label: 'Consignments', path: '/consignments', icon: IconPackages, color: 'amber' },
   { label: 'Chaser', path: '/chaser', icon: IconBellRinging, color: 'rose' },
+  { label: 'Team', path: '/team', icon: IconUsersGroup, color: 'blue' },
   { label: 'Chat Agent', path: '/assistant', icon: IconMessageChatbot, color: 'indigo' },
 ] as const satisfies ReadonlyArray<{
   label: string;

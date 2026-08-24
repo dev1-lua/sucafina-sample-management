@@ -18,6 +18,11 @@ function renderApp(initialPath = '/') {
   );
 }
 
+it('renders the Team route with its header title', () => {
+  renderApp('/team');
+  expect(screen.getByRole('heading', { name: 'Team' })).toBeInTheDocument();
+});
+
 it('renders the shell with the Dashboard route by default', () => {
   renderApp('/');
   expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();

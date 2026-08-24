@@ -182,6 +182,40 @@ export function useTraders() {
   });
 }
 
+// --- Team roster (Team page) --------------------------------------------------
+// The roster drives the automatic notifications: QC members with an email get the
+// new-request pings, the Sales Trader on a sample gets the status pings. ?all=1
+// includes deactivated people so they can be reactivated. Mutations invalidate the
+// ['/traders'] prefix, which also refreshes useTraders (account-owner selects).
+
+export type TeamMember = { id: string; name: string; email: string | null; role: 'trader' | 'qc'; active: boolean };
+
+export function useTeamRoster() {
+  return useQuery({
+    queryKey: ['/traders', 'roster'],
+    queryFn: () => api<{ data: TeamMember[]; total: number }>('/traders?all=1').then((r) => r.data),
+  });
+}
+
+export function usePatchTeamMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; body: Partial<Pick<TeamMember, 'email' | 'role' | 'active'>> }) =>
+      api<TeamMember>(`/traders/${vars.id}`, { method: 'PATCH', body: JSON.stringify(vars.body) }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['/traders'] }),
+  });
+}
+
+export function useCreateTeamMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    // POST /traders upserts on name — an existing name is updated, not duplicated.
+    mutationFn: (body: { name: string; email?: string | null; role?: TeamMember['role'] }) =>
+      api<TeamMember>('/traders', { method: 'POST', body: JSON.stringify(body) }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['/traders'] }),
+  });
+}
+
 // --- Chaser digest ------------------------------------------------------------
 // GET /chaser/digest returns 404 ("no digest yet") until the job/`Run now` has
 // produced one. api() throws on non-2xx, so we swallow that specific 404 and

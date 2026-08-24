@@ -12,6 +12,7 @@ import ClientDetailPage from '@/pages/ClientDetailPage';
 import ConsignmentsPage from '@/pages/ConsignmentsPage';
 import ConsignmentDetailPage from '@/pages/ConsignmentDetailPage';
 import ChaserPage from '@/pages/ChaserPage';
+import TeamPage from '@/pages/TeamPage';
 import AssistantPage from '@/pages/AssistantPage';
 import { TAB_REGISTRY } from '@/tabs/registry';
 import type { TabKey } from '@/types';
@@ -80,6 +81,7 @@ export default function App() {
             <Route path="/consignments" element={<ConsignmentsPage />} />
             <Route path="/consignments/:id" element={<ConsignmentDetailPage />} />
             <Route path="/chaser" element={<ChaserPage />} />
+            <Route path="/team" element={<TeamPage />} />
             {/* Conversational data-in surface — the (heavy) Lua widget lives on
                 this one route so its bundle only loads when the tab is opened. */}
             <Route path="/assistant" element={<AssistantPage />} />

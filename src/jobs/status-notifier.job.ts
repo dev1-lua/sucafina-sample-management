@@ -1,6 +1,6 @@
 import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
-import { loadTraders, matchTrader, sendToPerson, type TraderRow } from '../lib/notify';
+import { EMAIL_CHANNEL_READY, loadTraders, matchTrader, sendToPerson, type TraderRow } from '../lib/notify';
 
 // Ivo Jr. (feedback #29/#30): the Quality team hears about every sample request the
 // moment it's logged in full, and the Sales Trader hears as their sample progresses
@@ -107,6 +107,14 @@ export const statusNotifierJob = new LuaJob({
             if (via) delivered.push({ t, via });
           }
           if (!delivered.length) {
+            if (!EMAIL_CHANNEL_READY) {
+              // Nobody warm on Teams and no email channel to fall back to — mark
+              // skipped (visible, retried up to the 5-attempt cap) rather than
+              // retrying forever or falsely claiming delivery.
+              await mark(item.outbox_id, 'skipped', 'no QC member reachable: all cold on Teams, email channel not wired');
+              skipped += 1;
+              continue;
+            }
             // Every send failed — leave unmarked so the next run retries.
             failed += 1;
             console.error(`status-notifier: created ping failed for all QC recipients (${item.ref})`);
@@ -127,6 +135,11 @@ export const statusNotifierJob = new LuaJob({
           const { text, subject } = traderMessage(item);
           const via = await sendToPerson({ email: trader.email, text, subject });
           if (!via) {
+            if (!EMAIL_CHANNEL_READY) {
+              await mark(item.outbox_id, 'skipped', `${trader.name} cold on Teams, email channel not wired`);
+              skipped += 1;
+              continue;
+            }
             failed += 1;
             console.error(`status-notifier: ${item.event} ping failed for ${trader.name} (${item.ref})`);
             continue;
