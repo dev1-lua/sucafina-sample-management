@@ -76,6 +76,28 @@ it('renders the ref, shows timeline events on tab switch, and PATCHes on inline 
   });
 });
 
+it('date edit field shows YYYY-MM-DD from an ISO timestamp and PATCHes the picked date (feedback #35)', async () => {
+  const dateFields: DetailField[] = [
+    { key: 'dispatched_on', label: 'Dispatched On', edit: { field: 'dispatched_on', type: 'date' } },
+  ];
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    const method = (init as RequestInit | undefined)?.method ?? 'GET';
+    const row = { ...detail, dispatched_on: '2026-08-20T00:00:00.000Z' };
+    const body = method === 'PATCH' ? { ...row, ...JSON.parse(String((init as RequestInit).body)) } : row;
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  });
+  render(wrap(<DetailDrawer endpoint="/specialty-samples" id="1" open onClose={() => {}} fields={dateFields} />));
+  const input = (await screen.findByDisplayValue('2026-08-20')) as HTMLInputElement;
+  expect(input.type).toBe('date');
+  fireEvent.change(input, { target: { value: '2026-08-18' } });
+  fireEvent.blur(input);
+  await waitFor(() => {
+    const patch = spy.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+    expect(patch).toBeTruthy();
+    expect(JSON.parse(String((patch![1] as RequestInit).body))).toEqual({ dispatched_on: '2026-08-18' });
+  });
+});
+
 it('shows a labeled Phase-4 boundary on the Related tab', async () => {
   const user = userEvent.setup();
   stubFetch();

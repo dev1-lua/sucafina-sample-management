@@ -57,7 +57,13 @@ function InlineEditField({
   onCommit: (field: string, value: string | number) => void;
 }) {
   const initial = row[editDef.field];
-  const initialStr = initial === null || initial === undefined ? '' : String(initial);
+  // Date columns arrive as full ISO timestamps; a date input needs plain YYYY-MM-DD.
+  const initialStr =
+    initial === null || initial === undefined
+      ? ''
+      : editDef.type === 'date'
+        ? String(initial).slice(0, 10)
+        : String(initial);
   const [value, setValue] = React.useState(initialStr);
 
   React.useEffect(() => {
@@ -73,6 +79,8 @@ function InlineEditField({
       onCommit(editDef.field, Number(next));
       return;
     }
+    // A cleared date input is a no-op (the API's COALESCE can't null a field anyway).
+    if (editDef.type === 'date' && next.trim() === '') return;
     onCommit(editDef.field, next);
   }
 
@@ -108,7 +116,7 @@ function InlineEditField({
   return (
     <Input
       className="h-8 text-sm"
-      type={editDef.type === 'number' ? 'number' : 'text'}
+      type={editDef.type === 'number' ? 'number' : editDef.type === 'date' ? 'date' : 'text'}
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => commit(value)}

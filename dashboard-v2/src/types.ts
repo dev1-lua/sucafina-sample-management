@@ -78,7 +78,7 @@ export type DetailField = {
   // editable one (EditableSelect): picking "Other…" lets the user type a value
   // outside `options` (requires the backing column to be free text). `number`
   // commits a real number (for int-typed API fields like stock_grams).
-  edit?: { field: string; type: 'text' | 'select' | 'number'; options?: string[]; allowCustom?: boolean };
+  edit?: { field: string; type: 'text' | 'select' | 'number' | 'date'; options?: string[]; allowCustom?: boolean };
 };
 
 // Drives CreateRecordDialog's form. `key` must be the EXACT field name accepted by the

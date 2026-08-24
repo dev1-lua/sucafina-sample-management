@@ -50,6 +50,22 @@ describe('specialty-samples', () => {
     expect(d.body.events.map((e: { type: string }) => e.type)).toContain('dispatched');
   });
 
+  it('dispatched_on is editable after the fact and rejects a bad format (feedback #35)', async () => {
+    // The dispatch in the previous test auto-stamped today; an explicit edit overrides it.
+    const res = await auth(request(app).patch(`/specialty-samples/${id}`)).send({ dispatched_on: '2026-08-20' });
+    expect(res.status).toBe(200);
+    expect(String(res.body.dispatched_on)).toContain('2026-08-20');
+    // A fresh, never-dispatched row accepts a direct date too (status untouched).
+    const fresh = await auth(request(app).post('/specialty-samples')).send({
+      description: 'date-edit', receiver_company: 'Beyers', sample_type_norm: 'offer',
+    });
+    const set = await auth(request(app).patch(`/specialty-samples/${fresh.body.id}`)).send({ dispatched_on: '2026-08-19' });
+    expect(String(set.body.dispatched_on)).toContain('2026-08-19');
+    expect(set.body.status).toBe('requested');
+    // Garbage is rejected before it reaches the ::date cast.
+    expect((await auth(request(app).patch(`/specialty-samples/${id}`)).send({ dispatched_on: '20/08/2026' })).status).toBe(400);
+  });
+
   it('result via PATCH derives results_in and logs result_logged', async () => {
     const res = await auth(request(app).patch(`/specialty-samples/${id}`)).send({ result_norm: 'approved' });
     expect(res.body.status).toBe('results_in');

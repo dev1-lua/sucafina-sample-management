@@ -47,7 +47,8 @@ export const round3DetailFields: DetailField[] = [
   { key: 'logged_by', label: 'Logged By', edit: { field: 'logged_by', type: 'text' } },
   { key: 'completed_by', label: 'Completed By', edit: { field: 'completed_by', type: 'text' } },
   { key: 'stock_grams', label: 'Stock (g)', edit: { field: 'stock_grams', type: 'number' } },
-  { key: 'dispatched_on', label: 'Dispatched On' },
+  // Feedback #35 (Brillian): the dispatch date is editable after the fact.
+  { key: 'dispatched_on', label: 'Dispatched On', edit: { field: 'dispatched_on', type: 'date' } },
 ];
 
 export const round3CreateFields: CreateFieldDef[] = [

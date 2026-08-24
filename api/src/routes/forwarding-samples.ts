@@ -67,6 +67,8 @@ const patchSchema = z.object({
   priority: z.enum(['normal', 'urgent']).nullish(),
   // Migration 013 (feedback #28).
   logged_by: z.string().nullish(),
+  // Feedback #35 (Brillian): the dispatch date is editable after the fact.
+  dispatched_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').nullish(),
 });
 
 forwardingSamples.get('/', h(async (req, res) => {
@@ -195,7 +197,8 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
                           ELSE COALESCE($18, stock_grams) END,
        priority = COALESCE($19, priority),
        logged_by = COALESCE($20, logged_by),
-       dispatched_on = CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END,
+       -- An explicit dispatched_on edit (feedback #35) wins; else auto-stamp on the dispatch transition.
+       dispatched_on = COALESCE($21::date, CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.id_number ?? null,
@@ -203,7 +206,7 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
      body.feedback_requested ?? null, body.feedback_received ?? null, body.order_placed ?? null,
      body.new_sample_requested ?? null, body.new_sample ?? null, body.phyto_cert ?? null,
      body.location ?? null, body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null],
+     body.logged_by ?? null, body.dispatched_on ?? null],
     { entityType: 'forwarding', type: eventType, note, actor },
     // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
     async (client, row) => enqueueStatusEvents(client, 'forwarding', row, prev, body, nextStatus),
