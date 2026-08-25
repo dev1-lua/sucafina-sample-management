@@ -65,8 +65,11 @@ Sales Trader kept in the loop automatically at every step.
 
 ## What NOT to expect
 
-- **No group chats** — Teams bots can only message people 1:1 (platform limitation; a
-  group-send feature request is open with Lua).
+- **No per-sample group chats** — the bot can't open a group chat itself. It can post into
+  a group it's been added to (a desk group chat for callouts is the next step), but it
+  answers questions 1:1.
+- **If you messaged the bot before mid-August, message it again** — the bot moved to
+  Sucafina's own Teams app then, and older conversations don't carry over.
 - Only the **named Sales Trader** on the record gets the automatic updates. Extra people
   can be noted in the sample's comments.
 - Outside 07:00–19:00 / on Sundays, pings hold and catch up in the next window.
