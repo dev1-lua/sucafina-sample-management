@@ -113,7 +113,15 @@ notifications.get('/outbox-pending', h(async (_req, res) => {
     SELECT o.id AS outbox_id, o.tab, o.sample_id, o.event, o.recipient, o.attempts,
            t.${ref} AS ref, t.${title} AS title, t.${receiver} AS receiver,
            t.status::text AS status, t.courier_norm, t.awb, t.qty_grams, t.priority,
-           t.requested_by, t.logged_by, c.name AS client_name, o.created_at
+           t.requested_by, t.logged_by, c.name AS client_name, o.created_at,
+           -- Who is kept in the loop (migration 014): the client's account manager plus any
+           -- people added on the sample itself. Resolved here, at send time, so a manager set
+           -- after the event was queued still gets it. Email may be null → job marks skipped.
+           COALESCE((
+             SELECT json_agg(json_build_object('id', tr.id, 'name', tr.name, 'email', tr.email) ORDER BY tr.name)
+               FROM traders tr
+              WHERE tr.active AND (tr.id = c.account_owner_id OR tr.id = ANY (t.notify_trader_ids))
+           ), '[]'::json) AS recipients
       FROM notifications_outbox o
       JOIN ${table} t ON t.id = o.sample_id AND t.deleted_at IS NULL
       LEFT JOIN clients c ON c.id = t.client_id AND c.deleted_at IS NULL
@@ -138,9 +146,9 @@ const outboxMarkSchema = z.object({
 
 const OUTBOX_EVENT_NOTE: Record<string, string> = {
   created: 'Quality team notified of new request',
-  preparing: 'sales trader notified: preparing',
-  dispatched: 'sales trader notified: dispatched',
-  awb_added: 'sales trader notified: AWB added',
+  preparing: 'people in the loop notified: preparing',
+  dispatched: 'people in the loop notified: dispatched',
+  awb_added: 'people in the loop notified: AWB added',
 };
 
 notifications.post('/outbox-mark', h(async (req, res) => {

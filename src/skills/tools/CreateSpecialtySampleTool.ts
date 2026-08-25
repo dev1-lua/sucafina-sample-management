@@ -119,9 +119,9 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       }),
     });
 
-    // Present only when the Sales Trader has no email on the roster — the intake
-    // skill's NOTIFY CONTACT step keys off this field (feedback #34).
-    const gap = await notifyContactGap(row.requested_by);
+    // Present only when the client has no account manager with an email on file — the
+    // intake skill's KEEP IN THE LOOP step keys off this field (feedback #34).
+    const gap = await notifyContactGap(row.client_id);
 
     return {
       ...(gap ? { notify_contact_gap: gap } : {}),

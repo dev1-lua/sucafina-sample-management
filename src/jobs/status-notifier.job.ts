@@ -1,6 +1,6 @@
 import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
-import { EMAIL_CHANNEL_READY, loadTraders, matchTrader, sendToPerson, type TraderRow } from '../lib/notify';
+import { EMAIL_CHANNEL_READY, loadTraders, sendToPerson, type TraderRow } from '../lib/notify';
 
 // Ivo Jr. (feedback #29/#30): the Quality team hears about every sample request the
 // moment it's logged in full, and the Sales Trader hears as their sample progresses
@@ -28,6 +28,8 @@ type OutboxItem = {
   requested_by: string | null;
   logged_by: string | null;
   client_name: string | null;
+  /** Who is kept in the loop (migration 014): the client's account manager + per-sample loop-ins. */
+  recipients: { id: string; name: string; email: string | null }[];
 };
 
 const BOOK: Record<OutboxItem['tab'], string> = { specialty: 'Specialty', bulk: 'Commercial', forwarding: 'Forwarding' };
@@ -126,27 +128,49 @@ export const statusNotifierJob = new LuaJob({
           sent += 1;
           console.log(`status-notifier: created ping for ${item.ref} → ${detail}`);
         } else {
-          const trader = matchTrader(item.recipient, traders);
-          if (!trader || !trader.email) {
-            await mark(item.outbox_id, 'skipped', `no contact on file for sales trader "${item.recipient ?? ''}"`);
+          // Status pings go to the people in the loop: the client's account manager plus
+          // anyone added on the sample (resolved by the API at send time, migration 014).
+          const recipients = item.recipients ?? [];
+          if (!recipients.length) {
+            await mark(
+              item.outbox_id,
+              'skipped',
+              `no one in the loop for ${item.client_name ?? 'this sample'}: client has no account manager and no loop-in contacts`,
+            );
+            skipped += 1;
+            continue;
+          }
+          const reachable = recipients.filter((r) => r.email);
+          if (!reachable.length) {
+            await mark(
+              item.outbox_id,
+              'skipped',
+              `in the loop but no email on file: ${recipients.map((r) => r.name).join(', ')}`,
+            );
             skipped += 1;
             continue;
           }
           const { text, subject } = traderMessage(item);
-          const via = await sendToPerson({ email: trader.email, text, subject });
-          if (!via) {
+          const delivered: Array<{ name: string; via: 'teams' | 'email' }> = [];
+          for (const r of reachable) {
+            const via = await sendToPerson({ email: r.email!, text, subject });
+            if (via) delivered.push({ name: r.name, via });
+          }
+          if (!delivered.length) {
             if (!EMAIL_CHANNEL_READY) {
-              await mark(item.outbox_id, 'skipped', `${trader.name} cold on Teams, email channel not wired`);
+              await mark(item.outbox_id, 'skipped', `${reachable.map((r) => r.name).join(', ')} cold on Teams, email channel not wired`);
               skipped += 1;
               continue;
             }
             failed += 1;
-            console.error(`status-notifier: ${item.event} ping failed for ${trader.name} (${item.ref})`);
+            console.error(`status-notifier: ${item.event} ping failed for everyone in the loop (${item.ref})`);
             continue;
           }
-          await mark(item.outbox_id, via, `${trader.name} (${via})`);
+          const anyTeams = delivered.some((d) => d.via === 'teams');
+          const detail = delivered.map((d) => `${d.name} (${d.via})`).join(', ');
+          await mark(item.outbox_id, anyTeams ? 'teams' : 'email', detail);
           sent += 1;
-          console.log(`status-notifier: ${item.event} ping for ${item.ref} → ${trader.name} (${via})`);
+          console.log(`status-notifier: ${item.event} ping for ${item.ref} → ${detail}`);
         }
       } catch (e) {
         // Mark failed after a send, or an unexpected error — logged loudly; the row

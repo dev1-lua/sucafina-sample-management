@@ -130,7 +130,7 @@ export default function ClientDetailPage() {
 
       {/* Assign/reassign account owner */}
       <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="text-sm font-medium text-foreground">Account owner</h2>
+        <h2 className="text-sm font-medium text-foreground">Account manager — kept in the loop on every sample</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Assign the trader responsible for this client relationship.
         </p>

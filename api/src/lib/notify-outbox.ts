@@ -21,10 +21,12 @@ export async function enqueueOutbox(
 }
 
 /**
- * Shared PATCH-side enqueue for the three sample routers: pings the row's sales
- * trader (requested_by) on the transitions Ivo asked for. awb_added is suppressed
- * when the same call is the dispatch itself — that ping already carries the AWB.
- * Rows with no sales trader enqueue nothing (there is nobody to tell).
+ * Shared PATCH-side enqueue for the three sample routers: queues the transitions Ivo
+ * asked for. awb_added is suppressed when the same call is the dispatch itself — that
+ * ping already carries the AWB. Since migration 014 the RECIPIENTS are resolved at send
+ * time (client's account manager + the row's notify_trader_ids — see outbox-pending),
+ * so every transition is queued; `recipient` keeps the requesting trader's name for the
+ * audit note only.
  */
 export async function enqueueStatusEvents(
   client: PoolClient,
@@ -34,8 +36,7 @@ export async function enqueueStatusEvents(
   patch: { awb?: string | null; requested_by?: string | null },
   nextStatus: string | null,
 ): Promise<void> {
-  const trader = (patch.requested_by ?? prev.requested_by) as string | null;
-  if (!trader) return;
+  const trader = ((patch.requested_by ?? prev.requested_by) as string | null) ?? null;
   const sampleId = String(row.id);
   if (nextStatus === 'preparing' && prev.status !== 'preparing') {
     await enqueueOutbox(client, { tab, sampleId, event: 'preparing', recipient: trader });

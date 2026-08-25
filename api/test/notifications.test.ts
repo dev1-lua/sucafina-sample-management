@@ -190,13 +190,45 @@ describe('notifications outbox', () => {
     expect(events).toEqual(['awb_added', 'created', 'dispatched']);
   });
 
-  it('skips trader events when the row has no sales trader (created still fires)', async () => {
+  it('queues trader events even without a requesting trader — recipients resolve at send time (migration 014)', async () => {
     const s = await auth(request(app).post('/bulk-samples'))
       .send({ quality: 'No trader lot', client: 'OutboxCo' });
     await auth(request(app).patch(`/bulk-samples/${s.body.id}`)).send({ status: 'preparing' });
 
-    const events = (await itemsFor(s.body.id)).map((i) => i.event);
-    expect(events).toEqual(['created']);
+    const items = await itemsFor(s.body.id);
+    expect(items.map((i) => i.event).sort()).toEqual(['created', 'preparing']);
+    // Nobody in the loop yet: no client account manager, no loop-in ids → empty recipients.
+    const prep = items.find((i) => i.event === 'preparing') as { recipients: unknown[] };
+    expect(prep.recipients).toEqual([]);
+  });
+
+  it('resolves recipients from the client account manager + per-sample loop-in ids', async () => {
+    const mgr = await auth(request(app).post('/traders')).send({ name: 'Thomas', email: 'thomas@sucafina.com' });
+    const extra = await auth(request(app).post('/traders')).send({ name: 'Lena', email: 'lena@sucafina.com' });
+    const noMail = await auth(request(app).post('/traders')).send({ name: 'Quiet' });
+    const clientId = await makeClient('Loop Coffee Co');
+    await auth(request(app).patch(`/clients/${clientId}`)).send({ account_owner_id: mgr.body.id });
+
+    const s = await auth(request(app).post('/specialty-samples'))
+      .send({ description: 'Loop lot', receiver_company: 'Loop Coffee Co', client_id: clientId, qty_grams: 300 });
+    const patched = await auth(request(app).patch(`/specialty-samples/${s.body.id}`))
+      .send({ notify_trader_ids: [extra.body.id, noMail.body.id], status: 'preparing' });
+    expect(patched.body.notify_trader_ids).toEqual([extra.body.id, noMail.body.id]);
+
+    const prep = (await itemsFor(s.body.id)).find((i) => i.event === 'preparing') as {
+      recipients: { name: string; email: string | null }[];
+    };
+    expect(prep.recipients.map((r) => r.name)).toEqual(['Lena', 'Quiet', 'Thomas']);
+    expect(prep.recipients.find((r) => r.name === 'Thomas')!.email).toBe('thomas@sucafina.com');
+    expect(prep.recipients.find((r) => r.name === 'Quiet')!.email).toBeNull();
+
+    // Manager set AFTER the event queued still receives it (send-time resolution).
+    const late = await auth(request(app).post('/traders')).send({ name: 'Late Mgr', email: 'late@sucafina.com' });
+    await auth(request(app).patch(`/clients/${clientId}`)).send({ account_owner_id: late.body.id });
+    const again = (await itemsFor(s.body.id)).find((i) => i.event === 'preparing') as { recipients: { name: string }[] };
+    expect(again.recipients.map((r) => r.name)).toEqual(['Late Mgr', 'Lena', 'Quiet']);
+
+    expect((await auth(request(app).patch(`/specialty-samples/${s.body.id}`)).send({ notify_trader_ids: ['nope'] })).status).toBe(400);
   });
 
   it('forwarding rows born dispatched enqueue created and dispatched together', async () => {

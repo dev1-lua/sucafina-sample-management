@@ -29,14 +29,17 @@ The bot fills in what it can, asks one question at a time for anything missing (
 address, phyto certificate, …), echoes the finished record, and after your "yes" replies
 with the reference (e.g. **TYPE-1018**).
 
-**Step 2 — the email question (first time only).** If the Sales Trader on the record has
-no email saved yet, the bot asks:
+**Step 2 — the email question (first time per client).** If this client has no account
+manager on file yet — the colleague on our sales side who handles that client and fields
+their "is it on the way?" questions — the bot asks:
 
 > Who should be updated once we have the AWB or if there are follow-up questions? Please share the email.
 
-Reply with the address, e.g. `ivo.sarjanovic@sucafina.com`. That's now saved — this
-person gets every automatic status update from here on, and the bot never asks again for
-that trader.
+Reply with a name and address, e.g. `Thomas, thomas.berg@sucafina.com`. That's now saved
+against the client: Thomas gets every automatic update for **every sample to that client**
+from here on, and the bot never asks again for that client. To add someone at any point:
+*"keep Lena in the loop on TYPE-1018"* (this sample only) or *"Lena handles Paulig"* (all
+their samples).
 
 **Step 3 — Quality hears about it.** Within ~15 minutes, Harriet and Bernard each get a
 "New sample request" message with the ref, quality, receiver, quantity, and who logged it
@@ -48,8 +51,8 @@ Sucafina Samples. Log the sample as **urgent** ("send it urgently") and the ping
 
 > preparing TYPE-1018
 
-Within ~15 minutes the Sales Trader gets: *"Your sample TYPE-1018 (…) is being prepared
-by the lab."*
+Within ~15 minutes everyone in the loop for that client — the account manager and anyone
+added to the sample — gets: *"Your sample TYPE-1018 (…) is being prepared by the lab."*
 
 **Step 5 — dispatched.** When it goes out:
 
@@ -70,8 +73,8 @@ Sales Trader kept in the loop automatically at every step.
   answers questions 1:1.
 - **If you messaged the bot before mid-August, message it again** — the bot moved to
   Sucafina's own Teams app then, and older conversations don't carry over.
-- Only the **named Sales Trader** on the record gets the automatic updates. Extra people
-  can be noted in the sample's comments.
+- Status updates go to the **client's account manager** and anyone added to the sample —
+  not to whoever logged it. Use "keep X in the loop" to add people.
 - Outside 07:00–19:00 / on Sundays, pings hold and catch up in the next window.
 - A person with **no email who has never DM'd the bot** can't be reached at all — the
   Team page shows exactly who that is.

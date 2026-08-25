@@ -5,6 +5,7 @@ import GetSampleStatusTool from './tools/GetSampleStatusTool';
 import GetSampleStatsTool from './tools/GetSampleStatsTool';
 import TrackAwbTool from './tools/TrackAwbTool';
 import FindApprovedSamplesTool from './tools/FindApprovedSamplesTool';
+import SaveNotifyContactTool from './tools/SaveNotifyContactTool';
 
 export const statusTrackingSkill = new LuaSkill({
   name: 'status-and-tracking',
@@ -37,6 +38,19 @@ PICK THE RIGHT TOOL:
   When \`has_more\` is true, state the total, show the page, and offer to narrow or fetch the next \`page\`
   — never call a partial page "the full list" or imply the shown rows are everything.
 - PRESENT cleanly: a compact line per record (ref • title • receiver • status • courier/AWB), not raw
-  field dumps; lead with the count on list answers. Surface only the fields the question is about.`,
-  tools: [new SearchSamplesTool(), new GetSamplesByBookTool(), new GetSampleStatusTool(), new GetSampleStatsTool(), new TrackAwbTool(), new FindApprovedSamplesTool()],
+  field dumps; lead with the count on list answers. Surface only the fields the question is about.
+
+KEEP IN THE LOOP — who gets the automatic status updates (preparing / dispatched / AWB added): the
+client's Sucafina ACCOUNT MANAGER (one per client, on the sales side) plus anyone added to a
+specific sample. Handle these with save_notify_contact, silently:
+- "keep Thomas in the loop on TYPE-1020" / "add Thomas to TYPE-1020" → { name, sample_ref }.
+- "Thomas handles Paulig" / "Thomas is the account manager for Paulig" / "keep Thomas in the loop for
+  Paulig" → { name, client } — every current and future sample to that client.
+- A name already on the roster needs no email. A new person does — ask once ("What's Thomas's
+  email?"), then save with name + email.
+- Reply with who is now in the loop and for what ("Thomas will get updates on TYPE-1020"). Saving
+  sends nothing — never say a message or ping went out.
+- Not for the Quality team: QC pings on new requests are driven by the roster's Quality role
+  (managed on the dashboard Team page), not by this tool.`,
+  tools: [new SearchSamplesTool(), new GetSamplesByBookTool(), new GetSampleStatusTool(), new GetSampleStatsTool(), new TrackAwbTool(), new FindApprovedSamplesTool(), new SaveNotifyContactTool()],
 });

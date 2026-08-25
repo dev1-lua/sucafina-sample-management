@@ -98,6 +98,8 @@ const patchSchema = z.object({
   logged_by: z.string().nullish(),
   // Feedback #35 (Brillian): the dispatch date is editable after the fact.
   dispatched_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').nullish(),
+  // Migration 014 (feedback #34): extra people kept in the loop on this sample (traders ids). Replaces the list.
+  notify_trader_ids: z.array(z.string().uuid()).max(20).nullish(),
 });
 
 specialtySamples.get('/', h(async (req, res) => {
@@ -252,6 +254,7 @@ specialtySamples.patch('/:id', h(async (req, res) => {
        delivery_on = CASE WHEN $2 = 'delivered' AND delivery_on IS NULL THEN CURRENT_DATE ELSE delivery_on END,
        -- An explicit dispatched_on edit (feedback #35) wins; else auto-stamp on the dispatch transition.
        dispatched_on = COALESCE($31::date, CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END),
+       notify_trader_ids = COALESCE($32::uuid[], notify_trader_ids),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
@@ -262,7 +265,7 @@ specialtySamples.patch('/:id', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null, body.dispatched_on ?? null],
+     body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null],
     { entityType: 'specialty', type: eventType, note, actor },
     // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
     async (client, row) => enqueueStatusEvents(client, 'specialty', row, prev, body, nextStatus),

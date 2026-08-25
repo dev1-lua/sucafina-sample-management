@@ -37,25 +37,26 @@ export function matchTrader(name: string | null | undefined, traders: TraderRow[
 }
 
 /**
- * Roster gap-check for a sample's Sales Trader (feedback #34). Returns null when
- * the trader already has an email on file (or no name was recorded) — the intake
- * skill then skips its notify-contact question. Never throws: a create must not
- * fail because the roster couldn't be read.
+ * "Keep in the loop" gap-check for a sample's client (feedback #34, Ivo Jr. 2026-08-25):
+ * the person kept in the loop is Sucafina's ACCOUNT MANAGER for the client (one per
+ * client, clients.account_owner_id). Returns null when the client already has a
+ * manager with an email (or the sample has no client) — the intake skill then skips
+ * its question. Never throws: a create must not fail because the lookup failed.
  */
 export async function notifyContactGap(
-  requestedBy: string | null | undefined,
-): Promise<{ sales_trader: string; email_on_file: false } | null> {
-  const name = (requestedBy ?? '').trim();
-  if (!name) return null;
+  clientId: string | null | undefined,
+): Promise<{ client: string; client_id: string; account_manager: string | null; email_on_file: false } | null> {
+  if (!clientId) return null;
   try {
-    const match = matchTrader(name, await loadTraders());
-    if (match?.email) return null;
+    const c = await apiFetch(`/clients/${encodeURIComponent(clientId)}`);
+    const owner = c?.account_owner as { name?: string; email?: string | null } | null;
+    if (owner?.email) return null;
     console.log(
-      `notify: no email on file for Sales Trader "${match?.name ?? name}"${match ? '' : ' (not on the roster)'} — intake will ask for a notify contact`,
+      `notify: client "${c?.name}" has ${owner ? `account manager "${owner.name}" without an email` : 'no account manager'} — intake will ask who to keep in the loop`,
     );
-    return { sales_trader: match?.name ?? name, email_on_file: false };
+    return { client: String(c?.name ?? ''), client_id: String(clientId), account_manager: owner?.name ?? null, email_on_file: false };
   } catch (e) {
-    console.warn(`notify: roster check for "${name}" failed — skipping notify-contact gap`, e);
+    console.warn(`notify: account-manager check for client ${clientId} failed — skipping loop-in gap`, e);
     return null;
   }
 }

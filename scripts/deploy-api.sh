@@ -20,6 +20,8 @@ echo "== migration 012 (client merge event types)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/012_client_merge_events.sql
 echo "== migration 013 (logged_by + notifications outbox)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/013_logged_by_and_outbox.sql
+echo "== migration 014 (keep-in-the-loop contacts)"
+$DC exec -T postgres psql -U sucafina sucafina < api/migrations/014_loop_in_contacts.sql
 echo "== rebuild"
 $DC up -d --build
 $DC ps
