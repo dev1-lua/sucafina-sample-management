@@ -28,12 +28,39 @@ const tokens = (s: string) => s.trim().toLowerCase().split(/\s+/).filter(Boolean
  * no ping than the wrong person's ping.
  */
 export function matchTrader(name: string | null | undefined, traders: TraderRow[]): TraderRow | null {
-  const nToks = tokens(name ?? '');
-  if (!nToks.length) return null;
-  const exact = traders.find((t) => t.name.trim().toLowerCase() === name!.trim().toLowerCase());
-  if (exact) return exact;
-  const hits = traders.filter((t) => tokens(t.name).some((tok) => nToks.includes(tok)));
+  const hits = matchTraderCandidates(name, traders);
   return hits.length === 1 ? hits[0]! : null;
+}
+
+/**
+ * Every roster row a free-text name could mean: an exact (case-insensitive) name match wins
+ * outright; otherwise every row sharing a word. Callers that can ask a human (save_notify_contact)
+ * use this to say "which Thomas?" instead of silently creating a third one.
+ */
+export function matchTraderCandidates(name: string | null | undefined, traders: TraderRow[]): TraderRow[] {
+  const nToks = tokens(name ?? '');
+  if (!nToks.length) return [];
+  const exact = traders.find((t) => t.name.trim().toLowerCase() === name!.trim().toLowerCase());
+  if (exact) return [exact];
+  return traders.filter((t) => tokens(t.name).some((tok) => nToks.includes(tok)));
+}
+
+/** The roster row with this email (case-insensitive), if any — one inbox is one person. */
+export function matchTraderByEmail(email: string | null | undefined, traders: TraderRow[]): TraderRow | null {
+  const e = (email ?? '').trim().toLowerCase();
+  if (!e) return null;
+  return traders.find((t) => (t.email ?? '').trim().toLowerCase() === e) ?? null;
+}
+
+/**
+ * Display name from an email when that's all the desk gave us:
+ * "thomas.mueller@sucafina.com" → "Thomas Mueller", "tmueller@…" → "Tmueller".
+ */
+export function nameFromEmail(email: string): string {
+  const local = email.trim().split('@')[0] ?? '';
+  const parts = local.split(/[._\-+]+/).filter((p) => p && !/^\d+$/.test(p));
+  const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  return parts.length ? parts.map(cap).join(' ') : local || email.trim();
 }
 
 /**

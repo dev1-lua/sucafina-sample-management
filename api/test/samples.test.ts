@@ -19,14 +19,14 @@ describe('samples', () => {
       deadline: '2026-07-10',
     });
     expect(res.status).toBe(201);
-    expect(res.body.ref).toBe('SL-8000');
+    expect(res.body.ref).toBe('SL-7459');
     expect(res.body.status).toBe('requested');
     id = res.body.id;
   });
 
   it('issues TYPE refs for type samples and SSKE for pss', async () => {
     const t = await auth(request(app).post('/samples')).send({ sample_type: 'type', quality: 'ABC FAQ', receiver: 'Beyers' });
-    expect(t.body.ref).toBe('TYPE-1000');
+    expect(t.body.ref).toBe('TYPE-108');
     const p = await auth(request(app).post('/samples')).send({ sample_type: 'pss', quality: 'AA SANGALAI', receiver: 'Sucafina Yunnan' });
     expect(p.body.ref).toBe('SSKE-108000');
   });

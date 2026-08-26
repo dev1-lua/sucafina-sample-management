@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the API to the Contabo VPS: apply migrations 011–013 (all idempotent), rebuild containers.
+# Deploy the API to the Contabo VPS: apply migrations 011–015 (all idempotent / one-shot guarded), rebuild containers.
 # Assumes sucafina-deploy.tar.gz has already been rsync'd to root@156.67.105.74:~/ and extracted
 # (re-extracts anyway; harmless).
 #
@@ -22,6 +22,8 @@ echo "== migration 013 (logged_by + notifications outbox)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/013_logged_by_and_outbox.sql
 echo "== migration 014 (keep-in-the-loop contacts)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/014_loop_in_contacts.sql
+echo "== migration 015 (ref counters restart: SL-7459 / TYPE-108, one-shot)"
+$DC exec -T postgres psql -U sucafina sucafina < api/migrations/015_ref_counters_restart.sql
 echo "== rebuild"
 $DC up -d --build
 $DC ps

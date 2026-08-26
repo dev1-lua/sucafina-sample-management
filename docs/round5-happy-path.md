@@ -27,7 +27,7 @@ forwarded to the team as-is; the **Diagnosis** section at the bottom is for us.
 
 The bot fills in what it can, asks one question at a time for anything missing (client
 address, phyto certificate, …), echoes the finished record, and after your "yes" replies
-with the reference (e.g. **TYPE-1018**).
+with the reference (e.g. **TYPE-110**).
 
 **Step 2 — the email question (first time per client).** If this client has no account
 manager on file yet — the colleague on our sales side who handles that client and fields
@@ -35,10 +35,12 @@ their "is it on the way?" questions — the bot asks:
 
 > Who should be updated once we have the AWB or if there are follow-up questions? Please share the email.
 
-Reply with a name and address, e.g. `Thomas, thomas.berg@sucafina.com`. That's now saved
-against the client: Thomas gets every automatic update for **every sample to that client**
+Reply with a name and address, e.g. `Thomas, thomas.berg@sucafina.com` — or just the
+address; a bare `thomas.berg@sucafina.com` is enough. If Thomas is already on the Team page,
+the name alone will do. Answer "nobody" or "don't know" and the bot drops it without asking
+again. That's now saved against the client: Thomas gets every automatic update for **every sample to that client**
 from here on, and the bot never asks again for that client. To add someone at any point:
-*"keep Lena in the loop on TYPE-1018"* (this sample only) or *"Lena handles Paulig"* (all
+*"keep Lena in the loop on TYPE-110"* (this sample only) or *"Lena handles Paulig"* (all
 their samples).
 
 **Step 3 — Quality hears about it.** Within ~15 minutes, Harriet and Bernard each get a
@@ -49,17 +51,17 @@ Sucafina Samples. Log the sample as **urgent** ("send it urgently") and the ping
 
 **Step 4 — preparing.** QC tells the bot (or sets the status in the dashboard):
 
-> preparing TYPE-1018
+> preparing TYPE-110
 
 Within ~15 minutes everyone in the loop for that client — the account manager and anyone
-added to the sample — gets: *"Your sample TYPE-1018 (…) is being prepared by the lab."*
+added to the sample — gets: *"Your sample TYPE-110 (…) is being prepared by the lab."*
 
 **Step 5 — dispatched.** When it goes out:
 
-> TYPE-1018 dispatched with DHL, AWB 1234567890
+> TYPE-110 dispatched with DHL, AWB 1234567890
 
 The trader gets the dispatch ping with courier + AWB. If the AWB only comes later
-("AWB for TYPE-1018 is 1234567890"), that lands as its own "AWB added" ping. Got the
+("AWB for TYPE-110 is 1234567890"), that lands as its own "AWB added" ping. Got the
 dispatch date wrong, or recorded it late? Open the sample in the dashboard — **Dispatched
 On** is editable in the side panel (pick the real date).
 

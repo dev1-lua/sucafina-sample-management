@@ -15,7 +15,7 @@ describe('specialty-samples', () => {
       description: 'AB FAQ washed', receiver_company: 'Beyers', sample_type_norm: 'offer', grade: 'AB', bags: 10,
     });
     expect(res.status).toBe(201);
-    expect(res.body.ref).toBe('SL-8000');
+    expect(res.body.ref).toBe('SL-7459');
     expect(res.body.status).toBe('requested');
     id = res.body.id;
     const detail = await auth(request(app).get(`/specialty-samples/${id}`));

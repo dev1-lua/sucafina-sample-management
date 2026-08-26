@@ -2,6 +2,18 @@
 
 Paste-ready brief for a fresh session. Verified state as of commit `6ec7307` (pushed to main).
 
+## Update 2026-08-26 (same day, later) — what changed since `6ec7307`
+
+Built and verified locally on top of the pending deploy (api 191 / dashboard 73 / `lua compile --ci` 44 primitives / `npm run harness:loop-in` 23 checks / `lua test skill save_notify_contact` 3 cases):
+
+1. **Refs restart (Brillian #36/#37)** — `api/migrations/015_ref_counters_restart.sql`: `SL` counter → 7459, `TYPE` → 108, **unpadded** (`SL-7459`, not `SL-07459`), one-shot via a `_restart_2026_08` marker row in `ref_counters` (safe to re-run; `deploy-api.sh` applies it after 014). Rows already issued as SL-80xx / TYPE-10xx keep their refs. SSKE/CN untouched.
+2. **Keep-in-the-loop hardening** (`SaveNotifyContactTool` + `src/lib/notify.ts`): the person is resolved **by email first** (one inbox = one roster row, no duplicate pings), then unique name, then refuses with the candidate list on an ambiguous name ("which Thomas?"); an **email alone is enough** (name derived from the address: `thomas.mueller@…` → "Thomas Mueller"); an email given for an existing person is PATCHed onto their row (never renamed). Skills say so (bare-email answer is complete; "nobody/skip" drops it; never ask twice). Tool result carries `matched_by: email|name|created`.
+3. **Bug fix** — `PATCH /clients/:id {account_owner_id: null}` was a no-op (COALESCE), so the dashboard's "Unassigned" never unassigned the account manager. Fixed + tested.
+4. **New local harness** `scripts/loop-in-harness.ts` (`npm run harness:loop-in`; needs the local API on :4000 — it sets `API_KEY=dev-key-sucafina` explicitly because lua-cli's `env()` otherwise loads the PROD key from `.env`). Covers gap-fires / no-gap-after-save / email-only / duplicate-email / ambiguous / no-email refusal / invalid email / manager-without-email patch / send-time recipients deduped. Cleans up after itself.
+
+Deploy order is unchanged (below) with two additions: expect `== migration 015` → `DO` in the API deploy output and verify counters with
+`ssh root@156.67.105.74 "cd /opt/sucafina && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres psql -U sucafina sucafina -c 'SELECT * FROM ref_counters ORDER BY prefix'"` (SL 7459, TYPE 108, marker present). Prod QA matrix runs **outside the cron window** (after 19:00 Nairobi / Sunday) so nothing reaches Harriet/Bernard while QA rows exist; one labelled "QA TEST" sample runs in-window with the user's chosen test inbox as the loop-in so the real status email is observed.
+
 ## Where things stand
 
 Three surfaces, one repo (see `HANDOVER-2026-08-20-round5-part2.md` for the architecture):

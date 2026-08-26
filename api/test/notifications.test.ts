@@ -231,6 +231,18 @@ describe('notifications outbox', () => {
     expect((await auth(request(app).patch(`/specialty-samples/${s.body.id}`)).send({ notify_trader_ids: ['nope'] })).status).toBe(400);
   });
 
+  it('lists a person once when they are both the account manager and a per-sample loop-in', async () => {
+    const both = await auth(request(app).post('/traders')).send({ name: 'Both Ways', email: 'both@sucafina.com' });
+    const clientId = await makeClient('Both Ways Co');
+    await auth(request(app).patch(`/clients/${clientId}`)).send({ account_owner_id: both.body.id });
+    const s = await auth(request(app).post('/specialty-samples'))
+      .send({ description: 'Dedupe lot', receiver_company: 'Both Ways Co', client_id: clientId });
+    await auth(request(app).patch(`/specialty-samples/${s.body.id}`))
+      .send({ notify_trader_ids: [both.body.id], status: 'preparing' });
+    const prep = (await itemsFor(s.body.id)).find((i) => i.event === 'preparing') as { recipients: { name: string }[] };
+    expect(prep.recipients.map((r) => r.name)).toEqual(['Both Ways']);
+  });
+
   it('forwarding rows born dispatched enqueue created and dispatched together', async () => {
     const s = await auth(request(app).post('/forwarding-samples'))
       .send({ sender: 'Lab', origin: 'Kenya', sample_ref: 'FW-OB1', coffee_quality: 'AB',

@@ -175,7 +175,8 @@ clients.patch('/:id', h(async (req, res) => {
     `UPDATE clients SET
        name = COALESCE($2, name),
        country = COALESCE($3, country),
-       account_owner_id = COALESCE($4::uuid, account_owner_id),
+       -- explicit null UNASSIGNS the account manager (dashboard "Unassigned"); absent key keeps it
+       account_owner_id = CASE WHEN $11::boolean THEN $4::uuid ELSE account_owner_id END,
        spec_grades = COALESCE($5, spec_grades),
        spec_cup_profile = COALESCE($6, spec_cup_profile),
        spec_moisture_max = COALESCE($7, spec_moisture_max),
@@ -186,7 +187,8 @@ clients.patch('/:id', h(async (req, res) => {
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, body.name ?? null, body.country ?? null, body.account_owner_id ?? null,
      body.spec_grades ?? null, body.spec_cup_profile ?? null, body.spec_moisture_max ?? null,
-     body.spec_min_score ?? null, body.spec_notes ?? null, body.default_phyto_cert ?? null],
+     body.spec_min_score ?? null, body.spec_notes ?? null, body.default_phyto_cert ?? null,
+     'account_owner_id' in body],
     { entityType: 'client', type: 'edited', note: `fields updated: ${Object.keys(body).join(', ')}`, actor },
   );
   if (!row) throw new HttpError(404, 'client not found');

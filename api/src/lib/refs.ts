@@ -3,6 +3,8 @@ import { pool } from '../db.js';
 // Sample-type → ref prefix. pss=Shipment Sample Kenya, type=Type sample; everything else
 // (offer, specialty lots, woc, retention, …) falls back to SL. Every prefix here must have a
 // seeded row in ref_counters (migration 001) or issueRef throws on the missing counter row.
+// Counters were restarted by migration 015 (SL → 7459, TYPE → 108; Brillian, Aug 2026); format is
+// unpadded ("SL-7459").
 const PREFIX: Record<string, string> = { pss: 'SSKE', type: 'TYPE' };
 
 export async function issueRef(sampleType: string): Promise<string> {

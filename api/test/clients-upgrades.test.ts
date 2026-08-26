@@ -24,6 +24,15 @@ describe('clients upgrades', () => {
     expect(res.body.account_owner).toMatchObject({ name: 'Omar' });
   });
 
+  it('PATCH account_owner_id: null unassigns; a PATCH without the key keeps the owner', async () => {
+    await auth(request(app).patch(`/clients/${clientId}`)).send({ country: 'Belgium' });
+    expect((await auth(request(app).get(`/clients/${clientId}`))).body.account_owner).toMatchObject({ name: 'Omar' });
+    await auth(request(app).patch(`/clients/${clientId}`)).send({ account_owner_id: null });
+    expect((await auth(request(app).get(`/clients/${clientId}`))).body.account_owner).toBeNull();
+    await auth(request(app).patch(`/clients/${clientId}`)).send({ account_owner_id: traderId });
+    expect((await auth(request(app).get(`/clients/${clientId}`))).body.account_owner).toMatchObject({ name: 'Omar' });
+  });
+
   it('drills down into orders across all three tables', async () => {
     await auth(request(app).post('/specialty-samples')).send({ description: 'AB', receiver_company: 'Beyers', client_id: clientId });
     await auth(request(app).post('/bulk-samples')).send({ quality: 'AA', client: 'Beyers', client_id: clientId });
