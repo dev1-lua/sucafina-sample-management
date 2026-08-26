@@ -7,7 +7,7 @@ import { TABS, TAB_ENDPOINT, type Tab } from '../../lib/normalize';
 export default class UpdateSampleStatusTool implements LuaTool {
   name = 'set_sample_status';
   description =
-    'Mark a sample as being prepared by the lab (status → preparing) — the people in the loop (the client's account manager plus anyone added to the sample) are pinged automatically as it progresses — say that, not that the requester is pinged. Pass tab + id if you already have them (from search_samples / find_open_samples), or just the ref (e.g. "SL-8007") and it resolves the row. Dispatches stay with record_dispatch; results stay with the results tools. Returns the updated row card fields.';
+    'Mark a sample as being prepared by the lab (status → preparing) — the people in the loop (the client\'s account manager plus anyone added to the sample) are pinged automatically as it progresses — say that, not that the requester is pinged. Pass tab + id if you already have them (from search_samples / find_open_samples), or just the ref (e.g. "SL-8007") and it resolves the row. Dispatches stay with record_dispatch; results stay with the results tools. Returns the updated row card fields.';
 
   inputSchema = z.object({
     // Single-valued on purpose: 'dispatched' belongs to record_dispatch (courier/AWB/stock),
