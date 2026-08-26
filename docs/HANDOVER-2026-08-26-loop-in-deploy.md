@@ -21,6 +21,15 @@ Deploy order is unchanged (below) with two additions: expect `== migration 015` 
 - Side effects: Harriet + Bernard received ONE QA "New sample request" ping for SL-7460 (cron fires ~50–60 s AFTER the quarter-hour, not on the second — allow ≥2 min margin next time). Both delivered via **Teams** → they are now warm on Teams. Cleanup done: QA samples soft-deleted, QA client soft-deleted, Omar email reset to NULL, QA roster rows (Qa Manager, Lena Berg, Thomas Ng, Dev) deactivated — hard-delete: `DELETE FROM traders WHERE email IN ('qa.manager.0826@example.com','lena.berg.qa0826@example.com','thomas.ng.qa0826@example.com','dev@luaimplementation.ai');` (run on prod psql).
 - Two model-wording nits seen (mechanism correct): after "SL-7460 is being prepared" the bot said "Ivo will be pinged" (the requester — but pings go to the people in the loop); the manager-without-email question was rephrased to name the person instead of Ivo's exact sentence. Skill-text nudge candidates for the next version.
 
+## Follow-up 2026-08-26 evening — agent **v43** live: Teams channel pinned; email leg PROVEN
+
+- Found via the live run on v39: `sendToPerson` used `User.get({email}) → user.send()`, and `User.get` resolves a user from ANY channel history (web chat, dev console, old shared Teams bot). The ping "delivered" into that dead conversation and was labelled "(teams)". Fix (`src/lib/notify.ts`, commit caeb832): resolve the Lua userId, then `Channels.send({ channel: 'teams', to: { userId }, text })` — warm-only on Teams, rejects with "No direct conversation with this user on teams" → email fallback runs. Also: status-change replies no longer say the requester is pinged (c045e5b, 1ee9b94).
+- User deployed v43 (`push all` + `deploy all --force` → v40–42, then version create/promote v43; diff v39→v43 clean, persona/model unchanged).
+- Re-run on v43 (thread `loopin-qa2`): SL-7461 → bare-email answer → Dev account manager → preparing → 17:15:47 IST job: **"preparing ping for SL-7461 → Dev (email)"**; QC ping: **"Bernard (email), Harriet (email)"** — both rejected on Teams ("No direct conversation…"), i.e. their earlier "(teams)" deliveries were swallowed into old/other-channel conversations. They are in the re-DM group.
+- Gotchas learned: `lua chat --clear` left thread `loopin-qa-0826` returning HTTP 500 on every later message (use a fresh thread id per QA session); the */15 cron fires ~45–60 s after the quarter-hour; `save_notify_contact` only sees ACTIVE roster rows, so an inactive person given again by email is re-created via the name-upsert (re-activates the same row — fine, but inactive ≠ invisible).
+- Cleanup: SL-7461 + client "QA Loop Client 0826b" soft-deleted, Dev row deactivated, outbox empty, threads loopin-qa2/loopin-smoke cleared.
+- Parked: 3 `agent_error` entries (25–26 Aug) — inbound EMAILS to ping@heymail.ai fail with "media type: message/rfc822 not supported" (someone replies to the bot's emails; the email channel's inbound path can't feed the model). Raise with Lua.
+
 ## Where things stand
 
 Three surfaces, one repo (see `HANDOVER-2026-08-20-round5-part2.md` for the architecture):
