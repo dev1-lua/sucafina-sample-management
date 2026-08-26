@@ -10,7 +10,7 @@ export const dispatchLoggingSkill = new LuaSkill({
 
 Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking details :872526345980 Fedex".
 - PREPARING: when QC says they're pulling / preparing / working on a sample ("pulling SL-8007 now",
-  "starting on the Beyers types"), call set_sample_status with the ref — the sales trader is pinged
+  "starting on the Beyers types"), call set_sample_status with the ref — the people in the loop (the client's account manager plus anyone added to the sample — NOT necessarily the requester) are pinged
   automatically as it progresses; you don't message anyone yourself. Dispatches stay with
   record_dispatch; don't use set_sample_status for those.
 - find_open_samples with the client/receiver/ref text to locate what was pending. It returns each
