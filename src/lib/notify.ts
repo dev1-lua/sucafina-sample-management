@@ -106,12 +106,18 @@ export async function sendToPerson(
 ): Promise<'teams' | 'email' | null> {
   try {
     const user = await User.get({ email: o.email });
-    if (user) {
-      await user.send([{ type: 'text', text: o.text }]);
-      return 'teams';
+    const userId: string | undefined = user?._luaProfile?.userId ?? user?.userId;
+    if (userId) {
+      // Pin the channel. Channels.send on 'teams' is warm-only: it rejects when this person has
+      // no Teams conversation with the bot, and we fall through to email. The previous
+      // `user.send(...)` posted into WHATEVER channel the email was last seen on (web chat, dev
+      // console) and reported success — prod QA 2026-08-26 lost a ping that way.
+      const r = await Channels.send({ channel: 'teams', to: { userId }, text: o.text });
+      if (r?.delivered) return 'teams';
+      console.warn(`notify: Teams send to ${o.email} not delivered (${JSON.stringify(r)}), falling back to email`);
     }
   } catch (e) {
-    console.warn(`notify: Teams DM to ${o.email} failed, falling back to email`, e);
+    console.warn(`notify: Teams DM to ${o.email} unavailable (not warm on Teams?), falling back to email —`, (e as Error)?.message ?? e);
   }
   if (!EMAIL_CHANNEL_READY) {
     console.warn(`notify: email to ${o.email} not attempted — no email channel wired yet (Teams-only until then)`);
