@@ -1,0 +1,48 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.25/MicrosoftTeams.schema.json",
+  "version": "1.0.1",
+  "manifestVersion": "1.25",
+  "id": "26796e6a-d79f-4739-8426-45b3a07b64bb",
+  "name": {
+    "short": "Lua"
+  },
+  "developer": {
+    "name": "Lua Global Inc.",
+    "websiteUrl": "https://heylua.ai",
+    "privacyUrl": "https://heylua.ai/privacy-policy/",
+    "termsOfUseUrl": "https://heylua.ai/terms-of-service/"
+  },
+  "description": {
+    "short": "Lua AI assistant — chat with your Lua agent directly inside Microsoft Teams.",
+    "full": "Lua brings your AI agent into Microsoft Teams, so your team can work with it right where they already collaborate — no separate app, no context switching.\n\nOnce added to a team, channel, or group chat, Lua can read and respond to messages, answer questions, look things up, and help your team get work done conversationally. It works the same way in Teams as it does across Lua's other channels, so your agent's knowledge, tools, and personality carry over seamlessly.\n\nAdd Lua to a channel for shared, team-wide assistance, or to a group chat for focused collaboration. Mention the bot to start a conversation and it responds in context.\n\nPowered by Lua (heylua.ai)."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#FFFFFF",
+  "bots": [
+    {
+      "botId": "966fbc34-e124-4123-bb03-56abfb1e77a3",
+      "scopes": [
+        "groupChat",
+        "personal",
+        "team"
+      ],
+      "isNotificationOnly": false,
+      "supportsCalling": false,
+      "supportsVideo": false,
+      "supportsFiles": false
+    }
+  ],
+  "validDomains": [],
+  "webApplicationInfo": {
+    "id": "966fbc34-e124-4123-bb03-56abfb1e77a3"
+  },
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": []
+    }
+  },
+  "supportsChannelFeatures": "tier1"
+}
