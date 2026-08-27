@@ -30,6 +30,13 @@ Deploy order is unchanged (below) with two additions: expect `== migration 015` 
 - Cleanup: SL-7461 + client "QA Loop Client 0826b" soft-deleted, Dev row deactivated, outbox empty, threads loopin-qa2/loopin-smoke cleared.
 - Parked: 3 `agent_error` entries (25–26 Aug) — inbound EMAILS to ping@heymail.ai fail with "media type: message/rfc822 not supported" (someone replies to the bot's emails; the email channel's inbound path can't feed the model). Raise with Lua.
 
+## Follow-up 2026-08-27 — agent **v47** live: Teams-nudge footer on notification emails
+
+- `src/lib/notify.ts`: `sendToPerson`'s email leg now appends `EMAIL_FOOTER` — "Sent by Lua Sample Manager → Add me to your Teams Chat to send sample requests directly to Quality, and stay in the loop." Email only: people land on that leg precisely because they're cold on Teams, so it's the nudge to fix that; Teams pings are unchanged. The client-facing dispatch email (`lib/client-email.ts`) is deliberately NOT footered — external clients can't add the internal bot. Footer ships in `dist-v2/artifacts/job/status-notifier.js` (the only bundle using `sendToPerson`).
+- User deployed: `lua push all --force` → `lua deploy all --force` (v44–46) → `lua version create -m "mail footer"` → `promote v47`. `lua version diff v43 v47`: skills 1.0.23, dispatch-notifier 1.0.11, status-notifier 1.0.7, current-datetime 1.0.14; **persona/model unchanged**, `lua models --json` → `anthropic/claude-sonnet-5`. On lua-cli 3.27 `push all` now carries persona + model ("Persona version 15 created", "Model … pushed" — "Model settings cleared" is tuning defaults, not the model); the blank-model footgun did not recur.
+- Not smoke-tested live (would email real QC staff); first real-world check = next notification that falls back from Teams. To add the "Add me" flow: 1:1 chat with the Lua bot → paste the Sample Management connect code (internal memo, kept out of the public repo).
+- Hook gotcha: the lua plugin's deploy-guard blocks ANY Bash-tool command containing `$` with "Bare `lua deploy` is blocked" — write full paths / no shell vars, or run via a scratchpad `.sh`.
+
 ## Where things stand
 
 Three surfaces, one repo (see `HANDOVER-2026-08-20-round5-part2.md` for the architecture):

@@ -98,6 +98,14 @@ export async function notifyContactGap(
 export const EMAIL_CHANNEL_READY = true;
 
 /**
+ * Footer on every notification EMAIL — never on Teams pings. Someone only lands on the
+ * email leg because they're cold on Teams (never DM'd the bot), so the footer is the
+ * nudge to fix exactly that.
+ */
+const EMAIL_FOOTER =
+  '<p style="margin:16px 0 0;color:#6b7280;font-size:13px">Sent by Lua Sample Manager &rarr; Add me to your Teams Chat to send sample requests directly to Quality, and stay in the loop.</p>';
+
+/**
  * Deliver one message to one person: warm Teams DM first, email fallback.
  * Returns how it went out, or null when neither channel could deliver.
  */
@@ -124,7 +132,7 @@ export async function sendToPerson(
     return null;
   }
   try {
-    const html = `<p>${o.text.replace(/\n/g, '<br>')}</p>`;
+    const html = `<p>${o.text.replace(/\n/g, '<br>')}</p>${EMAIL_FOOTER}`;
     await Channels.email.send({ to: { email: o.email }, subject: o.subject, html });
     return 'email';
   } catch (e) {
