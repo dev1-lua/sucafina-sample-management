@@ -7,7 +7,8 @@ forwarded to the team as-is; the **Diagnosis** section at the bottom is for us.
 > All live. Pings go out Monday–Saturday, 07:00–19:00 Nairobi time, within ~15 minutes
 > of an event — as a Teams DM if you've messaged the bot before, otherwise by email
 > from **Sucafina Samples** (`ping@heymail.ai`). Check spam the first time and mark it
-> "not spam".
+> "not spam". Every email — internal pings and the client's dispatch email alike — is also
+> copied to the Specialty QC desk mailbox (`kenyacof.specialtyqc@sucafina.com`), one copy per event.
 
 ## Before you start (once per person — traders AND Quality)
 

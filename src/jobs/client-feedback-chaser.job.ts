@@ -1,5 +1,6 @@
-import { Channels, LuaJob } from 'lua-cli';
+import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
+import { sendEmail } from '../lib/notify';
 import { feedbackChaserEmail, groupBy, type FeedbackItem } from '../lib/client-email';
 
 // Omar: automatic email chaser to the CLIENT when no feedback has landed 7 days after
@@ -20,7 +21,7 @@ export const clientFeedbackChaserJob = new LuaJob({
     for (const group of groups) {
       const { subject, html, refs } = feedbackChaserEmail(group);
       try {
-        const out = await Channels.email.send({ to: { email: group[0]!.email }, subject, html });
+        const out = await sendEmail({ to: group[0]!.email, subject, html });
         if (out.warning) console.warn(`client-feedback-chaser: send warning for ${group[0]!.email}: ${out.warning}`);
         for (const item of group) {
           try {
@@ -35,7 +36,7 @@ export const clientFeedbackChaserJob = new LuaJob({
           }
         }
         sent += 1;
-        console.log(`client-feedback-chaser: emailed ${group[0]!.email} for ${refs.join(', ') || group[0]!.id}`);
+        console.log(`client-feedback-chaser: emailed ${group[0]!.email} (cc QC desk) for ${refs.join(', ') || group[0]!.id}`);
       } catch (e) {
         failed += 1;
         console.error(`client-feedback-chaser: send failed for ${group[0]!.email}`, e);

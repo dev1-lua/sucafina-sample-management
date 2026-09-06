@@ -98,6 +98,34 @@ export async function notifyContactGap(
 export const EMAIL_CHANNEL_READY = true;
 
 /**
+ * Kenya Specialty QC desk mailbox — copied on every outgoing email, internal pings and
+ * client-facing mail alike (requested 2026-09-03). Attached in `sendEmail`, the one seam
+ * every send goes through; status-notifier passes `cc: []` after the first email of an
+ * event so the shared mailbox gets one copy per event, not one per recipient.
+ */
+export const NOTIFY_CC = ['kenyacof.specialtyqc@sucafina.com'];
+
+/** CC list for one email — never CC the mailbox on mail addressed to itself. */
+export function ccFor(to: string): string[] {
+  const lower = to.trim().toLowerCase();
+  return NOTIFY_CC.filter((a) => a.toLowerCase() !== lower);
+}
+
+/**
+ * Send one email through the agent's channel. `cc` defaults to the QC desk mailbox;
+ * pass `[]` to send without it. Every outgoing email must go through here.
+ */
+export async function sendEmail(o: { to: string; subject: string; html: string; cc?: string[] }) {
+  const cc = o.cc ?? ccFor(o.to);
+  return Channels.email.send({
+    to: { email: o.to },
+    subject: o.subject,
+    html: o.html,
+    ...(cc.length ? { cc } : {}),
+  });
+}
+
+/**
  * Footer on every notification EMAIL — never on Teams pings. Someone only lands on the
  * email leg because they're cold on Teams (never DM'd the bot), so the footer is the
  * nudge to fix exactly that.
@@ -106,11 +134,12 @@ const EMAIL_FOOTER =
   '<p style="margin:16px 0 0;color:#6b7280;font-size:13px">Sent by Lua Sample Manager &rarr; Add me to your Teams Chat to send sample requests directly to Quality, and stay in the loop.</p>';
 
 /**
- * Deliver one message to one person: warm Teams DM first, email fallback.
+ * Deliver one message to one person: warm Teams DM first, email fallback. The email leg
+ * CCs the QC desk mailbox unless `cc` is given (callers pass `[]` to dedupe per event).
  * Returns how it went out, or null when neither channel could deliver.
  */
 export async function sendToPerson(
-  o: { email: string; text: string; subject: string },
+  o: { email: string; text: string; subject: string; cc?: string[] },
 ): Promise<'teams' | 'email' | null> {
   try {
     const user = await User.get({ email: o.email });
@@ -133,7 +162,7 @@ export async function sendToPerson(
   }
   try {
     const html = `<p>${o.text.replace(/\n/g, '<br>')}</p>${EMAIL_FOOTER}`;
-    await Channels.email.send({ to: { email: o.email }, subject: o.subject, html });
+    await sendEmail({ to: o.email, subject: o.subject, html, cc: o.cc });
     return 'email';
   } catch (e) {
     console.error(`notify: email to ${o.email} failed`, e);

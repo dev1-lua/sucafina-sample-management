@@ -1,7 +1,7 @@
-import { Channels, LuaJob } from 'lua-cli';
+import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
 import { dispatchEmail, groupBy, type DispatchItem } from '../lib/client-email';
-import { EMAIL_CHANNEL_READY } from '../lib/notify';
+import { EMAIL_CHANNEL_READY, sendEmail } from '../lib/notify';
 
 // Anicka: once samples are marked dispatched, the client gets the courier + AWB by
 // email automatically. Polls the API's queue (rows with dispatched_on stamped, a client
@@ -30,7 +30,8 @@ export const dispatchNotifierJob = new LuaJob({
     for (const group of groups) {
       const { subject, html, refs } = dispatchEmail(group);
       try {
-        const out = await Channels.email.send({ to: { email: group[0]!.email }, subject, html });
+        // sendEmail CCs the QC desk mailbox; one shipment = one email, so no dedupe needed.
+        const out = await sendEmail({ to: group[0]!.email, subject, html });
         if (out.warning) console.warn(`dispatch-notifier: send warning for ${group[0]!.email}: ${out.warning}`);
         for (const item of group) {
           try {
@@ -46,7 +47,7 @@ export const dispatchNotifierJob = new LuaJob({
           }
         }
         sent += 1;
-        console.log(`dispatch-notifier: emailed ${group[0]!.email} for ${refs.join(', ') || group[0]!.id}`);
+        console.log(`dispatch-notifier: emailed ${group[0]!.email} (cc QC desk) for ${refs.join(', ') || group[0]!.id}`);
       } catch (e) {
         // Send failed — leave unmarked so the next run retries; keep going with the rest.
         failed += 1;

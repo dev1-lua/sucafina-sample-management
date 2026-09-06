@@ -1,6 +1,9 @@
 import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
-import { EMAIL_CHANNEL_READY, loadTraders, sendToPerson, type TraderRow } from '../lib/notify';
+import { ccFor, EMAIL_CHANNEL_READY, loadTraders, sendToPerson, type TraderRow } from '../lib/notify';
+
+// Timeline suffix when the QC desk mailbox was CC'd on an event's email (once per event).
+const CC_NOTE = ' · cc Specialty QC mailbox';
 
 // Ivo Jr. (feedback #29/#30): the Quality team hears about every sample request the
 // moment it's logged in full, and the Sales Trader hears as their sample progresses
@@ -104,8 +107,12 @@ export const statusNotifierJob = new LuaJob({
           }
           const { text, subject } = qcMessage(item);
           const delivered: Array<{ t: TraderRow; via: 'teams' | 'email' }> = [];
+          // The QC desk mailbox is CC'd once per event — on the first email that goes out,
+          // not on every recipient's copy.
+          let ccSent = false;
           for (const t of qc) {
-            const via = await sendToPerson({ email: t.email!, text, subject });
+            const via = await sendToPerson({ email: t.email!, text, subject, cc: ccSent ? [] : ccFor(t.email!) });
+            if (via === 'email') ccSent = true;
             if (via) delivered.push({ t, via });
           }
           if (!delivered.length) {
@@ -123,7 +130,7 @@ export const statusNotifierJob = new LuaJob({
             continue;
           }
           const anyTeams = delivered.some((d) => d.via === 'teams');
-          const detail = delivered.map((d) => `${d.t.name} (${d.via})`).join(', ');
+          const detail = delivered.map((d) => `${d.t.name} (${d.via})`).join(', ') + (ccSent ? CC_NOTE : '');
           await mark(item.outbox_id, anyTeams ? 'teams' : 'email', detail);
           sent += 1;
           console.log(`status-notifier: created ping for ${item.ref} → ${detail}`);
@@ -152,8 +159,10 @@ export const statusNotifierJob = new LuaJob({
           }
           const { text, subject } = traderMessage(item);
           const delivered: Array<{ name: string; via: 'teams' | 'email' }> = [];
+          let ccSent = false;
           for (const r of reachable) {
-            const via = await sendToPerson({ email: r.email!, text, subject });
+            const via = await sendToPerson({ email: r.email!, text, subject, cc: ccSent ? [] : ccFor(r.email!) });
+            if (via === 'email') ccSent = true;
             if (via) delivered.push({ name: r.name, via });
           }
           if (!delivered.length) {
@@ -167,7 +176,7 @@ export const statusNotifierJob = new LuaJob({
             continue;
           }
           const anyTeams = delivered.some((d) => d.via === 'teams');
-          const detail = delivered.map((d) => `${d.name} (${d.via})`).join(', ');
+          const detail = delivered.map((d) => `${d.name} (${d.via})`).join(', ') + (ccSent ? CC_NOTE : '');
           await mark(item.outbox_id, anyTeams ? 'teams' : 'email', detail);
           sent += 1;
           console.log(`status-notifier: ${item.event} ping for ${item.ref} → ${detail}`);
