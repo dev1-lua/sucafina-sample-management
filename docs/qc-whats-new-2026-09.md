@@ -47,9 +47,14 @@ The question after a new client's first sample now reads *"Which Sucafina collea
 
 Printed labels now carry the Sucafina wordmark, the sample type, and — for Specialty — the **outturn** as a large second line under the ref; PSS labels show the contract number and container. Consignment labels list each member with its outturn. Tell Dev which part of the outturn should be biggest and whether Commercial samples need an outturn field too.
 
-## 7. Still to come (next deploys)
+## 7. Contracts & PSS
 
-- **Pre-shipment samples:** the 45-day rule — PSS due dates computed from the shipment date, reminders at 14/7/0 days, an upload of the SOL PSS report that creates one PSS per container and nests them per contract ("2 of 3 approved"; one rejection tolerated, the replacement is drawn automatically). Needs one real SOL export from Harriet to finalise the column mapping.
+- **The 45-day rule is now the system's.** Every contract carries its shipment date, and the PSS due date is that date minus 45 days. You never work it out again.
+- **One PSS per container.** A contract of three containers owes three pre-shipment samples; the new **Contracts** page shows each container, the sample raised for it, and "1 of 3 approved" at a glance. Ask the bot "what PSS are due?" or "where are we on CT-2026-14?" and you get the same picture in chat.
+- **Reminders.** 14 days, 7 days and on the due date, then once a week for as long as a contract stays overdue. They go to the Quality team and the client's account manager, and they stop by themselves once every container is approved.
+- **A rejection is handled for you.** When a client rejects a PSS, the replacement is raised automatically with a fresh SSKE ref — record the rejection as usual and the bot tells you the new number. If the client rejects the replacement too, that container is not drawn a third time: the contract is flagged **PSS rejected** and you and the account manager are told, so it can be settled with the trader.
+- **The schedule comes from the SOL report.** Send the SOL export to the bot as **Excel or CSV** (a PDF cannot be read — export the same report instead). It shows you a preview first: how many contracts it would create or update, how many PSS it would raise, which columns it read, and anything it could not make sense of. Nothing is written until you say go, and re-sending the same schedule updates the contracts without raising a second set of samples.
+- **On the dashboard:** the **Contracts** page lists what is due (overdue in red, the next week in amber) and each contract opens on its containers, where a missing PSS can be drawn with one click. The Commercial book now shows the contract number as a link, its container and the PSS due date, and can be filtered to what is overdue.
 
 ## 8. Things we still need from you
 
