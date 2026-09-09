@@ -1,0 +1,4 @@
+{ "shipments": [{ "id": "9620551651", "service": "express",
+  "status": { "timestamp": "2026-09-08T11:20:00", "location": { "address": { "addressLocality": "NAIROBI - KENYA" } }, "statusCode": "transit", "status": "Transit", "description": "Shipment on hold – customs clearance status updated", "remark": "Held for customs clearance" },
+  "estimatedTimeOfDelivery": "2026-09-10T12:00:00",
+  "events": [ { "timestamp": "2026-09-08T11:20:00", "location": { "address": { "addressLocality": "NAIROBI - KENYA" } }, "statusCode": "transit", "description": "Shipment on hold – customs clearance status updated" } ] }] }

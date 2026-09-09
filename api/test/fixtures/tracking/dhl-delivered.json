@@ -1,0 +1,5 @@
+{ "shipments": [{ "id": "9620551651", "service": "express",
+  "status": { "timestamp": "2026-09-08T11:20:00", "location": { "address": { "addressLocality": "STOCKHOLM - SWEDEN" } }, "statusCode": "delivered", "status": "Delivered", "description": "Delivered - Signed for by: A SOLBERG" },
+  "estimatedTimeOfDelivery": "2026-09-08T12:00:00",
+  "events": [ { "timestamp": "2026-09-08T11:20:00", "location": { "address": { "addressLocality": "STOCKHOLM - SWEDEN" } }, "statusCode": "delivered", "description": "Delivered - Signed for by: A SOLBERG" },
+              { "timestamp": "2026-09-08T08:02:00", "location": { "address": { "addressLocality": "STOCKHOLM - SWEDEN" } }, "statusCode": "transit", "description": "With delivery courier" } ] }] }
