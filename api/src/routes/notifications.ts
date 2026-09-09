@@ -128,6 +128,27 @@ const entityArm = (tab: string, table: string, ref: string) => `
       JOIN ${table} e ON e.id = o.sample_id
      WHERE o.tab = '${tab}' AND o.sent_at IS NULL AND o.attempts < 5`;
 
+// Contracts (migration 020): PSS reminders and the twice-rejected flag go to the Quality team and to the
+// CLIENT's account manager — the person who has to talk to the buyer about a rejected pre-shipment sample.
+const contractArm = `
+    SELECT o.id AS outbox_id, o.tab, o.sample_id, o.event, o.recipient, o.attempts,
+           o.dedupe_key, o.payload, o.actor,
+           e.contract_number AS ref, e.quality AS title, e.destination AS receiver,
+           e.status AS status, NULL::text AS courier_norm, NULL::text AS awb, NULL::int AS qty_grams, NULL::text AS priority,
+           NULL::text AS requested_by, NULL::text AS logged_by, c.name AS client_name, o.created_at,
+           false AS client_address_missing, NULL::text AS details_requested_from, NULL::timestamptz AS details_requested_at,
+           NULL::text AS details_requested_via, NULL::text AS details_note,
+           COALESCE((
+             SELECT json_agg(json_build_object('id', tr.id, 'name', tr.name, 'email', tr.email) ORDER BY tr.name)
+               FROM traders tr
+              WHERE tr.active AND tr.id = c.account_owner_id
+           ), '[]'::json) AS recipients
+      FROM notifications_outbox o
+      -- a deleted contract still surfaces for its own 'deleted' alert
+      JOIN contracts e ON e.id = o.sample_id AND (e.deleted_at IS NULL OR o.event = 'deleted')
+      LEFT JOIN clients c ON c.id = e.client_id AND c.deleted_at IS NULL
+     WHERE o.tab = 'contract' AND o.sent_at IS NULL AND o.attempts < 5`;
+
 notifications.get('/outbox-pending', h(async (_req, res) => {
   const arm = (tab: string, table: string, ref: string, title: string, receiver: string) => `
     SELECT o.id AS outbox_id, o.tab, o.sample_id, o.event, o.recipient, o.attempts,
@@ -163,6 +184,10 @@ notifications.get('/outbox-pending', h(async (_req, res) => {
     ${entityArm('client', 'clients', 'name')}
     UNION ALL
     ${entityArm('consignment', 'consignments', 'number')}
+    UNION ALL
+    ${contractArm}
+    UNION ALL
+    ${entityArm('import', 'pss_imports', 'file_name')}
     ORDER BY created_at
     LIMIT 100`);
   res.json({ count: rows.length, items: rows });

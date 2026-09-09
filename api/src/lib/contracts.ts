@@ -64,6 +64,15 @@ export function containerStates(
   return out;
 }
 
+/** The lowest container (1..pssExpected) with no live PSS row yet, or null when every one is taken. */
+export async function firstFreeContainer(db: Q, contractId: string, pssExpected: number): Promise<number | null> {
+  const rows = await loadContractPss(db, contractId);
+  for (let n = 1; n <= pssExpected; n++) {
+    if (!rows.some((r) => r.container_no === n)) return n;
+  }
+  return null;
+}
+
 /** Every live PSS row on a contract, from both books, oldest first within a container. */
 export async function loadContractPss(db: Q, contractId: string): Promise<PssRow[]> {
   const { rows } = await db.query(
@@ -152,9 +161,9 @@ export async function drawPss(
   const { rows } = await client.query(
     `INSERT INTO bulk_samples
        (sample_ref, quality, client, client_id, country, shipment_month, contract_number, contract_id,
-        container_no, replaces_sample_id, sample_type, sample_type_norm, qty, qty_grams, comments,
+        container_no, replaces_sample_id, sample_type_norm, qty, qty_grams, comments,
         requested_by, logged_by, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pss','pss','1kg',1000,$11,$12,$13,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pss','1kg',1000,$11,$12,$13,
              to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD'),
              (now() AT TIME ZONE 'Africa/Nairobi')::date,
              'requested')

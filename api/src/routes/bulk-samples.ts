@@ -10,6 +10,7 @@ import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
 import { gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
+import { firstFreeContainer, maybeDrawReplacement, recomputeContractStatus } from '../lib/contracts.js';
 
 export const bulkSamples = Router();
 
@@ -18,7 +19,11 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at','container_no','pss_due_date'] as const;
+
+// Contracts + PSS (migration 020): the 45-day deadline lives on the contract, so the book borrows it as
+// a SELECT alias — legal in ORDER BY (hence the SORTABLE entry), never in WHERE (hence the EXISTS filters).
+const PSS_DUE_SELECT = `(SELECT c.pss_due_date FROM contracts c WHERE c.id = bulk_samples.contract_id) AS pss_due_date`;
 
 // `sample_type`/`courier_norm` are free text (migration 004) so operators can enter
 // values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -62,6 +67,10 @@ const createSchema = z.object({
   priority: z.enum(['normal', 'urgent']).nullish(),
   // Migration 013 (feedback #28): who typed the request into the bot (agent auto-stamps).
   logged_by: z.string().nullish(),
+  // Migration 020: a pre-shipment sample belongs to one container of one contract. Absent on a PSS with a
+  // contract_number, both are resolved below.
+  contract_id: z.string().uuid().nullish(),
+  container_no: z.number().int().min(1).nullish(),
 });
 
 const patchSchema = z.object({
@@ -102,6 +111,9 @@ const patchSchema = z.object({
   dispatched_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').nullish(),
   // Migration 014 (feedback #34): extra people kept in the loop on this sample (traders ids). Replaces the list.
   notify_trader_ids: z.array(z.string().uuid()).max(20).nullish(),
+  // Migration 020: contract + container this PSS belongs to.
+  contract_id: z.string().uuid().nullish(),
+  container_no: z.number().int().min(1).nullish(),
 });
 
 bulkSamples.get('/', h(async (req, res) => {
@@ -151,8 +163,17 @@ bulkSamples.get('/', h(async (req, res) => {
   if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
   // Log-first (migration 016): rows whose client has no street address on file yet.
   if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
+  // PSS still owed on a contract whose 45-day deadline has passed (Harriet, round 6).
+  if (req.query.pss_overdue === 'true') {
+    f.where.push(`sample_type_norm = 'pss' AND result_norm IS DISTINCT FROM 'approved' AND EXISTS (SELECT 1 FROM contracts c WHERE c.id = bulk_samples.contract_id AND c.deleted_at IS NULL AND c.pss_due_date < current_date)`);
+  }
+  if (req.query.pss_due_within !== undefined) {
+    const raw = String(req.query.pss_due_within);
+    if (!/^-?\d+$/.test(raw)) throw new HttpError(400, 'invalid pss_due_within');
+    f.add(`EXISTS (SELECT 1 FROM contracts c WHERE c.id = bulk_samples.contract_id AND c.deleted_at IS NULL AND c.pss_due_date <= current_date + ?::int)`, Number(raw));
+  }
   const result = await buildList(
-    { table: 'bulk_samples', extraSelect: gapColumns('bulk_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by','logged_by'] },
+    { table: 'bulk_samples', extraSelect: `${gapColumns('bulk_samples')}, ${PSS_DUE_SELECT}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by','logged_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -175,6 +196,20 @@ bulkSamples.post('/', h(async (req, res) => {
   // Prefix is chosen from the sample type (pss→SSKE, type→TYPE, else→SL). Feedback ⑱: without this
   // the chaser rendered these rows as "(no ref)" and Chat couldn't resolve them.
   const sampleRef = body.sample_ref ?? (await issueRef(body.sample_type));
+  // Auto-link (migration 020): a PSS logged with just its contract number finds the contract and the
+  // first container still without one, so nobody has to know contract ids. Non-PSS rows are left alone.
+  let contractId = body.contract_id ?? null;
+  let containerNo = body.container_no ?? null;
+  if (!contractId && body.contract_number && body.sample_type === 'pss') {
+    const { rows } = await pool.query(
+      `SELECT id, pss_expected FROM contracts WHERE upper(trim(contract_number)) = upper(trim($1)) AND deleted_at IS NULL`,
+      [body.contract_number],
+    );
+    if (rows[0]) {
+      contractId = rows[0].id;
+      if (containerNo == null) containerNo = await firstFreeContainer(pool, rows[0].id, rows[0].pss_expected);
+    }
+  }
   const row = await runWithEvent(
     // date + date_on default to today in Nairobi time when no explicit date is given; $21 overrides.
     `INSERT INTO bulk_samples
@@ -182,10 +217,10 @@ bulkSamples.post('/', h(async (req, res) => {
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
         comments, crop_year, client_id, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, priority, logged_by, date, date_on, status)
+        requested_by, stock_grams, priority, logged_by, contract_id, container_no, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
              COALESCE($20, (SELECT default_phyto_cert FROM clients WHERE id = $19::uuid)),
-             $21,$22,$23,$24,$25,$26,$27,$29,$30,COALESCE($31,'normal'),$32,
+             $21,$22,$23,$24,$25,$26,$27,$29,$30,COALESCE($31,'normal'),$32,$33::uuid,$34,
              COALESCE($28, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($28::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -198,10 +233,13 @@ bulkSamples.post('/', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null],
+     body.logged_by ?? null, contractId, containerNo],
     { entityType: 'bulk', type: 'created', note: `${body.quality} for ${body.client}`, actor },
     // Feedback #29: Quality is pinged for every request added in full (create implies the intake gates passed).
-    async (client, row) => enqueueOutbox(client, { tab: 'bulk', sampleId: String(row.id), event: 'created', recipient: 'qc' }),
+    async (client, row) => {
+      await enqueueOutbox(client, { tab: 'bulk', sampleId: String(row.id), event: 'created', recipient: 'qc' });
+      if (row.contract_id) await recomputeContractStatus(client, String(row.contract_id), actor);
+    },
   );
   res.status(201).json(row);
 }));
@@ -227,6 +265,7 @@ bulkSamples.patch('/:id', h(async (req, res) => {
     : eventType === 'status_change' ? `${prev.status} → ${nextStatus}`
     : `fields updated: ${Object.keys(body).join(', ')}`;
 
+  const out: { drawn: { id: string; sample_ref: string } | null } = { drawn: null };
   const row = await runWithEvent(
     `UPDATE bulk_samples SET
        status = COALESCE($2::sample_status_t, status),
@@ -265,6 +304,8 @@ bulkSamples.patch('/:id', h(async (req, res) => {
        -- An explicit dispatched_on edit (feedback #35) wins; else auto-stamp on the dispatch transition.
        dispatched_on = COALESCE($29::date, CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END),
        notify_trader_ids = COALESCE($30::uuid[], notify_trader_ids),
+       contract_id = COALESCE($31::uuid, contract_id),
+       container_no = COALESCE($32, container_no),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
@@ -274,17 +315,21 @@ bulkSamples.patch('/:id', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null],
+     body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null,
+     body.contract_id ?? null, body.container_no ?? null],
     { entityType: 'bulk', type: eventType, note, actor },
     // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
     async (client, row) => {
       await enqueueStatusEvents(client, 'bulk', row, prev, body, nextStatus);
       // Harriet (round 6): QC hears about edits to the request definition by non-QC actors.
       await enqueueRequestEdited(client, 'bulk', prev, row, actor);
+      // Contracts + PSS: a first rejection draws its replacement, then the contract re-derives its status.
+      out.drawn = (await maybeDrawReplacement(client, 'bulk', row, prev, actor)).drawn;
     },
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');
-  res.json(row);
+  // extraWrites returns void, so the replacement's ref reaches the caller through the closure.
+  res.json({ ...row, replacement_ref: out.drawn?.sample_ref ?? null });
 }));
 
 bulkSamples.delete('/:id', h(async (req, res) => {
@@ -295,7 +340,11 @@ bulkSamples.delete('/:id', h(async (req, res) => {
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id], { entityType: 'bulk', type: 'deleted', note: 'soft-deleted', actor },
     // Harriet (round 6): every deletion is announced to QC; the row's other pending pings are closed.
-    async (client, row) => enqueueDeleted(client, 'bulk', String(row.id), actor),
+    async (client, row) => {
+      await enqueueDeleted(client, 'bulk', String(row.id), actor);
+      // A deleted PSS leaves its container empty again.
+      if (row.contract_id) await recomputeContractStatus(client, String(row.contract_id), actor);
+    },
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');
   res.json({ ok: true, id });

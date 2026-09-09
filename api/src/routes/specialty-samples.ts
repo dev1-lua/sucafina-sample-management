@@ -10,6 +10,7 @@ import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
 import { gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
+import { firstFreeContainer, maybeDrawReplacement, recomputeContractStatus } from '../lib/contracts.js';
 
 export const specialtySamples = Router();
 
@@ -60,6 +61,10 @@ const createSchema = z.object({
   priority: z.enum(['normal', 'urgent']).nullish(),
   // Migration 013 (feedback #28): who typed the request into the bot (agent auto-stamps).
   logged_by: z.string().nullish(),
+  // Migration 020: a pre-shipment sample belongs to one container of one contract. Absent on a PSS with a
+  // contract_number, both are resolved below.
+  contract_id: z.string().uuid().nullish(),
+  container_no: z.number().int().min(1).nullish(),
 });
 
 const patchSchema = z.object({
@@ -102,6 +107,9 @@ const patchSchema = z.object({
   dispatched_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').nullish(),
   // Migration 014 (feedback #34): extra people kept in the loop on this sample (traders ids). Replaces the list.
   notify_trader_ids: z.array(z.string().uuid()).max(20).nullish(),
+  // Migration 020: contract + container this PSS belongs to.
+  contract_id: z.string().uuid().nullish(),
+  container_no: z.number().int().min(1).nullish(),
 });
 
 specialtySamples.get('/', h(async (req, res) => {
@@ -168,6 +176,20 @@ specialtySamples.post('/', h(async (req, res) => {
   const body = parseBody(createSchema, req.body);
   const actor = actorFrom(req);
   const ref = body.ref ?? (await issueRef(body.sample_type_norm));
+  // Auto-link (migration 020): a PSS logged with just its contract number finds the contract and the
+  // first container still without one. Non-PSS rows are left alone.
+  let contractId = body.contract_id ?? null;
+  let containerNo = body.container_no ?? null;
+  if (!contractId && body.contract_number && body.sample_type_norm === 'pss') {
+    const { rows } = await pool.query(
+      `SELECT id, pss_expected FROM contracts WHERE upper(trim(contract_number)) = upper(trim($1)) AND deleted_at IS NULL`,
+      [body.contract_number],
+    );
+    if (rows[0]) {
+      contractId = rows[0].id;
+      if (containerNo == null) containerNo = await firstFreeContainer(pool, rows[0].id, rows[0].pss_expected);
+    }
+  }
   const row = await runWithEvent(
     // date (verbatim text, shown in the dashboard's Date column) and date_on (typed, sorted on)
     // both default to today in Nairobi time when no explicit date is given; $18 supplies an override.
@@ -175,10 +197,10 @@ specialtySamples.post('/', h(async (req, res) => {
        (ref, description, receiver_company, sample_type_norm, outturn, name, grade, bags,
         awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, priority, logged_by, date, date_on, status)
+        requested_by, stock_grams, priority, logged_by, contract_id, container_no, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              COALESCE($17, (SELECT default_phyto_cert FROM clients WHERE id = $15::uuid)),
-             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,
+             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,$30::uuid,$31,
              COALESCE($25, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($25::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -190,10 +212,13 @@ specialtySamples.post('/', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null],
+     body.logged_by ?? null, contractId, containerNo],
     { entityType: 'specialty', type: 'created', note: `${body.description} for ${body.receiver_company}`, actor },
     // Feedback #29: Quality is pinged for every request added in full (create implies the intake gates passed).
-    async (client, row) => enqueueOutbox(client, { tab: 'specialty', sampleId: String(row.id), event: 'created', recipient: 'qc' }),
+    async (client, row) => {
+      await enqueueOutbox(client, { tab: 'specialty', sampleId: String(row.id), event: 'created', recipient: 'qc' });
+      if (row.contract_id) await recomputeContractStatus(client, String(row.contract_id), actor);
+    },
   );
   res.status(201).json(row);
 }));
@@ -219,6 +244,7 @@ specialtySamples.patch('/:id', h(async (req, res) => {
     : eventType === 'status_change' ? `${prev.status} → ${nextStatus}`
     : `fields updated: ${Object.keys(body).join(', ')}`;
 
+  const out: { drawn: { id: string; sample_ref: string } | null } = { drawn: null };
   const row = await runWithEvent(
     `UPDATE specialty_samples SET
        status = COALESCE($2::sample_status_t, status),
@@ -259,6 +285,8 @@ specialtySamples.patch('/:id', h(async (req, res) => {
        -- An explicit dispatched_on edit (feedback #35) wins; else auto-stamp on the dispatch transition.
        dispatched_on = COALESCE($31::date, CASE WHEN $2 = 'dispatched' AND dispatched_on IS NULL THEN CURRENT_DATE ELSE dispatched_on END),
        notify_trader_ids = COALESCE($32::uuid[], notify_trader_ids),
+       contract_id = COALESCE($33::uuid, contract_id),
+       container_no = COALESCE($34, container_no),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
@@ -269,17 +297,21 @@ specialtySamples.patch('/:id', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null],
+     body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null,
+     body.contract_id ?? null, body.container_no ?? null],
     { entityType: 'specialty', type: eventType, note, actor },
     // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
     async (client, row) => {
       await enqueueStatusEvents(client, 'specialty', row, prev, body, nextStatus);
       // Harriet (round 6): QC hears about edits to the request definition by non-QC actors.
       await enqueueRequestEdited(client, 'specialty', prev, row, actor);
+      // Contracts + PSS: a first rejection draws its replacement, then the contract re-derives its status.
+      out.drawn = (await maybeDrawReplacement(client, 'specialty', row, prev, actor)).drawn;
     },
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');
-  res.json(row);
+  // extraWrites returns void, so the replacement's ref reaches the caller through the closure.
+  res.json({ ...row, replacement_ref: out.drawn?.sample_ref ?? null });
 }));
 
 specialtySamples.delete('/:id', h(async (req, res) => {
@@ -290,7 +322,11 @@ specialtySamples.delete('/:id', h(async (req, res) => {
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id], { entityType: 'specialty', type: 'deleted', note: 'soft-deleted', actor },
     // Harriet (round 6): every deletion is announced to QC; the row's other pending pings are closed.
-    async (client, row) => enqueueDeleted(client, 'specialty', String(row.id), actor),
+    async (client, row) => {
+      await enqueueDeleted(client, 'specialty', String(row.id), actor);
+      // A deleted PSS leaves its container empty again.
+      if (row.contract_id) await recomputeContractStatus(client, String(row.contract_id), actor);
+    },
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');
   res.json({ ok: true, id });
