@@ -12,6 +12,8 @@ import ClientsPage from '@/pages/ClientsPage';
 import ClientDetailPage from '@/pages/ClientDetailPage';
 import ConsignmentsPage from '@/pages/ConsignmentsPage';
 import ConsignmentDetailPage from '@/pages/ConsignmentDetailPage';
+import ContractsPage from '@/pages/ContractsPage';
+import ContractDetailPage from '@/pages/ContractDetailPage';
 import ChaserPage from '@/pages/ChaserPage';
 import TeamPage from '@/pages/TeamPage';
 import AssistantPage from '@/pages/AssistantPage';
@@ -84,6 +86,10 @@ export default function App() {
             {/* Consignments: list + full show-page (feedback ⑥⑦⑧), same sibling-route shape as Clients. */}
             <Route path="/consignments" element={<ConsignmentsPage />} />
             <Route path="/consignments/:id" element={<ConsignmentDetailPage />} />
+            {/* Contracts + PSS (migration 020): list + full show-page (containers and the
+                pre-shipment samples drawn for them), same sibling-route shape as Clients. */}
+            <Route path="/contracts" element={<ContractsPage />} />
+            <Route path="/contracts/:id" element={<ContractDetailPage />} />
             <Route path="/chaser" element={<ChaserPage />} />
             <Route path="/team" element={<TeamPage />} />
             {/* Conversational data-in surface — the (heavy) Lua widget lives on

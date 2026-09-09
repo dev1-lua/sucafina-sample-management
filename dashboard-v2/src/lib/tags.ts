@@ -27,7 +27,7 @@ const PALETTE = {
 
 type Color = keyof typeof PALETTE;
 
-export type TagKind = 'status' | 'result' | 'sample_type' | 'stock' | 'priority' | 'gap';
+export type TagKind = 'status' | 'result' | 'sample_type' | 'stock' | 'priority' | 'gap' | 'contract_status';
 
 const STATUS: Record<string, Color> = {
   requested: 'gray',
@@ -79,6 +79,26 @@ const GAP_LABELS: Record<string, string> = {
   address_needed: 'Address needed',
 };
 
+// Where a contract stands on its pre-shipment samples (migration 020). Everything but `open`,
+// `shipped` and `cancelled` is derived from the containers' verdicts, so the colors run the same
+// route as a sample's result: amber while it's owed, blue part-way, green approved, red rejected.
+const CONTRACT_STATUS: Record<string, Color> = {
+  open: 'gray',
+  pss_pending: 'amber',
+  pss_partial: 'blue',
+  pss_approved: 'green',
+  pss_rejected: 'red',
+  shipped: 'teal',
+  cancelled: 'gray',
+};
+// "PSS" is an initialism the desk says out loud — humanizing it to "pss partial" reads as a typo.
+const CONTRACT_STATUS_LABELS: Record<string, string> = {
+  pss_pending: 'PSS pending',
+  pss_partial: 'PSS partial',
+  pss_approved: 'PSS approved',
+  pss_rejected: 'PSS rejected',
+};
+
 const MAPS: Record<TagKind, Record<string, Color>> = {
   status: STATUS,
   result: RESULT,
@@ -86,6 +106,7 @@ const MAPS: Record<TagKind, Record<string, Color>> = {
   stock: STOCK,
   priority: PRIORITY,
   gap: GAP,
+  contract_status: CONTRACT_STATUS,
 };
 
 export function tagColor(kind: TagKind, value: string): string {
@@ -93,9 +114,10 @@ export function tagColor(kind: TagKind, value: string): string {
 }
 
 /** Display text for a tag value: the humanized snake_case (`results_in` → "results in")
- * everywhere except the gap kind, whose labels are hand-written sentence case. */
+ * everywhere except the gap and contract kinds, whose labels are hand-written. */
 export function tagLabel(kind: TagKind, value: string): string {
   if (kind === 'gap' && GAP_LABELS[value]) return GAP_LABELS[value];
+  if (kind === 'contract_status' && CONTRACT_STATUS_LABELS[value]) return CONTRACT_STATUS_LABELS[value];
   return value.replace(/_/g, ' ');
 }
 

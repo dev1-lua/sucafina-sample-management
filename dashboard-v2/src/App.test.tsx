@@ -30,6 +30,11 @@ it('renders the Team route with its header title', () => {
   expect(screen.getByRole('heading', { name: 'Team' })).toBeInTheDocument();
 });
 
+it('renders the Contracts route with its header title', () => {
+  renderApp('/contracts');
+  expect(screen.getByRole('heading', { name: 'Contracts' })).toBeInTheDocument();
+});
+
 it('renders the shell with the Dashboard route by default', () => {
   renderApp('/');
   expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();

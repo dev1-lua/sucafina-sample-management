@@ -1,6 +1,9 @@
+import { Link } from 'react-router-dom';
+
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
 import { formatQty, formatLocation } from '@/lib/format';
+import { PssDueCell } from './contracts';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
 import {
@@ -48,7 +51,11 @@ export const bulkConfig: TabConfig = {
     { key: 'blend', header: 'Blend', sortKey: 'blend' },
     { key: 'location', header: 'Location', sortKey: 'location', render: (r) => <CellValue value={formatLocation(r.location)} /> },
     { key: 'shipment_month', header: 'Shipment Month', sortKey: 'shipment_month', defaultHidden: true },
-    { key: 'contract_number', header: 'Contract #', sortKey: 'contract_number', defaultHidden: true },
+    // Contracts + PSS (migration 020): the contract a PSS belongs to is now a real link, so the
+    // column comes out of hiding; the container and the 45-day deadline ride alongside it.
+    { key: 'contract_number', header: 'Contract #', sortKey: 'contract_number' },
+    { key: 'container_no', header: 'Container', sortKey: 'container_no', defaultHidden: true },
+    { key: 'pss_due_date', header: 'PSS due', sortKey: 'pss_due_date', render: (r) => <PssDueCell row={r} /> },
     // Feedback ⑬ (migration 009): strategy + cup-profile highlights on approved samples.
     { key: 'strategy', header: 'Strategy', sortKey: 'strategy', defaultHidden: true },
     { key: 'highlights', header: 'Highlights', sortKey: 'highlights', defaultHidden: true },
@@ -111,6 +118,8 @@ export const bulkConfig: TabConfig = {
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
     { key: 'low_stock', label: 'Low Stock', type: 'bool' },
     { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
+    { key: 'pss_overdue', label: 'PSS overdue', type: 'bool' },
+    { key: 'pss_due_within', label: 'PSS due within (days)', type: 'text' },
     addressGapFilter,
   ],
   detailFields: [
@@ -126,7 +135,20 @@ export const bulkConfig: TabConfig = {
     { key: 'highlights', label: 'Highlights', edit: { field: 'highlights', type: 'text' } },
     { key: 'location', label: 'Location', edit: { field: 'location', type: 'select', options: LOCATIONS, allowCustom: true } },
     { key: 'shipment_month', label: 'Shipment Month', edit: { field: 'shipment_month', type: 'text' } },
-    { key: 'contract_number', label: 'Contract #', edit: { field: 'contract_number', type: 'text' } },
+    // Linked to a contract (migration 020) → open it; otherwise it stays plain text.
+    {
+      key: 'contract_number',
+      label: 'Contract #',
+      render: (r) =>
+        r.contract_id ? (
+          <Link to={`/contracts/${String(r.contract_id)}`} className="text-primary hover:underline">
+            {String(r.contract_number)}
+          </Link>
+        ) : (
+          <CellValue value={r.contract_number} />
+        ),
+      edit: { field: 'contract_number', type: 'text' },
+    },
     { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
     { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
     { key: 'comments', label: 'Comments', edit: { field: 'comments', type: 'text' } },

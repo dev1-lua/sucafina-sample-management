@@ -13,9 +13,12 @@ const FIELDS_010 = ['requested_by','completed_by','stock_grams','dispatched_on']
 const FIELDS_011 = ['priority'];
 // Migration 013 (round 5 — Ivo Jr.): logged_by, alongside the relabeled requested_by — all three books.
 const FIELDS_013 = ['logged_by'];
+// Migration 019 (courier tracking) + 020 (contracts/PSS): the Commercial book carries the contract's
+// container and its 45-day PSS deadline.
+const FIELDS_020 = ['container_no','pss_due_date'];
 const WL = {
   specialty: ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country',...FOLLOWUP,...FIELDS_007,...FIELDS_009,...FIELDS_010,...FIELDS_011,...FIELDS_013],
-  bulk: ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm',...FOLLOWUP,...FIELDS_007,...FIELDS_009,...FIELDS_010,...FIELDS_011,...FIELDS_013],
+  bulk: ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm',...FOLLOWUP,...FIELDS_007,...FIELDS_009,...FIELDS_010,...FIELDS_011,...FIELDS_013,...FIELDS_020],
   forwarding: ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm',...FOLLOWUP,'location',...FIELDS_010,...FIELDS_011,...FIELDS_013],
   clients: ['name','country','latest_order_date'],
 } as Record<string, string[]>;

@@ -303,6 +303,30 @@ export function useConsignmentMembers(id: string) {
   return { add, remove };
 }
 
+// --- Contracts + PSS (migration 020) ------------------------------------------------
+/** GET /contracts/:id — the contract with its containers, their samples and its timeline. */
+export function useContract(id: string) { return useRecord('/contracts', id); }
+
+/**
+ * POST /contracts/:id/draw-pss — raise the PSS request for one container. It writes a Commercial-book
+ * row (a fresh SSKE ref) and recomputes the contract's status, so both the contract and the Commercial
+ * book are refreshed on settle.
+ */
+export function useDrawPss() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { contractId: string; containerNo: number }) =>
+      api<{ id: string; sample_ref: string; contract_id: string; container_no: number }>(
+        `/contracts/${vars.contractId}/draw-pss`,
+        { method: 'POST', body: JSON.stringify({ container_no: vars.containerNo }) },
+      ),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['/contracts'] });
+      qc.invalidateQueries({ queryKey: ['/bulk-samples'] });
+    },
+  });
+}
+
 export type SearchHit = { tab: string; id: string; ref: string | null; title: string | null; receiver: string | null; status: string; awb: string | null };
 export function useSearch(q: string) {
   return useQuery({

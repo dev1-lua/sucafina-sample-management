@@ -26,6 +26,20 @@ it('gap kind: address_needed is amber with a sentence-case label; other kinds hu
   expect(tagLabel('status', 'results_in')).toBe('results in');
 });
 
+it('contract_status kind: PSS states get sentence-case labels and their own colors', () => {
+  expect(tagLabel('contract_status', 'pss_partial')).toBe('PSS partial');
+  expect(tagLabel('contract_status', 'pss_pending')).toBe('PSS pending');
+  expect(tagLabel('contract_status', 'pss_approved')).toBe('PSS approved');
+  expect(tagLabel('contract_status', 'pss_rejected')).toBe('PSS rejected');
+  // Not a PSS state — humanized like every other kind.
+  expect(tagLabel('contract_status', 'shipped')).toBe('shipped');
+  expect(tagColor('contract_status', 'pss_approved')).toContain('emerald');
+  expect(tagColor('contract_status', 'pss_rejected')).toContain('rose');
+  expect(tagColor('contract_status', 'pss_partial')).toContain('blue');
+  expect(tagColor('contract_status', 'shipped')).toContain('teal');
+  expect(tagColor('contract_status', 'open')).toContain('slate');
+});
+
 it('stockTag: out at 0, low below qty, null when untracked or sufficient', () => {
   expect(stockTag(0, 300)).toBe('out_of_stock');
   expect(stockTag(100, 300)).toBe('low_stock');

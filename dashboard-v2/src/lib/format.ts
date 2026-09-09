@@ -26,6 +26,20 @@ export function formatShortDate(iso: unknown): string | null {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/**
+ * Whole days from today to a plain `YYYY-MM-DD` date — negative once it is past (PSS due dates,
+ * migration 020). Both ends are pinned to UTC noon so a timezone offset can never shift the count
+ * by a day. Null for empty/unparseable input.
+ */
+export function daysUntil(dateStr: unknown): number | null {
+  if (typeof dateStr !== 'string' || dateStr.trim() === '') return null;
+  const due = Date.parse(`${dateStr.slice(0, 10)}T12:00:00Z`);
+  if (Number.isNaN(due)) return null;
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+  return Math.round((due - today) / 86_400_000);
+}
+
 // Feedback ⑦: lab location is stored as a canonical lowercase token ("westlands"/"thika") but a
 // custom lab can be entered verbatim. Title-case the known tokens; leave anything else untouched.
 const LOCATION_LABELS: Record<string, string> = { westlands: 'Westlands', thika: 'Thika' };
