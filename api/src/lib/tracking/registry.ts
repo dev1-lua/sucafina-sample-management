@@ -1,4 +1,6 @@
 import { StubTrackingProvider, type TrackingProvider } from '../tracking.js';
+import { DhlProvider } from './dhl.js';
+import { FedexProvider } from './fedex.js';
 
 export type TrackedCourier = 'dhl' | 'fedex';
 
@@ -35,15 +37,16 @@ export function providerFor(courierNorm: string | null | undefined): TrackingPro
   if (overrides[c] !== undefined) return overrides[c] ?? null;
 
   if (c === 'dhl') {
-    if (process.env.DHL_API_KEY) {
-      return null; // filled in by Task 4.2/4.3 — real DhlProvider construction
-    }
+    const apiKey = process.env.DHL_API_KEY;
+    if (apiKey) return new DhlProvider({ apiKey });
     return stubOrNull();
   }
 
   // c === 'fedex'
-  if (process.env.FEDEX_CLIENT_ID && process.env.FEDEX_CLIENT_SECRET) {
-    return null; // filled in by Task 4.2/4.3 — real FedexProvider construction
+  const clientId = process.env.FEDEX_CLIENT_ID;
+  const clientSecret = process.env.FEDEX_CLIENT_SECRET;
+  if (clientId && clientSecret) {
+    return new FedexProvider({ clientId, clientSecret, base: process.env.FEDEX_API_BASE ?? 'https://apis-sandbox.fedex.com' });
   }
   return stubOrNull();
 }

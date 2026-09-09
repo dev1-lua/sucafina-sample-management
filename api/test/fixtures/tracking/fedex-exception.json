@@ -1,0 +1,17 @@
+{
+  "output": {
+    "completeTrackResults": [
+      {
+        "trackingNumber": "884926239824",
+        "trackResults": [
+          {
+            "latestStatusDetail": { "code": "CD", "description": "Clearance delay" },
+            "scanEvents": [
+              { "date": "2026-09-08T09:15:00+03:00", "eventType": "CD", "exceptionDescription": "Clearance delay - Import", "scanLocation": { "city": "NAIROBI", "countryCode": "KE" } }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
