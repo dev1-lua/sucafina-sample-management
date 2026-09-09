@@ -4,7 +4,7 @@ import { FedexProvider } from './fedex.js';
 
 export type TrackedCourier = 'dhl' | 'fedex';
 
-function normalize(courierNorm: string | null | undefined): TrackedCourier | null {
+export function normalize(courierNorm: string | null | undefined): TrackedCourier | null {
   if (!courierNorm) return null;
   const c = courierNorm.trim().toLowerCase();
   if (c === 'dhl') return 'dhl';

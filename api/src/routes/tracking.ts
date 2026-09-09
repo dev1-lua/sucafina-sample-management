@@ -3,21 +3,11 @@ import { z } from 'zod';
 import { parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
 import { TrackingUnavailableError, unknownInfo, type TrackingInfo } from '../lib/tracking.js';
-import { providerFor, guessCourier, notConfiguredNote } from '../lib/tracking/registry.js';
+import { providerFor, guessCourier, notConfiguredNote, normalize } from '../lib/tracking/registry.js';
 import { rowsByAwb, sweepPool, type TrackedRow } from '../lib/tracking/rows.js';
 import { applyTracking } from '../lib/tracking/apply.js';
 
 export const tracking = Router();
-
-// The registry's own courier normalisation isn't exported (routes shouldn't reach past it), so
-// this is a small local mirror: only used here to decide *which* provider to ask and to build the
-// "not configured" / "no courier on record" note when there isn't one.
-function normCourier(courierNorm: string | null | undefined): 'dhl' | 'fedex' | null {
-  const c = (courierNorm ?? '').trim().toLowerCase();
-  if (c === 'dhl') return 'dhl';
-  if (c === 'fedex') return 'fedex';
-  return null;
-}
 
 function dispatchedAtOf(r: TrackedRow | undefined): Date | null {
   if (!r) return null;
@@ -33,7 +23,7 @@ tracking.get('/:awb', h(async (req, res) => {
   const awb = String(req.params.awb).trim();
   const actor = actorFrom(req);
   const rows = await rowsByAwb(awb);
-  const courier = normCourier(rows[0]?.courier_norm) ?? guessCourier(awb);
+  const courier = normalize(rows[0]?.courier_norm) ?? guessCourier(awb);
   const provider = courier ? providerFor(courier) : null;
   if (!provider) {
     return res.json({
@@ -61,7 +51,7 @@ tracking.get('/:awb', h(async (req, res) => {
 
 const sweepSchema = z.object({
   limit: z.number().int().min(1).max(200).optional(),
-  min_age_hours: z.number().min(0).optional(),
+  min_age_hours: z.number().int().min(0).optional(),
 });
 
 // Batch sweep: pulls the pool of dispatched dhl/fedex rows due for a re-check, groups by
@@ -76,9 +66,11 @@ tracking.post('/sweep', h(async (req, res) => {
 
   const out = { checked: 0, delivered: 0, exceptions: 0, unchanged: 0, errors: 0, skipped_no_provider: 0, remaining };
 
+  // Group by the NORMALIZED courier (case-insensitive) so 'DHL' and 'dhl' rows sharing an AWB
+  // collapse into one provider call instead of two (a double charge against the daily cap).
   const byAwb = new Map<string, TrackedRow[]>();
   for (const r of rows) {
-    const key = `${r.courier_norm}|${r.awb}`;
+    const key = `${normalize(r.courier_norm) ?? r.courier_norm}|${r.awb}`;
     byAwb.set(key, [...(byAwb.get(key) ?? []), r]);
   }
 

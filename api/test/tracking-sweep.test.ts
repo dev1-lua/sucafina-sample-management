@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app.js';
 import { resetDb, API_KEY } from './helpers.js';
@@ -248,13 +248,26 @@ describe('applyTracking + tracking routes', () => {
     provider.answers.set(awb, new TrackingUnavailableError('rate_limited', 'rate limited (test)'));
     setProviderForTests('dhl', provider);
 
-    const res = await auth(request(app).post('/tracking/sweep'));
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ checked: 0, delivered: 0, exceptions: 0, unchanged: 0, errors: 1, skipped_no_provider: 0, remaining: 0 });
+    // The route deliberately logs errored AWBs (production diagnostics) — silence that expected
+    // line here so the test's own output stays pristine, and restore it afterwards.
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await auth(request(app).post('/tracking/sweep'));
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ checked: 0, delivered: 0, exceptions: 0, unchanged: 0, errors: 1, skipped_no_provider: 0, remaining: 0 });
+      expect(errSpy).toHaveBeenCalledWith('[tracking/sweep]', awb, 'rate limited (test)');
+    } finally {
+      errSpy.mockRestore();
+    }
 
     const { rows } = await pool.query(`SELECT tracking_checked_at, status FROM bulk_samples WHERE id = $1`, [row.id]);
     expect(rows[0].tracking_checked_at).toBeNull();
     expect(rows[0].status).toBe('dispatched');
+  });
+
+  it('10. min_age_hours must be an integer — a fractional value 400s instead of 500ing out of make_interval()', async () => {
+    const res = await auth(request(app).post('/tracking/sweep')).send({ min_age_hours: 0.5 });
+    expect(res.status).toBe(400);
   });
 
   it('9. GET /tracking/:awb responds 503 when the provider throws TrackingUnavailableError', async () => {
