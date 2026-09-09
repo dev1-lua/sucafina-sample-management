@@ -56,7 +56,7 @@ const patchSchema = z.object({
 });
 
 samples.get('/', h(async (req, res) => {
-  const where: string[] = [];
+  const where: string[] = ['deleted_at IS NULL'];
   const params: unknown[] = [];
   const add = (clause: string, value: unknown) => { params.push(value); where.push(clause.replace('?', `$${params.length}`)); };
 
@@ -127,7 +127,7 @@ samples.patch('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
   const body = parseBody(patchSchema, req.body);
   const actor = actorFrom(req);
-  const cur = await pool.query(`SELECT * FROM samples WHERE id = $1`, [id]);
+  const cur = await pool.query(`SELECT * FROM samples WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!cur.rows[0]) throw new HttpError(404, 'sample not found');
   const prev = cur.rows[0];
 
@@ -153,7 +153,7 @@ samples.patch('/:id', h(async (req, res) => {
        dispatched_at = CASE WHEN $2 = 'dispatched' AND dispatched_at IS NULL THEN now() ELSE dispatched_at END,
        delivered_at  = CASE WHEN $2 = 'delivered'  AND delivered_at  IS NULL THEN now() ELSE delivered_at END,
        updated_at = now()
-     WHERE id = $1 RETURNING *`,
+     WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier ?? null, body.awb ?? null, body.result ?? null,
      body.cupping_notes ?? null, body.quality ?? null, body.grade ?? null, body.qty_grams ?? null,
      body.client_id ?? null, body.receiver ?? null, body.requester ?? null, body.deadline ?? null,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the API to the Contabo VPS: apply migrations 011–017 (all idempotent / one-shot guarded), rebuild containers.
+# Deploy the API to the Contabo VPS: apply migrations 011–018 (all idempotent / one-shot guarded), rebuild containers.
 # Assumes sucafina-deploy.tar.gz has already been rsync'd to root@156.67.105.74:~/ and extracted
 # (re-extracts anyway; harmless).
 #
@@ -28,6 +28,8 @@ echo "== migration 016 (log first: client_address_missing() + client_detail_requ
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/016_log_first_detail_requests.sql
 echo "== migration 017 (outbox change alerts: wider tabs, dedupe_key/payload/actor)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/017_outbox_change_alerts.sql
+echo "== migration 018 (legacy samples soft delete: deleted_at + event_type_t deleted/restored)"
+$DC exec -T postgres psql -U sucafina sucafina < api/migrations/018_legacy_samples_soft_delete.sql
 echo "== rebuild"
 $DC up -d --build
 $DC ps
