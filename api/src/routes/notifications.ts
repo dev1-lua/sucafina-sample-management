@@ -180,6 +180,8 @@ const OUTBOX_EVENT_NOTE: Record<string, string> = {
   preparing: 'people in the loop notified: preparing',
   dispatched: 'people in the loop notified: dispatched',
   awb_added: 'people in the loop notified: AWB added',
+  delivered: 'people in the loop notified: delivered',
+  tracking_exception: 'Quality team + account manager notified: courier exception',
 };
 
 notifications.post('/outbox-mark', h(async (req, res) => {

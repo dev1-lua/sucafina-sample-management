@@ -18,7 +18,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at'] as const;
 
 // `sample_type`/`courier_norm` are free text (migration 004) so operators can enter
 // values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.

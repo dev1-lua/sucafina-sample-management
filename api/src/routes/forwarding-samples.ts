@@ -14,7 +14,7 @@ export const forwardingSamples = Router();
 
 const STATUSES = ['requested','preparing','dispatched','delivered','cancelled'] as const; // no results_in
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
-const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','location','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by'] as const;
+const SORTABLE = ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','location','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at'] as const;
 
 // `courier_norm` is free text (migration 004) so operators can enter values outside
 // COURIERS; that array is a UI suggestion list only.
