@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
 import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
+import { purgeBefore, restorePurge, PURGE_ACTOR } from '../src/lib/purge-before.js';
 
 beforeAll(resetDb);
 const auth = (r: request.Test) => r.set('x-api-key', API_KEY).set('x-actor', 'test');
@@ -28,5 +29,84 @@ describe('migration 018 (legacy samples soft delete)', () => {
     const one = await auth(request(app).get(`/samples/${rows[0].id}`));
     expect(one.status).toBe(200); // deep links still resolve, like the three books
     await expect(auth(request(app).patch(`/samples/${rows[0].id}`)).send({ comments: 'x' })).resolves.toMatchObject({ status: 404 });
+  });
+});
+
+describe('purge-before script', () => {
+  let oldSpec: string, newSpec: string, oldBulk: string, oldFwd: string, oldLegacy: string, cn: string;
+  beforeAll(async () => {
+    await resetDb();
+    const trader = (await auth(request(app).post('/traders')).send({ name: 'Harriet', email: 'h@sucafina.com', role: 'qc' })).body.id;
+    const client = (await auth(request(app).post('/clients')).send({ name: 'Paulig', country: 'Finland' })).body.id;
+    await auth(request(app).patch(`/clients/${client}`)).send({ account_owner_id: trader });
+    // createSchemas (verified): specialty needs description + receiver_company; forwarding needs sender, origin,
+    // sample_ref, coffee_quality, receiver_company; all three accept `date` (YYYY-MM-DD) which sets date_on.
+    oldSpec = (await auth(request(app).post('/specialty-samples')).send({ description: 'AA', receiver_company: 'Paulig', qty: '300g', client_id: client, date: '2026-07-15' })).body.id;
+    newSpec = (await auth(request(app).post('/specialty-samples')).send({ description: 'AA', receiver_company: 'Paulig', qty: '300g', client_id: client, date: '2026-08-02' })).body.id;
+    oldBulk = (await auth(request(app).post('/bulk-samples')).send({ quality: 'AB FAQ', qty: '1kg', client: 'Paulig', client_id: client, date: '2026-06-01' })).body.id;
+    oldFwd  = (await auth(request(app).post('/forwarding-samples')).send({ sender: 'Nairobi lab', origin: 'Kenya', sample_ref: 'FW-1', coffee_quality: 'AB', receiver_company: 'Paulig', qty: '200g', date: '2026-07-31' })).body.id;
+    oldLegacy = (await pool.query(`INSERT INTO samples (ref, quality, requested_at) VALUES ('LEG-2','AA', '2026-05-01') RETURNING id`)).rows[0].id;
+    cn = (await auth(request(app).post('/consignments')).send({ location: 'Westlands' })).body.id;
+    await auth(request(app).post(`/consignments/${cn}/samples`)).send({ tab: 'specialty', ids: [oldSpec] }); // membersSchema { tab, ids }
+    // a pending outbox row for an old sample (POST already queued a 'created' row; this makes the assertion explicit)
+    await pool.query(`INSERT INTO notifications_outbox (tab, sample_id, event, dedupe_key) VALUES ('bulk', $1, 'preparing', '') ON CONFLICT DO NOTHING`, [oldBulk]);
+  });
+  // NB: every POST above also queues its own 'created' outbox row (recipient 'qc'), so outbox_pending_affected
+  // counts ALL pending rows targeting would-hide samples — assert with >= or compute the expected number from a query.
+
+  it('refuses a cutoff other than 2026-08-01 without --i-mean-it', async () => {
+    await expect(purgeBefore(pool, { before: '2026-09-01', apply: false })).rejects.toThrow(/i-mean-it/);
+  });
+
+  it('dry run counts and mutates nothing', async () => {
+    const r = await purgeBefore(pool, { before: '2026-08-01', apply: false });
+    expect(r.applied).toBe(false);
+    expect(r.tables.find((t) => t.table === 'specialty_samples')).toMatchObject({ live: 2, would_hide: 1 });
+    expect(r.tables.find((t) => t.table === 'samples')).toMatchObject({ would_hide: 1 });
+    const expectedOutbox = (await pool.query(`SELECT count(*)::int AS n FROM notifications_outbox WHERE sent_at IS NULL AND sample_id = ANY($1::uuid[])`, [[oldSpec, oldBulk, oldFwd]])).rows[0].n;
+    expect(r.outbox_pending_affected).toBe(expectedOutbox); // the 'created' rows queued by the seeding POSTs + the explicit one
+    expect(r.consignments_to_close.map((c) => c.id)).toEqual([cn]);
+    const live = await pool.query(`SELECT count(*)::int AS n FROM specialty_samples WHERE deleted_at IS NULL`);
+    expect(live.rows[0].n).toBe(2);
+  });
+
+  it('apply requires --backup-ack', async () => {
+    await expect(purgeBefore(pool, { before: '2026-08-01', apply: true })).rejects.toThrow(/backup-ack/);
+  });
+
+  it('apply hides only old rows, in one purge_ts, leaves ref_counters untouched, marks outbox, closes the empty consignment', async () => {
+    const before = (await pool.query(`SELECT prefix, next_val FROM ref_counters ORDER BY prefix`)).rows;
+    const r = await purgeBefore(pool, { before: '2026-08-01', apply: true, backupAck: 'backups/pre-purge-test.dump' });
+    expect(r.applied).toBe(true);
+    expect(r.purge_ts).toMatch(/^\d{4}-\d{2}-\d{2} /);
+    expect(r.hidden).toEqual({ specialty_samples: 1, bulk_samples: 1, forwarding_samples: 1, samples: 1 });
+    expect((await auth(request(app).get('/specialty-samples'))).body.data.map((s: { id: string }) => s.id)).toEqual([newSpec]);
+    const ts = await pool.query(`SELECT DISTINCT deleted_at::text FROM (SELECT deleted_at FROM specialty_samples UNION ALL SELECT deleted_at FROM bulk_samples UNION ALL SELECT deleted_at FROM forwarding_samples UNION ALL SELECT deleted_at FROM samples) x WHERE deleted_at IS NOT NULL`);
+    expect(ts.rows).toHaveLength(1);
+    expect(ts.rows[0].deleted_at).toBe(r.purge_ts);
+    const ev = await pool.query(`SELECT count(*)::int AS n FROM events WHERE type='deleted' AND actor=$1`, [PURGE_ACTOR]);
+    expect(ev.rows[0].n).toBe(3);
+    const lev = await pool.query(`SELECT count(*)::int AS n FROM sample_events WHERE type='deleted' AND actor=$1`, [PURGE_ACTOR]);
+    expect(lev.rows[0].n).toBe(1);
+    const ob = await pool.query(`SELECT sent_at, last_error FROM notifications_outbox WHERE sample_id=$1`, [oldBulk]);
+    expect(ob.rows.length).toBeGreaterThan(0);
+    for (const o of ob.rows) { expect(o.sent_at).not.toBeNull(); expect(o.last_error).toMatch(/^purged/); }
+    const newOb = await pool.query(`SELECT sent_at FROM notifications_outbox WHERE sample_id=$1`, [newSpec]);
+    expect(newOb.rows[0].sent_at).toBeNull(); // pending rows for live samples untouched
+    expect((await pool.query(`SELECT status FROM consignments WHERE id=$1`, [cn])).rows[0].status).toBe('closed');
+    expect((await pool.query(`SELECT prefix, next_val FROM ref_counters ORDER BY prefix`)).rows).toEqual(before);
+    expect(r.ref_counters_after).toEqual(before);
+    // second apply is a no-op
+    const again = await purgeBefore(pool, { before: '2026-08-01', apply: true, backupAck: 'x' });
+    expect(again.hidden).toEqual({ specialty_samples: 0, bulk_samples: 0, forwarding_samples: 0, samples: 0 });
+  });
+
+  it('restore brings exactly that purge back and reopens the consignment', async () => {
+    const { rows } = await pool.query(`SELECT deleted_at::text AS ts FROM bulk_samples WHERE id=$1`, [oldBulk]);
+    const r = await restorePurge(pool, { purgeTs: rows[0].ts });
+    expect(r.restored).toEqual({ specialty_samples: 1, bulk_samples: 1, forwarding_samples: 1, samples: 1 });
+    expect(r.consignments_reopened).toBe(1);
+    expect((await auth(request(app).get('/specialty-samples'))).body.data).toHaveLength(2);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM events WHERE type='restored' AND actor=$1`, [PURGE_ACTOR])).rows[0].n).toBe(3);
   });
 });
