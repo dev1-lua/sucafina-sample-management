@@ -29,7 +29,19 @@ export type OutboxItem = {
   details_note?: string | null;
   /** Change alerts (migration 017). */
   dedupe_key?: string;
-  payload?: { changes?: Record<string, { from: unknown; to: unknown }>; merged_into?: string; merged_into_name?: string } | null;
+  /** Courier tracking (migration 019): carried on `delivered` / `tracking_exception` outbox rows. */
+  payload?: {
+    changes?: Record<string, { from: unknown; to: unknown }>;
+    merged_into?: string;
+    merged_into_name?: string;
+    courier?: 'dhl' | 'fedex' | null;
+    awb?: string | null;
+    reason?: 'customs_hold' | 'address_problem' | 'returned' | 'refused' | 'damaged' | 'other' | null;
+    last_event?: string | null;
+    last_event_at?: string | null;
+    location?: string | null;
+    delivered_at?: string | null;
+  } | null;
   actor?: string | null;
 };
 

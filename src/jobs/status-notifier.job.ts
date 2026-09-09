@@ -17,6 +17,59 @@ const CC_NOTE = ' · cc Specialty QC mailbox';
 
 const BOOK: Record<string, string> = { specialty: 'Specialty', bulk: 'Commercial', forwarding: 'Forwarding', client: 'Client', consignment: 'Consignment' };
 
+// Routing sets (courier tracking, this job — Phase 5 reuses for the pss_* events, wired here so the
+// routing never needs to move again). QC_AND_LOOP_EVENTS gets BOTH: the Quality team plus whoever is
+// kept in the loop on the sample.
+export const QC_EVENTS = new Set(['created', 'deleted', 'request_edited', 'pss_schedule_imported']);
+export const LOOP_EVENTS = new Set(['preparing', 'dispatched', 'awb_added', 'delivered']);
+export const QC_AND_LOOP_EVENTS = new Set(['tracking_exception', 'pss_rejected', 'pss_due_soon', 'pss_overdue']);
+
+/** First occurrence per lowercased email wins; entries with no email pass through untouched (they're
+ * filtered out as unreachable later) so a QC member and a loop-in sharing one inbox get pinged once. */
+function dedupeByEmail<T extends { email: string | null }>(list: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of list) {
+    const key = (r.email ?? '').trim().toLowerCase();
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(r);
+  }
+  return out;
+}
+
+const COURIER_LABEL: Record<string, string> = { dhl: 'DHL', fedex: 'FedEx' };
+const courierLabel = (c: string | null | undefined) => (c ? COURIER_LABEL[c] ?? c.toUpperCase() : 'courier');
+
+const REASON_LABEL: Record<string, string> = {
+  customs_hold: 'customs hold',
+  address_problem: 'address problem',
+  returned: 'returned to sender',
+  refused: 'refused by receiver',
+  damaged: 'damaged',
+  other: 'courier exception',
+};
+
+function shortDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+  } catch {
+    return String(iso).slice(0, 10);
+  }
+}
+
+function shortDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+  } catch {
+    return String(iso).slice(0, 16).replace('T', ' ');
+  }
+}
+
 function describe(i: OutboxItem): string {
   const bits = [i.title, i.receiver ? `→ ${i.receiver}` : null, i.qty_grams ? `${i.qty_grams}g` : null, BOOK[i.tab]]
     .filter(Boolean)
@@ -42,6 +95,24 @@ function traderMessage(i: OutboxItem): { text: string; subject: string } {
   return {
     text: `${i.ref ?? 'Your sample'} is on its way — ${i.courier_norm ?? 'courier'}${i.awb ? ` AWB ${i.awb}` : ''}. (${label})`,
     subject: `Sample ${i.ref ?? ''}: dispatched`,
+  };
+}
+
+/** Courier tracking pings — `delivered` (loop-in) and `tracking_exception` (QC + loop-in). */
+export function trackingMessage(i: OutboxItem): { text: string; subject: string } {
+  const p = i.payload ?? {};
+  const ref = i.ref ?? '';
+  if (i.event === 'delivered') {
+    return {
+      text: `${ref} delivered to ${i.receiver ?? i.client_name ?? '—'} on ${shortDate(p.delivered_at)} (${courierLabel(p.courier)})${p.last_event ? ` — ${p.last_event}` : ''}`,
+      subject: `Sample ${ref}: delivered`,
+    };
+  }
+  // tracking_exception
+  const reason = p.reason ?? 'other';
+  return {
+    text: `⚠️ ${ref} stuck: ${REASON_LABEL[reason] ?? reason} at ${p.location ?? 'unknown location'} (${courierLabel(p.courier)} AWB ${p.awb ?? '?'}) — last scan ${shortDateTime(p.last_event_at)}${p.last_event ? `: ${p.last_event}` : ''}`,
+    subject: `Sample ${ref}: ${REASON_LABEL[reason] ?? reason}`,
   };
 }
 
@@ -121,88 +192,66 @@ export const statusNotifierJob = new LuaJob({
 
     for (const item of rest) {
       try {
-        if (item.event === 'created') {
-          if (!qc.length) {
-            await mark(item.outbox_id, 'skipped', 'no Quality-team members with an email on file');
-            skipped += 1;
-            continue;
-          }
-          const { text, subject } = qcMessage(item);
-          const delivered: Array<{ t: TraderRow; via: 'teams' | 'email' }> = [];
-          // The QC desk mailbox is CC'd once per event — on the first email that goes out,
-          // not on every recipient's copy.
-          let ccSent = false;
-          for (const t of qc) {
-            const via = await sendToPerson({ email: t.email!, text, subject, cc: ccSent ? [] : ccFor(t.email!) });
-            if (via === 'email') ccSent = true;
-            if (via) delivered.push({ t, via });
-          }
-          if (!delivered.length) {
-            if (!EMAIL_CHANNEL_READY) {
-              // Nobody warm on Teams and no email channel to fall back to — mark
-              // skipped (visible, retried up to the 5-attempt cap) rather than
-              // retrying forever or falsely claiming delivery.
-              await mark(item.outbox_id, 'skipped', 'no QC member reachable: all cold on Teams, email channel not wired');
-              skipped += 1;
-              continue;
-            }
-            // Every send failed — leave unmarked so the next run retries.
-            failed += 1;
-            console.error(`status-notifier: created ping failed for all QC recipients (${item.ref})`);
-            continue;
-          }
-          const anyTeams = delivered.some((d) => d.via === 'teams');
-          const detail = delivered.map((d) => `${d.t.name} (${d.via})`).join(', ') + (ccSent ? CC_NOTE : '');
-          await mark(item.outbox_id, anyTeams ? 'teams' : 'email', detail);
-          sent += 1;
-          console.log(`status-notifier: created ping for ${item.ref} → ${detail}`);
-        } else {
-          // Status pings go to the people in the loop: the client's account manager plus
-          // anyone added on the sample (resolved by the API at send time, migration 014).
-          const recipients = item.recipients ?? [];
-          if (!recipients.length) {
-            await mark(
-              item.outbox_id,
-              'skipped',
-              `no one in the loop for ${item.client_name ?? 'this sample'}: client has no account manager and no loop-in contacts`,
-            );
-            skipped += 1;
-            continue;
-          }
-          const reachable = recipients.filter((r) => r.email);
-          if (!reachable.length) {
-            await mark(
-              item.outbox_id,
-              'skipped',
-              `in the loop but no email on file: ${recipients.map((r) => r.name).join(', ')}`,
-            );
-            skipped += 1;
-            continue;
-          }
-          const { text, subject } = traderMessage(item);
-          const delivered: Array<{ name: string; via: 'teams' | 'email' }> = [];
-          let ccSent = false;
-          for (const r of reachable) {
-            const via = await sendToPerson({ email: r.email!, text, subject, cc: ccSent ? [] : ccFor(r.email!) });
-            if (via === 'email') ccSent = true;
-            if (via) delivered.push({ name: r.name, via });
-          }
-          if (!delivered.length) {
-            if (!EMAIL_CHANNEL_READY) {
-              await mark(item.outbox_id, 'skipped', `${reachable.map((r) => r.name).join(', ')} cold on Teams, email channel not wired`);
-              skipped += 1;
-              continue;
-            }
-            failed += 1;
-            console.error(`status-notifier: ${item.event} ping failed for everyone in the loop (${item.ref})`);
-            continue;
-          }
-          const anyTeams = delivered.some((d) => d.via === 'teams');
-          const detail = delivered.map((d) => `${d.name} (${d.via})`).join(', ') + (ccSent ? CC_NOTE : '');
-          await mark(item.outbox_id, anyTeams ? 'teams' : 'email', detail);
-          sent += 1;
-          console.log(`status-notifier: ${item.event} ping for ${item.ref} → ${detail}`);
+        const ev = item.event;
+        // Recipients = QC (when the event is QC-routed or QC+loop) plus the people in the loop
+        // (the client's account manager + anyone added on the sample, resolved by the API at send
+        // time, migration 014) — when the event is loop-routed or QC+loop. Deduped by email so a QC
+        // member who is also the account manager gets one ping, not two.
+        const wantsQc = QC_EVENTS.has(ev) || QC_AND_LOOP_EVENTS.has(ev);
+        const wantsLoop = LOOP_EVENTS.has(ev) || QC_AND_LOOP_EVENTS.has(ev);
+        const recipients = dedupeByEmail([
+          ...(wantsQc ? qc.map((t) => ({ name: t.name, email: t.email })) : []),
+          ...(wantsLoop ? (item.recipients ?? []).map((r) => ({ name: r.name, email: r.email })) : []),
+        ]);
+        if (!recipients.length) {
+          await mark(
+            item.outbox_id,
+            'skipped',
+            !wantsLoop
+              ? 'no Quality-team members with an email on file'
+              : !wantsQc
+                ? `no one in the loop for ${item.client_name ?? 'this sample'}: client has no account manager and no loop-in contacts`
+                : `no Quality-team members and no one in the loop for ${item.client_name ?? 'this sample'}`,
+          );
+          skipped += 1;
+          continue;
         }
+        const reachable = recipients.filter((r) => r.email);
+        if (!reachable.length) {
+          await mark(item.outbox_id, 'skipped', `in the loop but no email on file: ${recipients.map((r) => r.name).join(', ')}`);
+          skipped += 1;
+          continue;
+        }
+        const { text, subject } =
+          ev === 'created' ? qcMessage(item) : ev === 'delivered' || ev === 'tracking_exception' ? trackingMessage(item) : traderMessage(item);
+        const delivered: Array<{ name: string; via: 'teams' | 'email' }> = [];
+        // The QC desk mailbox is CC'd once per event — on the first email that goes out,
+        // not on every recipient's copy.
+        let ccSent = false;
+        for (const r of reachable) {
+          const via = await sendToPerson({ email: r.email!, text, subject, cc: ccSent ? [] : ccFor(r.email!) });
+          if (via === 'email') ccSent = true;
+          if (via) delivered.push({ name: r.name, via });
+        }
+        if (!delivered.length) {
+          if (!EMAIL_CHANNEL_READY) {
+            // Nobody warm on Teams and no email channel to fall back to — mark
+            // skipped (visible, retried up to the 5-attempt cap) rather than
+            // retrying forever or falsely claiming delivery.
+            await mark(item.outbox_id, 'skipped', `${reachable.map((r) => r.name).join(', ')} cold on Teams, email channel not wired`);
+            skipped += 1;
+            continue;
+          }
+          // Every send failed — leave unmarked so the next run retries.
+          failed += 1;
+          console.error(`status-notifier: ${ev} ping failed for all recipients (${item.ref})`);
+          continue;
+        }
+        const anyTeams = delivered.some((d) => d.via === 'teams');
+        const detail = delivered.map((d) => `${d.name} (${d.via})`).join(', ') + (ccSent ? CC_NOTE : '');
+        await mark(item.outbox_id, anyTeams ? 'teams' : 'email', detail);
+        sent += 1;
+        console.log(`status-notifier: ${ev} ping for ${item.ref} → ${detail}`);
       } catch (e) {
         // Mark failed after a send, or an unexpected error — logged loudly; the row
         // stays pending, so worst case is one duplicate ping next run.

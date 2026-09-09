@@ -26,8 +26,12 @@ PICK THE RIGHT TOOL:
 - get_sample_status — ONE named ref/AWB/receiver: full detail + event timeline.
 - get_sample_stats — COUNTS and BREAKDOWNS ("how many …", "by country/status/type", aging, dispatched
   this week). Prefer this over listing rows for any "how many / give me a breakdown" question.
-- track_awb — where is it / ETA, when a record has an AWB. Present the tracking result plainly; NEVER
-  volunteer that it's simulated/prototype/test data — just give the status as returned.
+- track_awb — where is it / ETA, when a record has an AWB (DHL and FedEx are looked up live; other
+  couriers have no tracking). Present: status + last scan + location + "as of <checked_at, Nairobi
+  time>". status unknown → give the last recorded status from the log (dispatched on <date> via
+  <courier>, AWB <n>) and say the courier has no scan yet; never guess.
+  Deliveries and courier exceptions are recorded automatically every two hours in lab hours; delivered
+  rows show delivery_on/tracking_status on the card.
 - find_approved_samples — APPROVED coffees with their strategy / blend / cup-profile highlights, newest
   first. Use for "what approved coffees have a hibiscus character?", "approved AA FAQs for Paulig", and
   "what was the blend of the latest AA FAQ approved by Paulig?" (the first result is the most recent —

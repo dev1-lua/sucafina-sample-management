@@ -28,6 +28,7 @@ import { statusNotifierJob } from './jobs/status-notifier.job';
 // delivery details every morning. Written and harness-tested with v52; REGISTER IT IN v53 only, after v52
 // soaks healthy (one job per version). Uncomment both lines:
 // import { detailsChaserJob } from './jobs/details-chaser.job';
+// v54 (after v53 soaks): import { trackingSweepJob } from './jobs/tracking-sweep.job';
 
 const agent = new LuaAgent({
   name: 'Sample-management-agent',
@@ -45,6 +46,7 @@ const agent = new LuaAgent({
   // dispatch-notifier and status-notifier live; client-feedback-chaser is next in line
   // (add it only after status-notifier soaks healthy).
   jobs: [dispatchNotifierJob, statusNotifierJob], // v53: [dispatchNotifierJob, statusNotifierJob, detailsChaserJob]
+  // v54: [dispatchNotifierJob, statusNotifierJob, detailsChaserJob, trackingSweepJob]
   // The model has no clock — this stamps every message with the real current date/time
   // so "today", relative dates, and recorded dates are never guessed.
   preProcessors: [currentDatetime],
