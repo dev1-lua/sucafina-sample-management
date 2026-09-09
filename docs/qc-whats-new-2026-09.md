@@ -22,6 +22,10 @@ The bot no longer holds a sample request hostage over a missing client address. 
 - Your own work (dispatch, AWB, delivery date, results, stock, location, comments) does not ping you.
 - Changes are grouped into one message per 15-minute run: *"Sample request changes (3) — • DELETED TYPE-112 — AB FAQ → Paulig • 300 g • Commercial — by Ivo (chat) at 14:02 • EDITED SL-7461 — qty 300 g → 500 g — by Muki (dashboard) at 13:50 …"*. Deleting a sample also cancels any of its pings still waiting to go out.
 
+## 3b. Old samples hidden
+
+Every sample dated before 1 August 2026 is hidden from the three books and the old sheet, so the tables show only current work. Nothing is deleted — every hidden row stays in the database and can be brought straight back with one command if anyone ever needs it. This only runs after a backup is taken and the counts are reviewed and approved.
+
 ## 4. Say who you are on the dashboard
 
 The dashboard asks for your name the first time you open it (pick yourself from the Team list or type it). It goes on every edit and deletion so the alerts above can say *who*. Change it any time from the chip in the top bar. In chat nothing changes — the bot already knows who is typing.
@@ -38,7 +42,6 @@ Printed labels now carry the Sucafina wordmark, the sample type, and — for Spe
 
 - **Pre-shipment samples:** the 45-day rule — PSS due dates computed from the shipment date, reminders at 14/7/0 days, an upload of the SOL PSS report that creates one PSS per container and nests them per contract ("2 of 3 approved"; one rejection tolerated, the replacement is drawn automatically). Needs one real SOL export from Harriet to finalise the column mapping.
 - **Courier tracking:** DHL and FedEx looked up automatically once an AWB is on the record — delivered dates filled in, customs holds and address problems pinged to you and the account manager. Needs Sucafina's DHL/FedEx developer keys.
-- **Clean-up:** everything dated before 1 August 2026 hidden from the books (kept in the database, reversible). Runs only on an explicit go after a backup.
 
 ## 8. Things we still need from you
 
