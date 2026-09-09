@@ -15,6 +15,7 @@ import { search } from './routes/search.js';
 import { consignments } from './routes/consignments.js';
 import { notifications } from './routes/notifications.js';
 import { contracts } from './routes/contracts.js';
+import { imports } from './routes/imports.js';
 
 export const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -45,5 +46,6 @@ app.use('/search', search);
 app.use('/consignments', consignments);
 app.use('/notifications', notifications);
 app.use('/contracts', contracts);
+app.use('/imports', imports);
 
 app.use(errorHandler);
