@@ -19,6 +19,8 @@ const TABLE: Record<string, string> = {
   forwarding: 'forwarding_samples',
   client: 'clients',
   consignment: 'consignments',
+  contract: 'contracts',
+  import: 'pss_imports',
 };
 
 // First contact with a usable email, oldest first (the primary contact by convention).
@@ -182,6 +184,10 @@ const OUTBOX_EVENT_NOTE: Record<string, string> = {
   awb_added: 'people in the loop notified: AWB added',
   delivered: 'people in the loop notified: delivered',
   tracking_exception: 'Quality team + account manager notified: courier exception',
+  pss_due_soon: 'Quality team + account manager reminded: PSS due soon',
+  pss_overdue: 'Quality team + account manager reminded: PSS overdue',
+  pss_rejected: 'Quality team + account manager reminded: PSS rejected twice, contract flagged',
+  pss_schedule_imported: 'Quality team notified: PSS schedule imported',
 };
 
 notifications.post('/outbox-mark', h(async (req, res) => {

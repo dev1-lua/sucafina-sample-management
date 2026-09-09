@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 
 // Sample-type → ref prefix. pss=Shipment Sample Kenya, type=Type sample; everything else
@@ -7,9 +8,12 @@ import { pool } from '../db.js';
 // unpadded ("SL-7459").
 const PREFIX: Record<string, string> = { pss: 'SSKE', type: 'TYPE' };
 
-export async function issueRef(sampleType: string): Promise<string> {
+// `db` lets a caller mint the ref on ITS OWN transaction (phase 5: the PSS replacement draw runs
+// inside the rejecting PATCH) so a rolled-back write never burns a number. Default = the pool, i.e.
+// its own auto-committed statement, which is what every pre-existing caller wants.
+export async function issueRef(sampleType: string, db: Pick<PoolClient, 'query'> = pool): Promise<string> {
   const prefix = PREFIX[sampleType] ?? 'SL';
-  const { rows } = await pool.query(
+  const { rows } = await db.query(
     `UPDATE ref_counters SET next_val = next_val + 1 WHERE prefix = $1 RETURNING next_val - 1 AS val`,
     [prefix]
   );

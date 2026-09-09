@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 
-export type EntityType = 'specialty' | 'bulk' | 'forwarding' | 'client' | 'consignment';
+export type EntityType = 'specialty' | 'bulk' | 'forwarding' | 'client' | 'consignment' | 'contract' | 'import';
 
 /**
  * Run one row-change (INSERT/UPDATE `... RETURNING *`) and, if it returns a row,
