@@ -29,6 +29,7 @@ import { statusNotifierJob } from './jobs/status-notifier.job';
 // soaks healthy (one job per version). Uncomment both lines:
 // import { detailsChaserJob } from './jobs/details-chaser.job';
 // v54 (after v53 soaks): import { trackingSweepJob } from './jobs/tracking-sweep.job';
+// v55 (after v54 soaks): import { pssScheduleSkill } from './skills/pss-schedule.skill';
 
 const agent = new LuaAgent({
   name: 'Sample-management-agent',
@@ -41,7 +42,7 @@ const agent = new LuaAgent({
     resultsCaptureSkill,
     clientBookSkill,
     consignmentsSkill,
-  ],
+  ], // v55: …, consignmentsSkill, pssScheduleSkill]
   // Legacy reminder jobs stay parked — see note above. New jobs enter one per version:
   // dispatch-notifier and status-notifier live; client-feedback-chaser is next in line
   // (add it only after status-notifier soaks healthy).

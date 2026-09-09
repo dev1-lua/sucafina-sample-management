@@ -3,9 +3,13 @@
 
 export type OutboxItem = {
   outbox_id: string;
-  tab: 'specialty' | 'bulk' | 'forwarding' | 'client' | 'consignment';
+  tab: 'specialty' | 'bulk' | 'forwarding' | 'client' | 'consignment' | 'contract' | 'import';
   sample_id: string;
-  event: 'created' | 'preparing' | 'dispatched' | 'awb_added' | 'deleted' | 'request_edited' | string;
+  event:
+    | 'created' | 'preparing' | 'dispatched' | 'awb_added' | 'deleted' | 'request_edited'
+    | 'delivered' | 'tracking_exception'
+    | 'pss_due_soon' | 'pss_overdue' | 'pss_rejected' | 'pss_schedule_imported'
+    | string;
   recipient: string | null;
   ref: string | null;
   title: string | null;
@@ -36,11 +40,31 @@ export type OutboxItem = {
     merged_into_name?: string;
     courier?: 'dhl' | 'fedex' | null;
     awb?: string | null;
-    reason?: 'customs_hold' | 'address_problem' | 'returned' | 'refused' | 'damaged' | 'other' | null;
+    /** A courier exception's category, or — on a replacement draw — the client's rejection reason. */
+    reason?: 'customs_hold' | 'address_problem' | 'returned' | 'refused' | 'damaged' | 'other' | string | null;
     last_event?: string | null;
     last_event_at?: string | null;
     location?: string | null;
     delivered_at?: string | null;
+    /** Contracts + PSS (migration 020): the pss_* rows on tabs `contract` / `import`. */
+    contract_number?: string | null;
+    client_name?: string | null;
+    shipment_date?: string | null;
+    pss_due_date?: string | null;
+    days_left?: number;
+    overdue_days?: number;
+    missing_pss?: number;
+    approved?: number;
+    expected?: number;
+    failed_containers?: number[];
+    file_name?: string | null;
+    contracts_created?: number;
+    contracts_updated?: number;
+    pss_created?: number;
+    first_due?: string | null;
+    actor?: string | null;
+    /** A PSS drawn to replace a rejected one carries the ref it replaces. */
+    replacement_of?: string | null;
   } | null;
   actor?: string | null;
 };

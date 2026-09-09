@@ -43,11 +43,24 @@ const formatFromBytes = (b: Buffer): ImportFormat => {
   return 'csv';
 };
 
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+/**
+ * https, always — except a loopback host that IMPORT_ALLOWED_HOSTS (or an explicit allowedHosts list)
+ * deliberately named, which may be plain http. That is the harness case: a fixture served off
+ * 127.0.0.1 has no certificate, and prod never names a loopback host, so nothing is loosened there.
+ */
+const schemeOk = (u: URL, allowed: string[]): boolean => {
+  if (u.protocol === 'https:') return true;
+  const host = u.hostname.toLowerCase();
+  return u.protocol === 'http:' && LOOPBACK.has(host) && allowed.includes(host);
+};
+
 /**
  * Fetch the spreadsheet the agent was handed. This is the one place in the API that follows a URL a
- * user supplied, so it is deliberately narrow: https only, an allow-listed host (the Lua CDN plus
- * whatever IMPORT_ALLOWED_HOSTS names), 10 MB, 20 seconds. A PDF is refused here with the message that
- * tells Harriet what to send instead — the numbers in a scanned schedule are not worth guessing at.
+ * user supplied, so it is deliberately narrow: https only (see schemeOk), an allow-listed host (the Lua
+ * CDN plus whatever IMPORT_ALLOWED_HOSTS names), 10 MB, 20 seconds. A PDF is refused here with the
+ * message that tells Harriet what to send instead — a scanned schedule's numbers are not worth guessing.
  */
 export async function downloadImportFile(
   url: string,
@@ -59,11 +72,11 @@ export async function downloadImportFile(
   } catch {
     throw new HttpError(400, `not a URL: ${url}`);
   }
-  if (parsed.protocol !== 'https:') throw new HttpError(400, 'the import file must be served over https');
   const allowed = (o?.allowedHosts ?? [
     ...DEFAULT_HOSTS,
     ...(process.env.IMPORT_ALLOWED_HOSTS ?? '').split(','),
   ]).map((h) => h.trim().toLowerCase()).filter(Boolean);
+  if (!schemeOk(parsed, allowed)) throw new HttpError(400, 'the import file must be served over https');
   if (!allowed.includes(parsed.hostname.toLowerCase())) {
     throw new HttpError(400, `${parsed.hostname} is not an allowed import host`, { allowed });
   }
@@ -77,7 +90,7 @@ export async function downloadImportFile(
     // A redirect must not walk us off the allow-list: res.url is where we actually ended up.
     if (res.url) {
       const final = new URL(res.url);
-      if (final.protocol !== 'https:' || !allowed.includes(final.hostname.toLowerCase())) {
+      if (!schemeOk(final, allowed) || !allowed.includes(final.hostname.toLowerCase())) {
         throw new HttpError(400, `${final.hostname} is not an allowed import host`, { allowed });
       }
     }

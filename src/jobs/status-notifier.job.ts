@@ -15,7 +15,7 @@ const CC_NOTE = ' · cc Specialty QC mailbox';
 // AFTER a successful send, so a failed send self-retries next run; unresolvable
 // recipients are marked 'skipped' and age out after 5 attempts (API-side cap).
 
-const BOOK: Record<string, string> = { specialty: 'Specialty', bulk: 'Commercial', forwarding: 'Forwarding', client: 'Client', consignment: 'Consignment' };
+const BOOK: Record<string, string> = { specialty: 'Specialty', bulk: 'Commercial', forwarding: 'Forwarding', client: 'Client', consignment: 'Consignment', contract: 'Contract', import: 'Import' };
 
 // Routing sets (courier tracking, this job — Phase 5 reuses for the pss_* events, wired here so the
 // routing never needs to move again). QC_AND_LOOP_EVENTS gets BOTH: the Quality team plus whoever is
@@ -91,12 +91,56 @@ function traderMessage(i: OutboxItem): { text: string; subject: string } {
       subject: `Sample ${i.ref ?? ''}: AWB added`,
     };
   }
-  // dispatched
+  if (i.event === 'dispatched') {
+    return {
+      text: `${i.ref ?? 'Your sample'} is on its way — ${i.courier_norm ?? 'courier'}${i.awb ? ` AWB ${i.awb}` : ''}. (${label})`,
+      subject: `Sample ${i.ref ?? ''}: dispatched`,
+    };
+  }
+  // Anything not covered above (a new event reaching a version that predates its wording) still gets a
+  // truthful line rather than the dispatch text — never claim a sample moved when we don't know that.
   return {
-    text: `${i.ref ?? 'Your sample'} is on its way — ${i.courier_norm ?? 'courier'}${i.awb ? ` AWB ${i.awb}` : ''}. (${label})`,
-    subject: `Sample ${i.ref ?? ''}: dispatched`,
+    text: `${i.ref ?? 'A sample'} was updated: ${i.event}. (${label})`,
+    subject: `Sample ${i.ref ?? ''}: ${i.event}`,
   };
 }
+
+/**
+ * Contracts + PSS (migration 020): the 45-day rule speaking. Payload-driven — the sweep and the status
+ * machine put every number on the outbox row, so this only formats what it was handed.
+ */
+export function pssMessage(i: OutboxItem): { text: string; subject: string } {
+  const p = i.payload ?? {};
+  const ref = i.ref ?? '';
+  const who = i.client_name ?? p.client_name ?? '—';
+  if (i.event === 'pss_due_soon') {
+    const when = p.days_left === 0 ? 'TODAY' : `in ${p.days_left} days`;
+    return {
+      text: `PSS due ${when}: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${p.approved} of ${p.expected} approved • ${p.missing_pss} PSS still to send`,
+      subject: `PSS due ${when}: ${ref}`,
+    };
+  }
+  if (i.event === 'pss_overdue') {
+    return {
+      text: `⚠️ PSS OVERDUE ${p.overdue_days}d: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${p.missing_pss} PSS still to send`,
+      subject: `PSS OVERDUE ${p.overdue_days}d: ${ref}`,
+    };
+  }
+  if (i.event === 'pss_rejected') {
+    const containers = (p.failed_containers ?? []).join(', ');
+    return {
+      text: `❌ ${ref} · ${who}: PSS for container ${containers} rejected twice — contract flagged; decide with the trader`,
+      subject: `PSS rejected twice: ${ref}`,
+    };
+  }
+  // pss_schedule_imported
+  return {
+    text: `SOL schedule imported (${p.file_name ?? ref}) by ${p.actor ?? 'the desk'}: ${p.pss_created} PSS scheduled across ${(p.contracts_created ?? 0) + (p.contracts_updated ?? 0)} contracts (${p.contracts_created} new) • first due ${shortDate(p.first_due)}`,
+    subject: `SOL PSS schedule imported: ${p.pss_created} PSS`,
+  };
+}
+
+const PSS_EVENTS = new Set(['pss_due_soon', 'pss_overdue', 'pss_rejected', 'pss_schedule_imported']);
 
 /** Courier tracking pings — `delivered` (loop-in) and `tracking_exception` (QC + loop-in). */
 export function trackingMessage(i: OutboxItem): { text: string; subject: string } {
@@ -128,9 +172,12 @@ function qcMessage(i: OutboxItem): { text: string; subject: string } {
       ? `⚠ No delivery address on file for ${i.client_name ?? i.receiver ?? 'the client'} — asked ${i.details_requested_from}` +
         `${i.details_requested_via ? ` (${i.details_requested_via}` : ' ('}${i.details_requested_at ? `${i.details_requested_via ? ', ' : ''}${String(i.details_requested_at).slice(0, 10)}` : ''}) · chased daily`
       : `⚠ No delivery address on file for ${i.client_name ?? i.receiver ?? 'the client'} — nobody asked yet${i.details_note ? ` (${i.logged_by ?? 'trader'}: "${i.details_note}")` : ''}`;
+  // A PSS drawn to replace one the client rejected is not a new request — say so up front, so QC reads
+  // it as the follow-up it is (migration 020).
+  const repl = i.payload?.replacement_of ? `REPLACEMENT PSS (for ${i.payload.replacement_of}) — ` : '';
   return {
-    text: `New sample request${urgent}:\n- ${describe(i)}${people ? `\n- ${people}` : ''}${gap ? `\n- ${gap}` : ''}`,
-    subject: `New sample request${urgent ? ' (URGENT)' : ''}: ${i.ref ?? i.title ?? ''}${gap ? ' — address pending' : ''}`,
+    text: `${repl}New sample request${urgent}:\n- ${describe(i)}${people ? `\n- ${people}` : ''}${gap ? `\n- ${gap}` : ''}`,
+    subject: `${repl}New sample request${urgent ? ' (URGENT)' : ''}: ${i.ref ?? i.title ?? ''}${gap ? ' — address pending' : ''}`,
   };
 }
 
@@ -147,6 +194,13 @@ export const statusNotifierJob = new LuaJob({
   description: 'Ping the Quality team on new sample requests and the Sales Trader as status progresses',
   schedule: { type: 'cron', expression: '*/15 7-19 * * 1-6', timezone: 'Africa/Nairobi' },
   execute: async () => {
+    // The 45-day PSS rule speaks at every tick: the sweep queues D-14 / D-7 / D-0 and the weekly overdue
+    // nudge (dedupe-keyed API-side, so a second pass the same day queues nothing), and the rows it wrote
+    // are drained by this very run. A 404 is silent by design — an agent version can go live before
+    // API 020 is deployed, and a missing route must not stop the rest of the queue.
+    await apiFetch('/contracts/pss-sweep', { method: 'POST', headers: { 'x-actor': 'job:status-notifier' } }).catch((e) => {
+      if ((e as { status?: number }).status !== 404) console.error('[status-notifier] pss-sweep', e);
+    });
     const { items } = (await apiFetch('/notifications/outbox-pending')) as { items: OutboxItem[] };
     if (!items.length) return { success: true, pending: 0, sent: 0, skipped: 0, failures: 0 };
     const traders = await loadTraders();
@@ -223,7 +277,10 @@ export const statusNotifierJob = new LuaJob({
           continue;
         }
         const { text, subject } =
-          ev === 'created' ? qcMessage(item) : ev === 'delivered' || ev === 'tracking_exception' ? trackingMessage(item) : traderMessage(item);
+          ev === 'created' ? qcMessage(item)
+            : ev === 'delivered' || ev === 'tracking_exception' ? trackingMessage(item)
+              : PSS_EVENTS.has(ev) ? pssMessage(item)
+                : traderMessage(item);
         const delivered: Array<{ name: string; via: 'teams' | 'email' }> = [];
         // The QC desk mailbox is CC'd once per event — on the first email that goes out,
         // not on every recipient's copy.

@@ -147,8 +147,9 @@ Commercial row for a screen grade (it lives in the quality text) or a Forwarding
   ✱client; then destination country, client's own reference, ICO mark, bags, moisture %,
   water activity, courier, qty (defaults by type), crop year, blend (the composition if it's a blend),
   lab location (Westlands/Thika), phyto cert (if the destination is abroad — see PHYTOSANITARY
-  CERTIFICATE). For a PSS/pre-shipment sample also capture shipment month + contract number. The ref
-  auto-issues — don't ask for it, but keep one the trader gives.
+  CERTIFICATE). For a PSS also capture shipment month + contract number; if the contract exists in the
+  book the sample is nested under it automatically. The ref auto-issues — don't ask for it, but keep one
+  the trader gives.
 - Forwarding: ✱sender, ✱origin country, ✱sample ref, ✱coffee quality, ✱receiver, ✱ID Number (one row
   per ID Number); then courier, qty, lab location (Westlands/Thika), phyto cert (see PHYTOSANITARY
   CERTIFICATE — ask once for the whole shipment, not per parcel). No grade or result — a forwarding

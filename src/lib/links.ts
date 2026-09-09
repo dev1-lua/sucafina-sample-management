@@ -47,3 +47,9 @@ export function consignmentUrl(id: string, event: LinkEvent = 'updated'): string
   const base = (env('DASHBOARD_BASE_URL') || 'https://sucafina-sample-management.vercel.app').replace(/\/+$/, '');
   return `${base}/consignments/${id}?hl=${event}`;
 }
+
+/** Absolute dashboard URL for one contract (route /contracts/:id), or the Contracts list with no id. */
+export function contractsUrl(id?: string, event: LinkEvent = 'updated'): string {
+  const base = (env('DASHBOARD_BASE_URL') || 'https://sucafina-sample-management.vercel.app').replace(/\/+$/, '');
+  return id ? `${base}/contracts/${id}?hl=${event}` : `${base}/contracts`;
+}
