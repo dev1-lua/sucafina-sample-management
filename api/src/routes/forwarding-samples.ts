@@ -7,6 +7,8 @@ import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
+import { gapColumns } from '../lib/detail-requests.js';
+import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
 
 export const forwardingSamples = Router();
 
@@ -99,8 +101,10 @@ forwardingSamples.get('/', h(async (req, res) => {
   if (req.query.has_id === 'false') f.where.push(`(id_number IS NULL OR id_number = '')`);
   // Priority (migration 011): ?priority=urgent.
   if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
+  // Log-first (migration 016): rows whose client has no street address on file yet.
+  if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
   const result = await buildList(
-    { table: 'forwarding_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb','requested_by','logged_by'] },
+    { table: 'forwarding_samples', extraSelect: gapColumns('forwarding_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb','requested_by','logged_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -109,7 +113,7 @@ forwardingSamples.get('/', h(async (req, res) => {
 forwardingSamples.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
   const { rows } = await pool.query(
-    `SELECT t.*, c.number AS consignment_number, c.location AS consignment_location
+    `SELECT t.*, ${gapColumns('t')}, c.number AS consignment_number, c.location AS consignment_location
        FROM forwarding_samples t LEFT JOIN consignments c ON c.id = t.consignment_id
       WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'forwarding sample not found');
@@ -212,7 +216,11 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
      body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null],
     { entityType: 'forwarding', type: eventType, note, actor },
     // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
-    async (client, row) => enqueueStatusEvents(client, 'forwarding', row, prev, body, nextStatus),
+    async (client, row) => {
+      await enqueueStatusEvents(client, 'forwarding', row, prev, body, nextStatus);
+      // Harriet (round 6): QC hears about edits to the request definition by non-QC actors.
+      await enqueueRequestEdited(client, 'forwarding', prev, row, actor);
+    },
   );
   if (!row) throw new HttpError(404, 'forwarding sample not found');
   res.json(row);
@@ -225,6 +233,8 @@ forwardingSamples.delete('/:id', h(async (req, res) => {
     `UPDATE forwarding_samples SET deleted_at = now(), updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id], { entityType: 'forwarding', type: 'deleted', note: 'soft-deleted', actor },
+    // Harriet (round 6): every deletion is announced to QC; the row's other pending pings are closed.
+    async (client, row) => enqueueDeleted(client, 'forwarding', String(row.id), actor),
   );
   if (!row) throw new HttpError(404, 'forwarding sample not found');
   res.json({ ok: true, id });

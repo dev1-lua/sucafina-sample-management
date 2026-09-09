@@ -56,6 +56,30 @@ export function usePatchRecord(endpoint: string) {
 
 export function useClients(q: ListQuery) { return useRecords('/clients', q); }
 
+// --- Add a contact / delivery address to an existing client (migration 016) ---------------
+export type ClientContactInput = {
+  attention_to?: string | null;
+  full_address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+};
+const SAMPLE_ENDPOINTS = ['/specialty-samples', '/bulk-samples', '/forwarding-samples'];
+/** POST /clients/:id/contacts (adds or merges a contact). A new address clears the
+ * client's `address_missing` flag AND every sample row's `client_address_missing`, so
+ * the client detail/list and all three sample books are refreshed on settle. */
+export function useAddClientContact(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ClientContactInput) =>
+      api<Record<string, unknown>>(`/clients/${id}/contacts`, { method: 'POST', body: JSON.stringify(body) }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['/clients', 'detail', id] });
+      qc.invalidateQueries({ queryKey: ['/clients', 'list'] });
+      for (const endpoint of SAMPLE_ENDPOINTS) qc.invalidateQueries({ queryKey: [endpoint] });
+    },
+  });
+}
+
 // --- Merge duplicate clients (feedback #27) -----------------------------------------------------
 export type MergeCandidate = {
   id: string; name: string; country: string | null;

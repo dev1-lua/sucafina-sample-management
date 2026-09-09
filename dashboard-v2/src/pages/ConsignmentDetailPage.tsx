@@ -4,6 +4,14 @@ import { IconArrowLeft, IconPrinter, IconTrash, IconX, IconPlus } from '@tabler/
 
 import { useRecord, usePatchRecord, useDeleteRecord, useConsignmentMembers } from '@/lib/query';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Timeline } from '@/components/Timeline';
@@ -18,7 +26,12 @@ const UNASSIGNED = '__unassigned__';
 const LOCATIONS = ['westlands', 'thika'];
 const STATUSES = ['open', 'dispatched', 'closed'];
 
-type Member = { tab: string; id: string; ref: string | null; title: string | null; receiver: string | null; status: string | null };
+type Member = {
+  tab: string; id: string; ref: string | null; title: string | null; receiver: string | null; status: string | null;
+  // Label-line extras (migration 016): outturn on specialty lots, contract/container on PSS. Optional —
+  // older API builds omit them.
+  outturn?: string | null; contract_number?: string | null; sample_type_norm?: string | null; container_no?: number | null;
+};
 type ConsignmentDetail = {
   id: string; number: string; location: string | null; status: string; notes: string | null;
   member_count: number; members: Member[]; events?: EventRow[];
@@ -35,6 +48,7 @@ export default function ConsignmentDetailPage() {
 
   const [addRef, setAddRef] = React.useState('');
   const [addError, setAddError] = React.useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   if (query.isLoading) {
     return (
@@ -94,7 +108,7 @@ export default function ConsignmentDetailPage() {
           <Button variant="outline" size="sm" onClick={() => openPrintLabel(consignmentLabelData(data))}>
             <IconPrinter className="size-3.5" /> Print label
           </Button>
-          <Button variant="outline" size="sm" onClick={() => del.mutate(id, { onSuccess: () => navigate('/consignments') })}>
+          <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)}>
             <IconTrash className="size-3.5" /> Delete
           </Button>
         </div>
@@ -156,6 +170,7 @@ export default function ConsignmentDetailPage() {
                 <Link to={memberHref(m)} className="font-medium text-foreground hover:underline">
                   {m.ref || '(no ref)'}
                 </Link>
+                {m.outturn && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{m.outturn}</span>}
                 <span className="min-w-0 flex-1 truncate text-muted-foreground">
                   {m.title || '—'}{m.receiver ? ` → ${m.receiver}` : ''}
                 </span>
@@ -181,6 +196,33 @@ export default function ConsignmentDetailPage() {
           <Timeline events={data.events ?? []} />
         </div>
       </section>
+
+      {/* Same confirm-then-soft-delete pattern as DetailDrawer / ClientDeleteDialog. */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete {data.number}?</DialogTitle>
+            <DialogDescription>
+              This removes the consignment from the list; the samples in it are kept and freed to regroup.
+              It can&rsquo;t be undone from the dashboard. The Quality team is notified of deletions.
+            </DialogDescription>
+          </DialogHeader>
+          {del.isError && <p className="text-sm text-destructive">Failed to delete. Please try again.</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={del.isPending}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={del.isPending}
+              onClick={() => del.mutate(id, { onSuccess: () => { setConfirmOpen(false); navigate('/consignments'); } })}
+            >
+              {del.isPending ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

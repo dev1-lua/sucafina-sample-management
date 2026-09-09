@@ -1,8 +1,12 @@
 import * as React from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { IconPrinter, IconTrash } from '@tabler/icons-react';
+import { IconAlertTriangle, IconPrinter, IconTrash } from '@tabler/icons-react';
 
 import { useRecord, usePatchRecord, useDeleteRecord } from '@/lib/query';
+import { cn } from '@/lib/cn';
+import { formatShortDate } from '@/lib/format';
+import { tagColor } from '@/lib/tags';
 import type { DetailField, EventRow } from '@/types';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -127,6 +131,46 @@ function InlineEditField({
   );
 }
 
+/** Muted strip for a soft-deleted record: old deep links still resolve via GET /:id,
+ * so say plainly that the row is gone from the lists instead of looking live. */
+function RemovedBanner({ deletedAt }: { deletedAt: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-[4px] bg-muted px-3 py-2 text-sm text-muted-foreground">
+      <IconTrash className="size-4 shrink-0" aria-hidden="true" />
+      <span>Removed on {formatShortDate(deletedAt) ?? deletedAt.slice(0, 10)}</span>
+    </div>
+  );
+}
+
+/** Amber strip (same shape as HighlightBanner, gap palette) when the sample's client has
+ * no delivery address on file — names who was asked and links to the client page where
+ * the address gets added. Icon + text, so colour is never the only signal. */
+function AddressGapBanner({ row }: { row: RowData }) {
+  const who = typeof row.details_requested_from === 'string' && row.details_requested_from.trim() !== '' ? row.details_requested_from.trim() : null;
+  const when = formatShortDate(row.details_requested_at);
+  const client =
+    [row.client, row.receiver_company, row.client_name, row.receiver].find(
+      (v): v is string => typeof v === 'string' && v.trim() !== '',
+    ) ?? 'this client';
+  const clientId = typeof row.client_id === 'string' && row.client_id !== '' ? row.client_id : null;
+  return (
+    <div className={cn('flex items-start gap-2 rounded-[4px] px-3 py-2 text-sm', tagColor('gap', 'address_needed'))}>
+      <IconAlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        No delivery address on file for {client} — {who ? `asked ${who}${when ? ` on ${when}` : ''}` : 'nobody asked yet'}.
+        {clientId && (
+          <>
+            {' '}
+            <Link to={`/clients/${clientId}`} className="font-medium underline-offset-2 hover:underline">
+              Add address
+            </Link>
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
 function DetailsSkeleton() {
   return (
     <div className="flex flex-col gap-4 pt-2">
@@ -231,9 +275,21 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
             </div>
           </SheetHeader>
 
+          {!isLoading && typeof data.deleted_at === 'string' && data.deleted_at !== '' && (
+            <div className="px-5 pt-3">
+              <RemovedBanner deletedAt={data.deleted_at} />
+            </div>
+          )}
+
           {event && (
             <div className="px-5 pt-3">
               <HighlightBanner event={event} />
+            </div>
+          )}
+
+          {!isLoading && data.client_address_missing === true && (
+            <div className="px-5 pt-3">
+              <AddressGapBanner row={data} />
             </div>
           )}
 
@@ -249,7 +305,7 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
                 <DetailsSkeleton />
               ) : (
                 <dl className="flex flex-col gap-4 pt-2">
-                  {fields.map((field) => (
+                  {fields.filter((field) => !field.hidden?.(data)).map((field) => (
                     <div key={field.key} className="flex flex-col gap-1">
                       <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         {field.label}
@@ -300,6 +356,7 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
             <DialogTitle>Delete {title}?</DialogTitle>
             <DialogDescription>
               This removes the record from the list. It can&rsquo;t be undone from the dashboard.
+              The Quality team is notified of deletions.
             </DialogDescription>
           </DialogHeader>
           {deleteFailed && <p className="text-sm text-destructive">Failed to delete. Please try again.</p>}

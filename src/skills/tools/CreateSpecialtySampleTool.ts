@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { currentUserName } from '../../lib/current-user';
-import { assertDeliverable } from '../../lib/client-guard';
-import { notifyContactGap } from '../../lib/notify';
+import { checkDeliverable } from '../../lib/client-guard';
+import { notifyContactGap, touchRoster } from '../../lib/notify';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
@@ -19,7 +19,7 @@ import {
 export default class CreateSpecialtySampleTool implements LuaTool {
   name = 'create_specialty_sample';
   description =
-    'Create one Specialty-book sample record (single specialty-position lot). Hard-requires description, sample type, receiver, estate/station name, and country of origin. Returns the server-issued ref. REFUSES to write when an external receiver is not in the client book or has no delivery address on file (internal Sucafina offices exempt) — the error tells you what to ask for and to save it via upsert_client first.';
+    'Create one Specialty-book sample record (single specialty-position lot). Hard-requires description, sample type, receiver, estate/station name, and country of origin. Returns the server-issued ref. Never blocked by client details: an unknown receiver is added to the book from its name (client_created) and the result lists client_details_missing (street address — route it with request_missing_details) and client_details_optional (contact person / phone / email). Internal Sucafina offices never have gaps.';
 
   inputSchema = z.object({
     description: z
@@ -82,8 +82,9 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     // requested_by = the Sales Trader, defaulting to the same person when they log their own ask.
     const loggedBy = await currentUserName();
     const requestedBy = input.requested_by ?? loggedBy;
-    // Delivery-address gate: an external receiver must be in the book with an address (internal offices exempt).
-    const deliverable = await assertDeliverable({ client_id: input.client_id, name: input.receiver_company });
+    // Log first, complete later: resolve (or add) the receiver and REPORT the book's gaps; never block.
+    const deliverable = await checkDeliverable({ client_id: input.client_id, name: input.receiver_company });
+    void touchRoster();
     const clientId = input.client_id ?? deliverable.client_id;
 
     const row = await apiFetch('/specialty-samples', {
@@ -125,6 +126,11 @@ export default class CreateSpecialtySampleTool implements LuaTool {
 
     return {
       ...(gap ? { notify_contact_gap: gap } : {}),
+      client_id: clientId ?? null,
+      client_created: deliverable.client_created,
+      client_details_missing: deliverable.details_missing,
+      client_details_optional: deliverable.details_optional,
+      client_url: clientId ? dashboardUrl('clients', clientId, deliverable.client_created ? 'created' : 'updated') : null,
       tab: 'specialty',
       id: row.id,
       ref: row.ref,

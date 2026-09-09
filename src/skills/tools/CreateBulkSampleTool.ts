@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { currentUserName } from '../../lib/current-user';
-import { assertDeliverable } from '../../lib/client-guard';
-import { notifyContactGap } from '../../lib/notify';
+import { checkDeliverable } from '../../lib/client-guard';
+import { notifyContactGap, touchRoster } from '../../lib/notify';
 import {
   DEFAULT_QTY_GRAMS,
   extractPssNote,
@@ -19,7 +19,7 @@ import {
 export default class CreateBulkSampleTool implements LuaTool {
   name = 'create_bulk_sample';
   description =
-    'Create one Commercial-book sample record (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. REFUSES to write when the client is not in the book or has no delivery address on file (internal Sucafina offices exempt) — the error tells you what to ask for and to save it via upsert_client first. Returns the row (Commercial refs are not auto-issued — pass one if the trader gave it).';
+    'Create one Commercial-book sample record (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. Never blocked by client details: an unknown client is added to the book from its name (client_created) and the result lists client_details_missing (street address / country — route them with request_missing_details) and client_details_optional (contact person / phone / email). Returns the row (Commercial refs are not auto-issued — pass one if the trader gave it).';
 
   inputSchema = z.object({
     quality: z
@@ -84,8 +84,9 @@ export default class CreateBulkSampleTool implements LuaTool {
     // requested_by = the Sales Trader, defaulting to the same person when they log their own ask.
     const loggedBy = await currentUserName();
     const requestedBy = input.requested_by ?? loggedBy;
-    // Delivery-address gate: no external sample without a client on file WITH an address (+ destination country).
-    const deliverable = await assertDeliverable({ client_id: input.client_id, name: input.client, country, requireCountry: true });
+    // Log first, complete later: resolve (or add) the client and REPORT the book's gaps; never block.
+    const deliverable = await checkDeliverable({ client_id: input.client_id, name: input.client, country, requireCountry: true });
+    void touchRoster();
     const clientId = input.client_id ?? deliverable.client_id;
     // Backfill the client's country from the destination when the book had none (never overwrites).
     if (deliverable.client && !deliverable.client.country && country) {
@@ -134,6 +135,11 @@ export default class CreateBulkSampleTool implements LuaTool {
 
     return {
       ...(gap ? { notify_contact_gap: gap } : {}),
+      client_id: clientId ?? null,
+      client_created: deliverable.client_created,
+      client_details_missing: deliverable.details_missing,
+      client_details_optional: deliverable.details_optional,
+      client_url: clientId ? dashboardUrl('clients', clientId, deliverable.client_created ? 'created' : 'updated') : null,
       tab: 'bulk',
       id: row.id,
       date: row.date,

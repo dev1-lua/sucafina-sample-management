@@ -41,6 +41,8 @@ describe('sampleLabelData', () => {
       consignment_number: 'CN-1001', consignment_location: 'thika',
     });
     expect(label.code).toBe('TYPE-8121');
+    expect(label.subtitle).toBe('Commercial sample');
+    expect(label.headline2).toBeUndefined();
     expect(label.fields).toEqual([
       { label: 'Quality', value: 'AB FAQ' },
       { label: 'Client', value: 'Paulig' },
@@ -52,11 +54,50 @@ describe('sampleLabelData', () => {
   it('maps a specialty row: ref / description / grade / receiver, skipping empties', () => {
     const label = sampleLabelData({ id: 'u-2', ref: 'SL-8000', description: 'Kirinyaga', grade: 'AA', receiver_company: 'Solberg', location: null });
     expect(label.code).toBe('SL-8000');
+    expect(label.subtitle).toBe('Specialty sample');
     expect(label.fields).toEqual([
       { label: 'Quality', value: 'Kirinyaga' },
       { label: 'Grade', value: 'AA' },
       { label: 'Client', value: 'Solberg' },
     ]);
+  });
+
+  it('specialty: the outturn is the second headline and is not repeated in the fields', () => {
+    const label = sampleLabelData({
+      id: 'u-3', ref: 'SL-8010', description: 'Nyeri', grade: 'AB', outturn: '123/45', shipment_month: 'Oct', receiver_company: 'Solberg',
+    });
+    expect(label.headline2).toEqual({ label: 'OUTTURN', value: '123/45' });
+    expect(label.fields.map((f) => f.label)).toEqual(['Quality', 'Grade', 'Shipment month', 'Client']);
+  });
+
+  it('PSS: the contract (+ container) is the second headline, subtitle says PSS, neither is repeated', () => {
+    const label = sampleLabelData({
+      id: 'u-4', sample_ref: 'SSKE-9001', quality: 'AB FAQ', sample_type_norm: 'pss',
+      contract_number: 'P-77812', container_no: 3, shipment_month: 'Nov', client: 'Paulig',
+    });
+    expect(label.subtitle).toBe('Commercial sample · PSS');
+    expect(label.headline2).toEqual({ label: 'CONTRACT', value: 'P-77812 · CTR 3' });
+    expect(label.fields).toEqual([
+      { label: 'Quality', value: 'AB FAQ' },
+      { label: 'Shipment month', value: 'Nov' },
+      { label: 'Client', value: 'Paulig' },
+    ]);
+  });
+
+  it('non-PSS commercial rows keep contract and container as ordinary fields', () => {
+    const label = sampleLabelData({ sample_ref: 'SL-9002', quality: 'AA', sample_type_norm: 'offer', contract_number: 'P-1', container_no: 2 });
+    expect(label.headline2).toBeUndefined();
+    expect(label.fields).toEqual([
+      { label: 'Quality', value: 'AA' },
+      { label: 'Contract #', value: 'P-1' },
+      { label: 'Container', value: '2' },
+    ]);
+  });
+
+  it('derives the book from `tab` when present, else from the forwarding-only columns', () => {
+    expect(sampleLabelData({ tab: 'forwarding', ref: 'FW-1' }).subtitle).toBe('Forwarding parcel');
+    expect(sampleLabelData({ sample_ref: 'FW-2', coffee_quality: 'Sidamo', id_number: 'ID-9', sender: 'Addis' }).subtitle).toBe('Forwarding parcel');
+    expect(sampleLabelData({ tab: 'bulk', ref: 'SL-1', sample_type_norm: 'pss' }).subtitle).toBe('Commercial sample · PSS');
   });
 
   it('falls back to the row id when no ref exists', () => {
@@ -75,7 +116,19 @@ describe('consignmentLabelData', () => {
       { label: 'Location', value: 'Westlands' },
       { label: 'Samples', value: '2' },
     ]);
-    expect(label.footer).toBe('SL-8000  ·  TYPE-8121');
+    expect(label.footer).toBe('SL-8000 | TYPE-8121');
+  });
+
+  it('footer lists ref · outturn, or ref · contract for a PSS, falling back to the bare ref', () => {
+    const label = consignmentLabelData({
+      number: 'CN-1003', location: null, member_count: 3,
+      members: [
+        { ref: 'SL-8000', outturn: '123/45' },
+        { ref: 'SSKE-9001', sample_type_norm: 'pss', contract_number: 'P-77812' },
+        { ref: 'TYPE-8121', sample_type_norm: 'type', contract_number: 'P-1' },
+      ],
+    });
+    expect(label.footer).toBe('SL-8000 · 123/45 | SSKE-9001 · P-77812 | TYPE-8121');
   });
 });
 
@@ -91,5 +144,18 @@ describe('labelHtml', () => {
     expect(html).not.toContain('<b>Acme');
     expect(html).toContain('<svg');
     expect(html).toContain('window.print()');
+  });
+
+  it('inlines the Sucafina wordmark ahead of the barcode (two SVGs) and the second headline', () => {
+    const html = labelHtml({
+      code: 'SL-8010',
+      subtitle: 'Specialty sample',
+      headline2: { label: 'OUTTURN', value: '123/45' },
+      fields: [],
+    });
+    expect(html.match(/<svg/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(html).toContain('SUCAFINA');
+    expect(html.indexOf('class="logo"')).toBeLessThan(html.indexOf('class="barcode"'));
+    expect(html).toContain('<div class="headline2"><span class="k">OUTTURN</span><span class="v">123/45</span></div>');
   });
 });

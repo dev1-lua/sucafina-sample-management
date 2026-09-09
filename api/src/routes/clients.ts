@@ -6,6 +6,8 @@ import { actorFrom } from '../auth.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { parseId, clampInt } from '../lib/validate.js';
 import { normalizeClientName, isInternalOffice } from '../lib/client-merge.js';
+import { openDetailRequest, openSamplesFor, resolveDetailRequests } from '../lib/detail-requests.js';
+import { enqueueDeleted } from '../lib/change-alerts.js';
 
 export const clients = Router();
 
@@ -95,6 +97,7 @@ clients.get('/', h(async (req, res) => {
     `SELECT c.*,
        (SELECT count(*)::int FROM client_contacts cc WHERE cc.client_id = c.id) AS contact_count,
        (SELECT max(v.date_on) FROM all_samples_v v WHERE v.client_id = c.id AND v.deleted_at IS NULL) AS latest_order_date,
+       client_address_missing(c.id) AS address_missing,
        count(*) OVER ()::int AS full_count
      FROM clients c
      WHERE c.deleted_at IS NULL AND ($1 = '' OR c.name ILIKE '%' || $1 || '%')
@@ -111,7 +114,10 @@ clients.post('/', h(async (req, res) => {
   const existing = await pool.query(`SELECT * FROM clients WHERE lower(name) = lower($1) AND deleted_at IS NULL`, [body.name]);
   if (existing.rows[0]) {
     let client = existing.rows[0];
-    if (body.contact) await upsertContact(pool, client.id, body.contact);
+    if (body.contact) {
+      await upsertContact(pool, client.id, body.contact);
+      await resolveDetailRequests(pool, client.id, actorFrom(req));
+    }
     // Backfill country when the book had none (never overwrite a country already on file).
     if (body.country && !client.country) {
       const { rows } = await pool.query(
@@ -158,7 +164,17 @@ clients.get('/:id', h(async (req, res) => {
      ORDER BY date_on DESC NULLS LAST LIMIT 200`,
     [id],
   );
-  res.json({ ...rows[0], contacts: contacts.rows, account_owner: owner, orders: orders.rows, events: await entityEvents('client', id) });
+  const gap = await pool.query(`SELECT client_address_missing($1) AS address_missing`, [id]);
+  res.json({
+    ...rows[0],
+    contacts: contacts.rows,
+    account_owner: owner,
+    orders: orders.rows,
+    // Log-first (migration 016): the gap + the open ask, so the dashboard/agent can say who was asked.
+    address_missing: gap.rows[0].address_missing === true,
+    detail_request: await openDetailRequest(pool, id),
+    events: await entityEvents('client', id),
+  });
 }));
 
 clients.patch('/:id', h(async (req, res) => {
@@ -201,6 +217,7 @@ clients.delete('/:id', h(async (req, res) => {
   const row = await runWithEvent(
     `UPDATE clients SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id], { entityType: 'client', type: 'deleted', note: 'soft-deleted', actor },
+    async (db, row) => enqueueDeleted(db, 'client', String(row.id), actor),
   );
   if (!row) throw new HttpError(404, 'client not found');
   res.json({ ok: true, id });
@@ -212,7 +229,83 @@ clients.post('/:id/contacts', h(async (req, res) => {
   const existing = await pool.query(`SELECT 1 FROM clients WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!existing.rows[0]) throw new HttpError(404, 'client not found');
   const row = await upsertContact(pool, id, body);
+  await resolveDetailRequests(pool, id, actorFrom(req));
   res.status(201).json(row);
+}));
+
+// ---------------------------------------------------------------------------------------------------
+// Log first, complete later (migration 016 — Beyers, 2026-09-08). Record WHO was asked for a client's
+// missing delivery details, WHEN and HOW, once per client; the samples that wait on it get the same
+// timeline entry. The details-chaser re-asks daily until the address lands (see notifications.ts).
+// ---------------------------------------------------------------------------------------------------
+
+const detailRequestSchema = z.object({
+  missing: z.array(z.string().trim().min(1)).min(1).max(10),
+  asked_name: z.string().trim().min(1).nullish(),
+  asked_email: z.string().trim().min(1).nullish(),
+  asked_trader_id: z.string().uuid().nullish(),
+  asked_by: z.string().trim().min(1).nullish(),
+  asked_by_email: z.string().trim().min(1).nullish(),
+  note: z.string().trim().min(1).nullish(),
+  via: z.enum(['teams', 'email']).nullish(),
+  samples: z.array(z.object({ tab: z.enum(['specialty', 'bulk', 'forwarding']), id: z.string().uuid() })).max(50).nullish(),
+});
+
+clients.post('/:id/detail-requests', h(async (req, res) => {
+  const id = parseId(req.params.id);
+  const body = parseBody(detailRequestSchema, req.body);
+  const actor = actorFrom(req);
+  const c = await pool.query(`SELECT id, name, client_address_missing(id) AS gap FROM clients WHERE id = $1 AND deleted_at IS NULL`, [id]);
+  if (!c.rows[0]) throw new HttpError(404, 'client not found');
+  if (!c.rows[0].gap) throw new HttpError(409, `${c.rows[0].name} already has a delivery address on file — nothing to ask for`);
+
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    // One OPEN ask per client (partial unique index): a re-ask updates who/what, never duplicates. A re-ask
+    // that names nobody keeps the earlier person; a re-ask with no delivery keeps the earlier stamp/channel.
+    const { rows } = await db.query(
+      `INSERT INTO client_detail_requests
+         (client_id, missing, asked_name, asked_email, asked_trader_id, asked_by, asked_by_email, note, via, delivered_at)
+       VALUES ($1, $2::text[], $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9::text IS NOT NULL THEN now() END)
+       ON CONFLICT (client_id) WHERE resolved_at IS NULL DO UPDATE SET
+         missing         = EXCLUDED.missing,
+         asked_name      = COALESCE(EXCLUDED.asked_name, client_detail_requests.asked_name),
+         asked_email     = COALESCE(EXCLUDED.asked_email, client_detail_requests.asked_email),
+         asked_trader_id = COALESCE(EXCLUDED.asked_trader_id, client_detail_requests.asked_trader_id),
+         asked_by        = COALESCE(EXCLUDED.asked_by, client_detail_requests.asked_by),
+         asked_by_email  = COALESCE(EXCLUDED.asked_by_email, client_detail_requests.asked_by_email),
+         note            = COALESCE(EXCLUDED.note, client_detail_requests.note),
+         via             = COALESCE(EXCLUDED.via, client_detail_requests.via),
+         delivered_at    = CASE WHEN EXCLUDED.via IS NOT NULL THEN now() ELSE client_detail_requests.delivered_at END,
+         asked_at        = now()
+       RETURNING *`,
+      [id, body.missing, body.asked_name ?? null, body.asked_email ?? null, body.asked_trader_id ?? null,
+       body.asked_by ?? null, body.asked_by_email ?? null, body.note ?? null, body.via ?? null],
+    );
+    const request = rows[0];
+    const who = body.asked_name ?? body.asked_email ?? null;
+    const note = who
+      ? `details requested from ${who}${body.via ? ` (${body.via})` : ' (not delivered)'}: ${body.missing.join(', ')}${body.note ? ` — "${body.note}"` : ''}`
+      : `details needed: ${body.missing.join(', ')} — nobody asked yet${body.note ? ` ("${body.note}")` : ''}`;
+    await db.query(
+      `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('client', $1, 'details_requested', $2, $3)`,
+      [id, note, actor],
+    );
+    for (const s of body.samples ?? []) {
+      await db.query(
+        `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ($1, $2, 'details_requested', $3, $4)`,
+        [s.tab, s.id, note, actor],
+      );
+    }
+    await db.query('COMMIT');
+    db.release();
+    res.status(201).json({ request, open_samples: await openSamplesFor(pool, id) });
+  } catch (e) {
+    await db.query('ROLLBACK').catch(() => {});
+    db.release(e instanceof HttpError ? undefined : (e as Error));
+    throw e;
+  }
 }));
 
 // ---------------------------------------------------------------------------------------------------
@@ -318,6 +411,9 @@ clients.post('/:id/merge', h(async (req, res) => {
       await db.query(`DELETE FROM client_contacts WHERE client_id = $1`, [src.id]);
     }
 
+    // 2b. A folded-in address closes the target's open ask (log-first, migration 016).
+    await resolveDetailRequests(db, targetId, actor);
+
     // 3. Fill the target's empty fields from the sources (first non-null wins, in the given order).
     const fill: Record<string, unknown> = {};
     for (const f of ['country', 'account_owner_id', 'spec_grades', 'spec_cup_profile', 'spec_moisture_max', 'spec_min_score', 'spec_notes', 'default_phyto_cert']) {
@@ -334,6 +430,7 @@ clients.post('/:id/merge', h(async (req, res) => {
         `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('client', $1, 'merged_into', $2, $3)`,
         [src.id, `merged into ${targetId} (${finalName})`, actor],
       );
+      await enqueueDeleted(db, 'client', String(src.id), actor, { merged_into: targetId, merged_into_name: finalName });
     }
 
     // 5. Rename: soft-deleted rows (incl. the sources just folded) still hold their names under the

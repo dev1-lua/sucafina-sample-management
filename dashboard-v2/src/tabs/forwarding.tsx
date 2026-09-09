@@ -3,7 +3,14 @@ import { CellValue } from '@/components/CellValue';
 import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
-import { round3Columns, round3DetailFields, round3CreateFields } from './round3-fields';
+import {
+  round3Columns,
+  round3DetailFields,
+  round3CreateFields,
+  addressGapColumn,
+  addressGapDetailField,
+  addressGapFilter,
+} from './round3-fields';
 
 // Lab locations Muki named (feedback ⑦); free text elsewhere, so the select allows custom entry.
 const LOCATIONS = ['westlands', 'thika'];
@@ -26,6 +33,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'sample_ref', header: 'Sample Ref', sortKey: 'sample_ref' },
     { key: 'coffee_quality', header: 'Coffee Quality', sortKey: 'coffee_quality' },
     { key: 'receiver_company', header: 'Receiver', sortKey: 'receiver_company' },
+    addressGapColumn,
     { key: 'id_number', header: 'ID Number', sortKey: 'id_number' },
     { key: 'awb', header: 'AWB', sortKey: 'awb' },
     // Display source is `courier_norm` — the only courier field the API ever writes
@@ -58,6 +66,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
     { key: 'has_id', label: 'Has ID', type: 'bool' },
     { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
+    addressGapFilter,
   ],
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
@@ -65,6 +74,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'id_number', label: 'ID Number', edit: { field: 'id_number', type: 'text' } },
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
+    addressGapDetailField,
     { key: 'location', label: 'Location', edit: { field: 'location', type: 'select', options: LOCATIONS, allowCustom: true } },
     { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
     ...round3DetailFields,

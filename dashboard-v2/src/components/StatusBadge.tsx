@@ -1,10 +1,11 @@
 import { cn } from '@/lib/cn';
-import { tagColor, type TagKind } from '@/lib/tags';
+import { tagColor, tagLabel, type TagKind } from '@/lib/tags';
 
-export function StatusBadge({ kind, value }: { kind: TagKind; value: string | null }) {
+export function StatusBadge({ kind, value, title }: { kind: TagKind; value: string | null; title?: string }) {
   if (!value) return <span className="inline-flex items-center text-xs text-muted-foreground">—</span>;
   return (
     <span
+      title={title}
       className={cn(
         // Twenty's tag pills: fully rounded, a small color dot ahead of the
         // humanized label (color is never the only signal — the label is
@@ -14,7 +15,7 @@ export function StatusBadge({ kind, value }: { kind: TagKind; value: string | nu
       )}
     >
       <span className="size-1.5 shrink-0 rounded-full bg-current opacity-70" aria-hidden="true" />
-      {value.replace(/_/g, ' ')}
+      {tagLabel(kind, value)}
     </span>
   );
 }

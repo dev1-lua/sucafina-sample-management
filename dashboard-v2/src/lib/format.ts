@@ -17,6 +17,15 @@ export function formatQty(grams: unknown): string | null {
   return `${g} g`;
 }
 
+/** Short absolute date for inline copy ("asked Ivo on Sep 3, 2026") — the same shape the
+ * Timeline uses beyond its relative window. Null for empty/unparseable input. */
+export function formatShortDate(iso: unknown): string | null {
+  if (typeof iso !== 'string' || iso.trim() === '') return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 // Feedback ⑦: lab location is stored as a canonical lowercase token ("westlands"/"thika") but a
 // custom lab can be entered verbatim. Title-case the known tokens; leave anything else untouched.
 const LOCATION_LABELS: Record<string, string> = { westlands: 'Westlands', thika: 'Thika' };

@@ -1,4 +1,4 @@
-import { tagColor, stockTag } from './tags';
+import { tagColor, tagLabel, stockTag } from './tags';
 
 it('maps known statuses to distinct palette classes', () => {
   expect(tagColor('status', 'dispatched')).toContain('blue');
@@ -18,6 +18,12 @@ it('maps known sample types to distinct palette classes', () => {
 it('every palette entry carries both a light and dark class', () => {
   const cls = tagColor('status', 'preparing');
   expect(cls).toContain('dark:');
+});
+
+it('gap kind: address_needed is amber with a sentence-case label; other kinds humanize', () => {
+  expect(tagColor('gap', 'address_needed')).toContain('amber');
+  expect(tagLabel('gap', 'address_needed')).toBe('Address needed');
+  expect(tagLabel('status', 'results_in')).toBe('results in');
 });
 
 it('stockTag: out at 0, low below qty, null when untracked or sufficient', () => {

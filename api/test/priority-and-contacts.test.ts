@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
-import { resetDb, API_KEY } from './helpers.js';
+import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
 
 beforeAll(resetDb);
 const auth = (r: request.Test) => r.set('x-api-key', API_KEY).set('x-actor', 'test');
@@ -13,6 +13,8 @@ describe('migration 011 idempotency', () => {
   it('re-applies cleanly and exposes priority in the view', async () => {
     const sql = readFileSync(fileURLToPath(new URL('../migrations/011_priority.sql', import.meta.url)), 'utf8');
     await pool.query(sql);
+    // 011 recreates all_samples_v in its 2026-08 shape; deploy re-applies everything after it too.
+    await reapplyMigrationsFrom('012');
     const view = await pool.query(`SELECT * FROM all_samples_v LIMIT 0`);
     expect(view.fields.map((f) => f.name)).toContain('priority');
   });

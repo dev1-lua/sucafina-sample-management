@@ -3,7 +3,14 @@ import { CellValue } from '@/components/CellValue';
 import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
-import { round3Columns, round3DetailFields, round3CreateFields } from './round3-fields';
+import {
+  round3Columns,
+  round3DetailFields,
+  round3CreateFields,
+  addressGapColumn,
+  addressGapDetailField,
+  addressGapFilter,
+} from './round3-fields';
 
 // Lab locations Muki named (feedback ⑦); free text elsewhere, so the select allows custom entry.
 const LOCATIONS = ['westlands', 'thika'];
@@ -48,6 +55,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'bags', header: 'Bags', defaultHidden: true },
     { key: 'description', header: 'Description', sortKey: 'description', defaultHidden: true },
     { key: 'receiver_company', header: 'Receiver', sortKey: 'receiver_company' },
+    addressGapColumn,
     { key: 'awb', header: 'AWB', sortKey: 'awb' },
     // Display source is `courier_norm` — the only courier field the API ever writes
     // (the raw `courier` column is legacy-import-only and always empty for app data).
@@ -92,6 +100,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
     { key: 'low_stock', label: 'Low Stock', type: 'bool' },
     { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
+    addressGapFilter,
   ],
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
@@ -101,6 +110,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'rejection_reason', label: 'Rejection Reason', edit: { field: 'rejection_reason', type: 'text' } },
     { key: 'description', label: 'Description', edit: { field: 'description', type: 'text' } },
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
+    addressGapDetailField,
     { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
     { key: 'grade', label: 'Grade', edit: { field: 'grade', type: 'text' } },
     { key: 'blend', label: 'Blend', edit: { field: 'blend', type: 'text' } },

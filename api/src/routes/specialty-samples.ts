@@ -8,6 +8,8 @@ import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
+import { gapColumns } from '../lib/detail-requests.js';
+import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
 
 export const specialtySamples = Router();
 
@@ -143,8 +145,10 @@ specialtySamples.get('/', h(async (req, res) => {
   if (req.query.low_stock === 'true') f.where.push(`stock_grams IS NOT NULL AND qty_grams IS NOT NULL AND stock_grams < qty_grams`);
   // Priority (migration 011): ?priority=urgent.
   if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
+  // Log-first (migration 016): rows whose client has no street address on file yet.
+  if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
   const result = await buildList(
-    { table: 'specialty_samples', sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb','requested_by','logged_by'] },
+    { table: 'specialty_samples', extraSelect: gapColumns('specialty_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb','requested_by','logged_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -153,7 +157,7 @@ specialtySamples.get('/', h(async (req, res) => {
 specialtySamples.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
   const { rows } = await pool.query(
-    `SELECT t.*, c.number AS consignment_number, c.location AS consignment_location
+    `SELECT t.*, ${gapColumns('t')}, c.number AS consignment_number, c.location AS consignment_location
        FROM specialty_samples t LEFT JOIN consignments c ON c.id = t.consignment_id
       WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'specialty sample not found');
@@ -268,7 +272,11 @@ specialtySamples.patch('/:id', h(async (req, res) => {
      body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null],
     { entityType: 'specialty', type: eventType, note, actor },
     // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
-    async (client, row) => enqueueStatusEvents(client, 'specialty', row, prev, body, nextStatus),
+    async (client, row) => {
+      await enqueueStatusEvents(client, 'specialty', row, prev, body, nextStatus);
+      // Harriet (round 6): QC hears about edits to the request definition by non-QC actors.
+      await enqueueRequestEdited(client, 'specialty', prev, row, actor);
+    },
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');
   res.json(row);
@@ -281,6 +289,8 @@ specialtySamples.delete('/:id', h(async (req, res) => {
     `UPDATE specialty_samples SET deleted_at = now(), updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id], { entityType: 'specialty', type: 'deleted', note: 'soft-deleted', actor },
+    // Harriet (round 6): every deletion is announced to QC; the row's other pending pings are closed.
+    async (client, row) => enqueueDeleted(client, 'specialty', String(row.id), actor),
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');
   res.json({ ok: true, id });

@@ -3,6 +3,7 @@ import { Route, Routes, useNavigate, useParams } from 'react-router-dom';
 
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
+import { ActorPromptProvider } from '@/components/ActorPrompt';
 import { useLuaChatBridge } from '@/lib/useLuaChatBridge';
 import DashboardPage from '@/pages/DashboardPage';
 import SampleManagementLayout from '@/pages/SampleManagementLayout';
@@ -50,6 +51,9 @@ export default function App() {
   useLuaChatBridge();
 
   return (
+    // ActorPromptProvider asks "who's using the dashboard?" on first load (no stored
+    // name) and lets the header chip reopen it; the name rides every request as x-actor.
+    <ActorPromptProvider>
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -89,5 +93,6 @@ export default function App() {
         </main>
       </div>
     </div>
+    </ActorPromptProvider>
   );
 }

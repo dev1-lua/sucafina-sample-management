@@ -24,6 +24,10 @@ import { dispatchNotifierJob } from './jobs/dispatch-notifier.job';
 // (QC ping on new requests, trader pings on preparing/dispatched/AWB). Armed 2026-08-24
 // after v26 soaked healthy, per the one-job-per-version protocol above.
 import { statusNotifierJob } from './jobs/status-notifier.job';
+// 2026-09-09 (round 6, log-first intake): details-chaser nudges the colleague asked for a client's missing
+// delivery details every morning. Written and harness-tested with v52; REGISTER IT IN v53 only, after v52
+// soaks healthy (one job per version). Uncomment both lines:
+// import { detailsChaserJob } from './jobs/details-chaser.job';
 
 const agent = new LuaAgent({
   name: 'Sample-management-agent',
@@ -40,7 +44,7 @@ const agent = new LuaAgent({
   // Legacy reminder jobs stay parked — see note above. New jobs enter one per version:
   // dispatch-notifier and status-notifier live; client-feedback-chaser is next in line
   // (add it only after status-notifier soaks healthy).
-  jobs: [dispatchNotifierJob, statusNotifierJob],
+  jobs: [dispatchNotifierJob, statusNotifierJob], // v53: [dispatchNotifierJob, statusNotifierJob, detailsChaserJob]
   // The model has no clock — this stamps every message with the real current date/time
   // so "today", relative dates, and recorded dates are never guessed.
   preProcessors: [currentDatetime],

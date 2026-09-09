@@ -4,13 +4,13 @@ import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { normalizeAwb, normalizeCountry, normalizeCourier, normalizeLocation } from '../../lib/normalize';
 import { currentUserName } from '../../lib/current-user';
-import { assertDeliverable } from '../../lib/client-guard';
-import { notifyContactGap } from '../../lib/notify';
+import { checkDeliverable } from '../../lib/client-guard';
+import { notifyContactGap, touchRoster } from '../../lib/notify';
 
 export default class CreateForwardingSampleTool implements LuaTool {
   name = 'create_forwarding_sample';
   description =
-    'Create one Forwarding-book row (one row per per-bag ID Number under a single AWB). Hard-requires sender, origin, sample ref, coffee quality, receiver, and the bag ID Number — the API rejects an incomplete record. For a multi-parcel shipment, call this once per ID Number. REFUSES to write when the receiver is not in the client book or has no delivery address on file (internal Sucafina offices exempt) — the error tells you what to ask for and to save it via upsert_client first.';
+    'Create one Forwarding-book row (one row per per-bag ID Number under a single AWB). Hard-requires sender, origin, sample ref, coffee quality, receiver, and the bag ID Number — the API rejects an incomplete record. For a multi-parcel shipment, call this once per ID Number. Never blocked by client details: an unknown receiver is added to the book from its name (client_created) and the result lists client_details_missing (street address — route it with request_missing_details) and client_details_optional. Internal Sucafina offices never have gaps.';
 
   inputSchema = z.object({
     sender: z.string().min(1).describe('Who is forwarding the shipment, e.g. "Kenyacof".'),
@@ -46,8 +46,9 @@ export default class CreateForwardingSampleTool implements LuaTool {
     // requested_by = the Sales Trader, defaulting to the same person when they log their own ask.
     const loggedBy = await currentUserName();
     const requestedBy = input.requested_by ?? loggedBy;
-    // Delivery-address gate: the receiver must be in the book with an address (internal offices exempt).
-    const deliverable = await assertDeliverable({ client_id: input.client_id, name: input.receiver_company });
+    // Log first, complete later: resolve (or add) the receiver and REPORT the book's gaps; never block.
+    const deliverable = await checkDeliverable({ client_id: input.client_id, name: input.receiver_company });
+    void touchRoster();
     const clientId = input.client_id ?? deliverable.client_id;
 
     const row = await apiFetch('/forwarding-samples', {
@@ -79,6 +80,11 @@ export default class CreateForwardingSampleTool implements LuaTool {
 
     return {
       ...(gap ? { notify_contact_gap: gap } : {}),
+      client_id: clientId ?? null,
+      client_created: deliverable.client_created,
+      client_details_missing: deliverable.details_missing,
+      client_details_optional: deliverable.details_optional,
+      client_url: clientId ? dashboardUrl('clients', clientId, deliverable.client_created ? 'created' : 'updated') : null,
       tab: 'forwarding',
       id: row.id,
       date: row.date,

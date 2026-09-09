@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { actorFrom } from '../auth.js';
 import { issueConsignmentNumber } from '../lib/refs.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
+import { enqueueDeleted } from '../lib/change-alerts.js';
 import { parseId, clampInt } from '../lib/validate.js';
 
 export const consignments = Router();
@@ -168,6 +169,7 @@ consignments.delete('/:id', h(async (req, res) => {
     `UPDATE consignments SET deleted_at = now(), updated_at = now()
       WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id], { entityType: 'consignment', type: 'deleted', note: 'soft-deleted', actor },
+    async (db, row) => enqueueDeleted(db, 'consignment', String(row.id), actor),
   );
   if (!row) throw new HttpError(404, 'consignment not found');
   // Detach members so they're free to regroup (the consignment row is kept for audit).

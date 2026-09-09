@@ -1,8 +1,10 @@
+import { Link } from 'react-router-dom';
+
 import { CellValue } from '@/components/CellValue';
 import { StatusBadge } from '@/components/StatusBadge';
-import { formatQty } from '@/lib/format';
+import { formatQty, formatShortDate } from '@/lib/format';
 import { stockTag } from '@/lib/tags';
-import type { ColumnDef, CreateFieldDef, DetailField } from '@/types';
+import type { ColumnDef, CreateFieldDef, DetailField, FilterDef } from '@/types';
 
 // Feedback round 3 (migration 010), shared by all three books like followup-fields:
 // requested_by / completed_by (Muki), stock on hand with a low-stock badge (Anicka),
@@ -50,6 +52,66 @@ export const round3DetailFields: DetailField[] = [
   // Feedback #35 (Brillian): the dispatch date is editable after the fact.
   { key: 'dispatched_on', label: 'Dispatched On', edit: { field: 'dispatched_on', type: 'date' } },
 ];
+
+// --- Delivery-address gap (migration 016) ---------------------------------------------
+// The API flags `client_address_missing` on every sample row whose client has no
+// delivery address on file, plus who was asked for it and when
+// (`details_requested_from` / `details_requested_at`). Same badge, field and filter on
+// all three books so the Quality desk sees the gap wherever they look.
+
+/** "asked Ivo · Sep 3, 2026" for the badge tooltip; null when nobody has been asked yet. */
+export function addressAskedSummary(row: Record<string, unknown>): string | null {
+  const who = typeof row.details_requested_from === 'string' && row.details_requested_from.trim() !== '' ? row.details_requested_from.trim() : null;
+  const when = formatShortDate(row.details_requested_at);
+  if (!who && !when) return null;
+  return `asked ${who ?? 'someone'}${when ? ` · ${when}` : ''}`;
+}
+
+/** Amber "Address needed" pill when the row's client has no delivery address; nothing otherwise. */
+export function AddressGapBadge({ row }: { row: Record<string, unknown> }) {
+  if (row.client_address_missing !== true) return null;
+  return <StatusBadge kind="gap" value="address_needed" title={addressAskedSummary(row) ?? undefined} />;
+}
+
+export const addressGapColumn: ColumnDef = {
+  key: 'client_address_missing',
+  header: 'Address',
+  width: 130,
+  render: (r) => <AddressGapBadge row={r} />,
+};
+
+/** Detail-drawer row: the gap plus a jump to the client page where the address gets added. */
+export function AddressGapDetail({ row }: { row: Record<string, unknown> }) {
+  if (row.client_address_missing !== true) return <>On file</>;
+  const who = typeof row.details_requested_from === 'string' && row.details_requested_from.trim() !== '' ? row.details_requested_from.trim() : null;
+  const when = formatShortDate(row.details_requested_at);
+  const clientId = typeof row.client_id === 'string' ? row.client_id : null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span>
+        <span aria-hidden="true">⚠ </span>Not on file
+        {who ? ` — asked ${who}${when ? ` on ${when}` : ''}` : ' — nobody asked yet'}
+      </span>
+      {clientId && (
+        <Link to={`/clients/${clientId}`} className="font-medium text-primary hover:underline">
+          Add address
+        </Link>
+      )}
+    </span>
+  );
+}
+
+export const addressGapDetailField: DetailField = {
+  key: 'client_address_missing',
+  label: 'Delivery address',
+  render: (r) => <AddressGapDetail row={r} />,
+  // A sample with no linked client has no address to be missing — skip the row entirely.
+  // Also skipped when the API didn't send the flag at all (older build), so "On file" is
+  // only ever shown when the server explicitly said so.
+  hidden: (r) => typeof r.client_id !== 'string' || r.client_id === '' || typeof r.client_address_missing !== 'boolean',
+};
+
+export const addressGapFilter: FilterDef = { key: 'address_missing', label: 'Address needed', type: 'bool' };
 
 export const round3CreateFields: CreateFieldDef[] = [
   { key: 'priority', label: 'Priority', type: 'select', options: PRIORITIES, defaultValue: 'normal' },

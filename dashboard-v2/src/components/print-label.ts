@@ -5,11 +5,15 @@
 // reads it without a checksum.
 
 import { formatLocation } from '@/lib/format';
+// Wordmark inlined into the label head (Vite `?raw` → the SVG source as a string). The
+// file is a placeholder to be swapped byte-for-byte for the real vector.
+import logoSvg from '@/assets/sucafina-logo.svg?raw';
 
 export type LabelField = { label: string; value: string };
 export type LabelData = {
   code: string; // headline + barcode value (sample ref or consignment number)
   subtitle?: string; // e.g. entity kind ("Specialty sample" / "Consignment")
+  headline2?: LabelField; // second big line under the code: the outturn, or the PSS contract
   fields: LabelField[];
   footer?: string; // free line, e.g. a consignment's member refs
 };
@@ -62,10 +66,24 @@ export function code39Svg(value: string, height = 44): string {
 // --- Label data builders -----------------------------------------------------
 function str(row: Record<string, unknown>, key: string): string | null {
   const v = row[key];
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
 
 const loc = (v: string | null) => formatLocation(v);
+
+type Book = 'specialty' | 'bulk' | 'forwarding';
+
+/** Which book a row belongs to: `tab` when the row carries one (search hits, digest,
+ * client orders), else the columns only that book has (see the three API routers). */
+function bookOf(row: Record<string, unknown>): Book {
+  const tab = row.tab;
+  if (tab === 'specialty' || tab === 'bulk' || tab === 'forwarding') return tab;
+  if ('coffee_quality' in row || 'id_number' in row || 'sender' in row || 'origin' in row) return 'forwarding';
+  if ('quality' in row || 'ico_mark' in row || 'client_ref' in row) return 'bulk';
+  if ('ref' in row || 'description' in row || 'outturn' in row) return 'specialty';
+  return 'specialty';
+}
 
 /** Build label data from any of the three books' detail rows — the identifying and
  * descriptive fields differ per book (specialty: ref/description/grade, commercial:
@@ -73,27 +91,64 @@ const loc = (v: string | null) => formatLocation(v);
  * candidates in priority order like DetailDrawer's title does. */
 export function sampleLabelData(row: Record<string, unknown>): LabelData {
   const code = str(row, 'ref') ?? str(row, 'sample_ref') ?? String(row.id ?? '');
+  const book = bookOf(row);
+  const isPss = (str(row, 'sample_type_norm') ?? str(row, 'sample_type'))?.toLowerCase() === 'pss';
+  const subtitle =
+    book === 'specialty' ? 'Specialty sample'
+    : book === 'forwarding' ? 'Forwarding parcel'
+    : isPss ? 'Commercial sample · PSS'
+    : 'Commercial sample';
+
+  // Second headline: the outturn on a specialty lot; the contract (+ container) on a PSS.
+  const outturn = str(row, 'outturn');
+  const contract = str(row, 'contract_number');
+  const container = str(row, 'container_no');
+  const headline2: LabelField | undefined =
+    outturn ? { label: 'OUTTURN', value: outturn }
+    : isPss && contract ? { label: 'CONTRACT', value: `${contract}${container ? ` · CTR ${container}` : ''}` }
+    : undefined;
+  const shownOutturn = headline2?.label === 'OUTTURN';
+  const shownContract = headline2?.label === 'CONTRACT';
+
   const fields: Array<{ label: string; value: string | null }> = [
     { label: 'Quality', value: str(row, 'quality') ?? str(row, 'description') ?? str(row, 'coffee_quality') },
     { label: 'Grade', value: str(row, 'grade') },
+    { label: 'Outturn', value: shownOutturn ? null : outturn },
+    { label: 'Contract #', value: shownContract ? null : contract },
+    { label: 'Shipment month', value: str(row, 'shipment_month') },
+    { label: 'Container', value: shownContract && container ? null : container },
     { label: 'Client', value: str(row, 'client') ?? str(row, 'receiver_company') ?? str(row, 'receiver') ?? str(row, 'name') },
     { label: 'Consignment', value: str(row, 'consignment_number') },
     { label: 'Location', value: loc(str(row, 'consignment_location') ?? str(row, 'location')) },
   ];
-  return { code, subtitle: 'Sample', fields: fields.filter((f): f is LabelField => f.value != null) };
+  return { code, subtitle, headline2, fields: fields.filter((f): f is LabelField => f.value != null) };
+}
+
+export type ConsignmentLabelMember = {
+  ref: string | null;
+  outturn?: string | null;
+  contract_number?: string | null;
+  sample_type_norm?: string | null;
+};
+
+/** One footer entry per member: `ref · outturn`, `ref · contract` for a PSS, or just the ref. */
+function memberLine(m: ConsignmentLabelMember): string | null {
+  if (!m.ref) return null;
+  const second = m.outturn || (m.sample_type_norm?.toLowerCase() === 'pss' ? m.contract_number : null);
+  return second ? `${m.ref} · ${second}` : m.ref;
 }
 
 export function consignmentLabelData(c: {
   number: string;
   location: string | null;
   member_count: number;
-  members: Array<{ ref: string | null }>;
+  members: ConsignmentLabelMember[];
 }): LabelData {
   const fields: Array<{ label: string; value: string | null }> = [
     { label: 'Location', value: loc(c.location) },
     { label: 'Samples', value: String(c.member_count) },
   ];
-  const refs = c.members.map((m) => m.ref).filter(Boolean).join('  ·  ');
+  const refs = c.members.map(memberLine).filter((line): line is string => line != null).join(' | ');
   return {
     code: c.number,
     subtitle: 'Consignment',
@@ -112,6 +167,9 @@ export function labelHtml(label: LabelData): string {
   const rows = label.fields
     .map((f) => `<div class="row"><span class="k">${escapeHtml(f.label)}</span><span class="v">${escapeHtml(f.value)}</span></div>`)
     .join('');
+  const headline2 = label.headline2
+    ? `<div class="headline2"><span class="k">${escapeHtml(label.headline2.label)}</span><span class="v">${escapeHtml(label.headline2.value)}</span></div>`
+    : '';
   return `<!doctype html>
 <html>
 <head>
@@ -123,9 +181,14 @@ export function labelHtml(label: LabelData): string {
          display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; }
   .toolbar button { font: inherit; padding: 6px 16px; cursor: pointer; }
   .label { width: 90mm; background: #fff; border: 1px dashed #999; padding: 5mm; }
-  .subtitle { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.12em; color: #555; }
-  .code { font-size: 20pt; font-weight: 700; letter-spacing: 0.02em; margin: 1mm 0 3mm; }
-  .barcode { margin-bottom: 1mm; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 3mm; margin-bottom: 2mm; }
+  .logo { flex: none; line-height: 0; }
+  .logo svg { max-height: 9mm; width: auto; }
+  .subtitle { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.12em; color: #555; text-align: right; }
+  .code { font-size: 20pt; font-weight: 700; letter-spacing: 0.02em; margin-top: 1mm; }
+  .headline2 { display: flex; align-items: baseline; gap: 2mm; margin-top: 0.5mm; font-size: 14pt; font-weight: 700; }
+  .headline2 .k { font-size: 7.5pt; font-weight: 400; text-transform: uppercase; letter-spacing: 0.08em; color: #555; }
+  .barcode { margin: 3mm 0 1mm; }
   .barcode-text { font-family: ui-monospace, monospace; font-size: 8pt; letter-spacing: 0.3em; text-align: center; margin-bottom: 3mm; }
   .row { display: flex; gap: 3mm; font-size: 10pt; padding: 0.8mm 0; border-top: 1px solid #ddd; }
   .row .k { width: 24mm; flex: none; text-transform: uppercase; font-size: 7.5pt; letter-spacing: 0.08em; color: #555; padding-top: 1pt; }
@@ -142,8 +205,12 @@ export function labelHtml(label: LabelData): string {
 <body>
 <div class="toolbar"><button onclick="window.print()">Print</button></div>
 <div class="label">
-  ${label.subtitle ? `<div class="subtitle">${escapeHtml(label.subtitle)}</div>` : ''}
+  <div class="head">
+    <div class="logo">${logoSvg}</div>
+    ${label.subtitle ? `<div class="subtitle">${escapeHtml(label.subtitle)}</div>` : ''}
+  </div>
   <div class="code">${escapeHtml(label.code)}</div>
+  ${headline2}
   <div class="barcode">${code39Svg(label.code)}</div>
   <div class="barcode-text">*${escapeHtml(code39Sanitize(label.code))}*</div>
   ${rows}

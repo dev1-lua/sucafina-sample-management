@@ -6,7 +6,7 @@ import { TABS } from '../../lib/normalize';
 export default class FindOpenSamplesTool implements LuaTool {
   name = 'find_open_samples';
   description =
-    'List samples not yet dispatched (status requested/preparing) across specialty/commercial/forwarding, optionally filtered by client/receiver/ref text. Returns each hit\'s tab + id, needed to record a dispatch on the right table, plus its priority (urgent rows are listed first). Up to 100 per page; `total` is the TRUE count — when `has_more` is true, report the total and offer to narrow or fetch the next `page` rather than implying the shown rows are all of them.';
+    'List samples not yet dispatched (status requested/preparing) across specialty/commercial/forwarding, optionally filtered by client/receiver/ref text. Returns each hit\'s tab + id, needed to record a dispatch on the right table, plus its priority (urgent rows are listed first). Rows with address_missing: true cannot be shipped yet — say so, and who was asked (details_requested_from), when listing. Up to 100 per page; `total` is the TRUE count — when `has_more` is true, report the total and offer to narrow or fetch the next `page` rather than implying the shown rows are all of them.';
 
   inputSchema = z.object({
     query: z.string().optional().describe('Client, receiver, or ref text, e.g. "beyers"'),
@@ -48,6 +48,10 @@ export default class FindOpenSamplesTool implements LuaTool {
         // Urgency flag (feedback #25) — list urgent rows first when reporting.
         priority: s.priority ?? 'normal',
         date: s.date_on,
+        // Log-first: the client has no delivery address on file yet (+ who was asked for it, when).
+        address_missing: s.client_address_missing === true,
+        details_requested_from: s.details_requested_from ?? null,
+        details_requested_at: s.details_requested_at ?? null,
       })),
     };
   }

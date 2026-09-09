@@ -1,13 +1,7 @@
 import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
-import {
-  loadTraders,
-  matchTraderByEmail,
-  matchTraderCandidates,
-  nameFromEmail,
-  type TraderRow,
-} from '../../lib/notify';
+import { isInternalEmail, resolveOrCreatePerson } from '../../lib/notify';
 import { resolveSampleByRef, sampleEndpoint } from '../../lib/resolve-sample';
 import { TABS } from '../../lib/normalize';
 
@@ -19,22 +13,23 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * for a specific sample. This tool saves the person to the roster and attaches
  * them to a client (as its account manager) and/or to a sample (extra loop-in).
  *
- * Roster resolution (one inbox = one person, never a duplicate row):
- *   1. email already on the roster → that row (whatever name the desk used in chat);
- *   2. unique name match → that row (email patched onto it when given);
- *   3. several name matches → refuse and list them ("which Thomas?");
- *   4. nobody → a NEW row needs an email; the name defaults from the email if none was given.
+ * Two guards added 2026-09-09:
+ *  - a CLIENT's email (nestle.com, itochu.co.jp…) is never a colleague: it is saved on the client
+ *    record as a contact instead, and the tool says so (RC7 — three customers had ended up on the
+ *    roster as "traders" and were receiving internal status pings);
+ *  - the client need not exist yet: "keep X in the loop for Beyers" before Beyers is in the book
+ *    adds the shell (log first, complete later).
  */
 export default class SaveNotifyContactTool implements LuaTool {
   name = 'save_notify_contact';
   description =
-    'Keep someone in the loop on sample updates (preparing, dispatched, AWB). Pass `client` to make them that client\'s account manager — they are then updated automatically for EVERY sample to that client, now and in future. Pass `sample_ref` to add them to one sample only. Both may be given. Identify the person by name and/or email — an email alone is enough (the name is taken from it); a name alone is enough for someone already on the roster; a NEW person needs an email. Saving SENDS NOTHING by itself — never tell the user a message went out; updates reach them as the sample progresses.';
+    'Keep a SUCAFINA COLLEAGUE in the loop on sample updates (preparing, dispatched, AWB). Pass `client` to make them that client\'s account manager — they are then updated automatically for EVERY sample to that client, now and in future (the client is added to the book if it isn\'t there yet). Pass `sample_ref` to add them to one sample only. Both may be given. Identify the person by name and/or email — an email alone is enough (the name is taken from it); a name alone is enough for someone already on the roster; a NEW person needs an email. A client\'s own email is NOT a colleague: it is saved on the client record (saved_as: client_contact) and the loop-in stays open. Saving SENDS NOTHING by itself — never tell the user a message went out; updates reach them as the sample progresses.';
 
   inputSchema = z.object({
     name: z
       .string()
       .optional()
-      .describe('The person to keep in the loop, e.g. "Thomas", "Lena Berg" — the short name the desk uses if they are already on the roster. Optional when `email` is given.'),
+      .describe('The colleague to keep in the loop, e.g. "Thomas", "Lena Berg" — the short name the desk uses if they are already on the roster. Optional when `email` is given.'),
     email: z
       .string()
       .email()
@@ -63,16 +58,43 @@ export default class SaveNotifyContactTool implements LuaTool {
       throw new Error('Say WHO to keep in the loop: pass their name and/or email.');
     }
 
+    // 0) A client's own email belongs on the client, never on the internal roster.
+    if (email && !isInternalEmail(email)) {
+      const target = input.client
+        ? await this.resolveClient(input.client)
+        : await this.clientOfSample(input.sample_ref!, input.tab);
+      if (!target) {
+        return {
+          saved: false,
+          saved_as: 'client_contact',
+          reason: `${email} is not a Sucafina address — it is the client's own contact, but this sample has no client on file to save it on.`,
+        };
+      }
+      await apiFetch(`/clients/${target.id}/contacts`, {
+        method: 'POST',
+        body: JSON.stringify({ email, attention_to: nameIn }),
+      });
+      console.log(`save_notify_contact: ${email} is a CLIENT address — saved as a contact on "${target.name}", not on the roster`);
+      return {
+        saved: true,
+        saved_as: 'client_contact',
+        client: target.name,
+        client_created: target.created === true,
+        email,
+        reason: `${email} is the client's own contact — saved on ${target.name}'s book entry (dispatch confirmations and feedback chasers go there). Status updates need a Sucafina colleague: the loop-in for ${target.name} is still open.`,
+      };
+    }
+
     // 1) Roster.
-    const { person, matchedBy } = await this.resolvePerson(nameIn, email);
+    const { person, matchedBy } = await resolveOrCreatePerson({ name: nameIn, email });
 
     // 2) Client → account manager (kept in the loop on every sample to that client).
-    let attachedClient: { id: string; name: string } | null = null;
+    let attachedClient: { id: string; name: string; created?: boolean } | null = null;
     if (input.client) {
       const c = await this.resolveClient(input.client);
       await apiFetch(`/clients/${c.id}`, { method: 'PATCH', body: JSON.stringify({ account_owner_id: person.id }) });
       attachedClient = c;
-      console.log(`save_notify_contact: ${person.name} is now account manager for client "${c.name}" (${c.id})`);
+      console.log(`save_notify_contact: ${person.name} is now account manager for client "${c.name}" (${c.id})${c.created ? ' — client added to the book' : ''}`);
     }
 
     // 3) Sample → extra loop-in (this one sample only).
@@ -93,69 +115,18 @@ export default class SaveNotifyContactTool implements LuaTool {
 
     return {
       saved: true,
+      saved_as: 'roster',
       person: { name: person.name, email: person.email, role: person.role },
       matched_by: matchedBy,
       account_manager_for_client: attachedClient?.name ?? null,
+      client_created: attachedClient?.created === true,
       added_to_sample: attachedSample?.ref ?? null,
       note: 'Saved. Nothing has been sent — they will receive updates as the sample progresses.',
     };
   }
 
-  /** See the class comment for the resolution order. Throws model-facing questions, never guesses. */
-  private async resolvePerson(
-    nameIn: string | null,
-    email: string | null,
-  ): Promise<{ person: TraderRow; matchedBy: 'email' | 'name' | 'created' }> {
-    const traders = await loadTraders();
-
-    const byEmail = matchTraderByEmail(email, traders);
-    if (byEmail) {
-      console.log(
-        `save_notify_contact: roster row "${byEmail.name}" <${byEmail.email}> matched by email` +
-          (nameIn && nameIn.toLowerCase() !== byEmail.name.toLowerCase() ? ` (chat said "${nameIn}")` : ''),
-      );
-      return { person: byEmail, matchedBy: 'email' };
-    }
-
-    const candidates = nameIn ? matchTraderCandidates(nameIn, traders) : [];
-    if (candidates.length > 1) {
-      throw new Error(
-        `Several people on the roster match "${nameIn}": ${candidates.map((c) => c.name).join(', ')}. ` +
-          'Ask which one, then retry with that exact roster name (or their email). If it is a NEW person, give their full name and email.',
-      );
-    }
-    if (candidates.length === 1) {
-      let person = candidates[0]!;
-      if (email && (person.email ?? '').toLowerCase() !== email) {
-        person = (await apiFetch(`/traders/${person.id}`, { method: 'PATCH', body: JSON.stringify({ email }) })) as TraderRow;
-        console.log(`save_notify_contact: roster row "${person.name}" email updated to <${email}>`);
-      } else {
-        console.log(`save_notify_contact: roster row "${person.name}" <${person.email ?? 'no email'}> matched by name "${nameIn}"`);
-      }
-      return { person, matchedBy: 'name' };
-    }
-
-    if (!email) {
-      throw new Error(
-        `"${nameIn}" is not on the roster yet — ask for their work email once, then call again with name + email.`,
-      );
-    }
-    // New person. Name defaults from the email; never collide with an existing roster name
-    // (traders.name is UNIQUE and POST /traders upserts on it — a collision would overwrite
-    // someone else's email).
-    let newName = nameIn ?? nameFromEmail(email);
-    if (traders.some((t) => t.name.trim().toLowerCase() === newName.toLowerCase())) {
-      newName = `${newName} (${email})`;
-    }
-    const person = (await apiFetch('/traders', {
-      method: 'POST',
-      body: JSON.stringify({ name: newName, email, role: 'trader', active: true }),
-    })) as TraderRow;
-    console.log(`save_notify_contact: created roster row "${person.name}" <${person.email}> role=${person.role}`);
-    return { person, matchedBy: 'created' };
-  }
-
-  private async resolveClient(nameOrId: string): Promise<{ id: string; name: string }> {
+  /** Resolve a client by id or exact name; a company not in the book yet is added from its name. */
+  private async resolveClient(nameOrId: string): Promise<{ id: string; name: string; created?: boolean }> {
     const q = nameOrId.trim();
     if (UUID_RE.test(q)) {
       const c = await apiFetch(`/clients/${q}`);
@@ -166,7 +137,18 @@ export default class SaveNotifyContactTool implements LuaTool {
     const exact = rows.filter((r) => r.name.trim().toLowerCase() === q.toLowerCase());
     const hits = exact.length ? exact : rows;
     if (hits.length === 1) return { id: hits[0]!.id, name: hits[0]!.name };
-    if (hits.length === 0) throw new Error(`No client matching "${q}" — resolve it with find_client first and pass the exact name.`);
+    if (hits.length === 0) {
+      const shell = await apiFetch('/clients', { method: 'POST', body: JSON.stringify({ name: q }) });
+      return { id: shell.id, name: shell.name, created: true };
+    }
     throw new Error(`Several clients match "${q}": ${hits.map((r) => r.name).join('; ')}. Ask which one, then retry with the exact name.`);
+  }
+
+  private async clientOfSample(ref: string, tab?: (typeof TABS)[number]): Promise<{ id: string; name: string; created?: boolean } | null> {
+    const { tab: t, id } = await resolveSampleByRef(ref, tab);
+    const row = await apiFetch(`${sampleEndpoint(t)}/${id}`);
+    if (!row.client_id) return null;
+    const c = await apiFetch(`/clients/${row.client_id}`);
+    return { id: c.id, name: c.name };
   }
 }

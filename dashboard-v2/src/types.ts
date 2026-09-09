@@ -74,6 +74,7 @@ export type DetailField = {
   key: string; // detail-row field to display
   label: string; // field label
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom read-only rendering (e.g. StatusBadge)
+  hidden?: (row: Record<string, unknown>) => boolean; // skip the whole row (label included) for this record
   // inline edit → PATCH {field: value}. `allowCustom` turns a select into an
   // editable one (EditableSelect): picking "Other…" lets the user type a value
   // outside `options` (requires the backing column to be free text). `number`

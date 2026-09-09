@@ -1,8 +1,11 @@
 import * as React from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { IconArrowLeft, IconArrowMerge, IconPencil, IconTrash } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowLeft, IconArrowMerge, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react';
 
 import { useRecord, usePatchRecord, useTraders } from '@/lib/query';
+import { cn } from '@/lib/cn';
+import { formatShortDate } from '@/lib/format';
+import { tagColor } from '@/lib/tags';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,7 +17,7 @@ import { ClientOwnerChip } from '@/components/client-owner-chip';
 import { ClientOrdersTable } from '@/components/client-orders-table';
 import { ClientSpecsCard } from '@/components/ClientSpecsCard';
 import { ApprovedSamplesCard } from '@/components/ApprovedSamplesCard';
-import type { ClientContact, ClientDetail } from '@/components/client-types';
+import type { ClientContact, ClientDetail, ClientDetailRequest } from '@/components/client-types';
 import { HighlightBanner } from '@/components/HighlightBanner';
 import { useRecordHighlight } from '@/lib/highlight';
 
@@ -53,6 +56,34 @@ function ContactCard({ contact }: { contact: ClientContact }) {
   );
 }
 
+/** Amber call-to-action when the client has no delivery address (migration 016): who the
+ * agent asked and how often it has chased, plus the button that opens the contact editor. */
+function AddressNeededBanner({ request, onAdd }: { request: ClientDetailRequest | null | undefined; onAdd: () => void }) {
+  const asked = request?.asked_name || request?.asked_email || null;
+  const when = formatShortDate(request?.asked_at);
+  return (
+    <div
+      className={cn(
+        'flex flex-col gap-3 rounded-[4px] px-3 py-2 text-sm sm:flex-row sm:items-center',
+        tagColor('gap', 'address_needed'),
+      )}
+    >
+      <IconAlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">Delivery address needed</p>
+        <p className="text-xs">
+          {request
+            ? `asked ${asked ?? 'someone'}${when ? ` on ${when}` : ''} · chased ${request.chase_count}×`
+            : 'Nobody has been asked for it yet.'}
+        </p>
+      </div>
+      <Button variant="outline" size="sm" className="shrink-0 self-start sm:self-auto" onClick={onAdd}>
+        <IconPlus className="size-3.5" /> Add address
+      </Button>
+    </div>
+  );
+}
+
 export default function ClientDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -61,6 +92,8 @@ export default function ClientDetailPage() {
   const { mutate: patchOwner, isPending: ownerPending } = usePatchRecord('/clients');
 
   const [editOpen, setEditOpen] = React.useState(false);
+  // "Add address" opens the same editor with the contact block already expanded.
+  const [editShowContact, setEditShowContact] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [mergeOpen, setMergeOpen] = React.useState(false);
   const [ownerError, setOwnerError] = React.useState<string | null>(null);
@@ -87,6 +120,11 @@ export default function ClientDetailPage() {
   const data = query.data as unknown as ClientDetail;
   const ownerValue = data.account_owner_id ?? UNASSIGNED;
 
+  function openEditor(showContact: boolean) {
+    setEditShowContact(showContact);
+    setEditOpen(true);
+  }
+
   function handleOwnerChange(next: string) {
     setOwnerError(null);
     patchOwner(
@@ -106,6 +144,10 @@ export default function ClientDetailPage() {
 
       {event && <HighlightBanner event={event} />}
 
+      {data.address_missing === true && (
+        <AddressNeededBanner request={data.detail_request} onAdd={() => openEditor(true)} />
+      )}
+
       {/* Header: identity + account-owner chip + primary actions */}
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-3">
@@ -116,7 +158,7 @@ export default function ClientDetailPage() {
           <ClientOwnerChip owner={data.account_owner} />
         </div>
         <div className="flex shrink-0 gap-2">
-          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => openEditor(false)}>
             <IconPencil className="size-3.5" /> Edit
           </Button>
           <Button variant="outline" size="sm" onClick={() => setMergeOpen(true)}>
@@ -196,6 +238,7 @@ export default function ClientDetailPage() {
         open={editOpen}
         onOpenChange={setEditOpen}
         client={{ id: data.id, name: data.name, country: data.country }}
+        initialShowContact={editShowContact}
       />
       <ClientDeleteDialog
         open={deleteOpen}

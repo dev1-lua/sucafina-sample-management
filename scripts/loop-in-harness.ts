@@ -1,5 +1,6 @@
 // Keep-in-the-loop harness (feedback #34): drives the REAL agent tools against a LOCAL API and
 // checks every branch a chat-supplied name/email can take. Never prod.
+// Colleagues use @sucafina.com test addresses: a non-Sucafina email is a CLIENT contact by rule (RC7, 2026-09-09).
 // Run: npm run harness:loop-in  (sets API_BASE_URL + API_KEY explicitly — lua-cli env() otherwise
 // fills API_KEY from the repo .env, which points at PROD, and the local API rejects that key).
 import { execSync } from 'node:child_process';
@@ -60,7 +61,7 @@ try {
 
   // 2. Answer "Name, email" → new roster row + client account manager.
   const before = await rosterCount();
-  const mgrEmail = `mgr.loop.${stamp}@example.com`;
+  const mgrEmail = `mgr.loop.${stamp}@sucafina.com`;
   const r2 = await save.execute({ name: `Mgr Loop${stamp}`, email: mgrEmail, client: CLIENT });
   ok('name+email → roster row created', r2.matched_by === 'created' && r2.person.email === mgrEmail, JSON.stringify(r2.person));
   const cl = await api(`/clients/${clientId}`);
@@ -71,7 +72,7 @@ try {
   ok('roster grew by exactly one', (await rosterCount()) === before + 1);
 
   // 3. Email-only answer → name derived from the address.
-  const soloEmail = `loop.harness.${stamp}@example.com`;
+  const soloEmail = `loop.harness.${stamp}@sucafina.com`;
   const r3 = await save.execute({ email: soloEmail, sample_ref: s1.ref });
   ok('email-only → created with a derived name', r3.matched_by === 'created' && r3.person.name === 'Loop Harness', JSON.stringify(r3.person));
   ok('email-only → added to the sample', r3.added_to_sample === s1.ref);
@@ -84,8 +85,8 @@ try {
   ok('re-adding the same person does not duplicate notify_trader_ids', new Set(row4.notify_trader_ids).size === row4.notify_trader_ids.length && row4.notify_trader_ids.length === 1, JSON.stringify(row4.notify_trader_ids));
 
   // 5. Ambiguous first name → refuse and list candidates (not a third row).
-  await api('/traders', { method: 'POST', body: JSON.stringify({ name: `${TOK} Alpha`, email: `${TOK}.a@example.com` }) });
-  await api('/traders', { method: 'POST', body: JSON.stringify({ name: `${TOK} Beta`, email: `${TOK}.b@example.com` }) });
+  await api('/traders', { method: 'POST', body: JSON.stringify({ name: `${TOK} Alpha`, email: `${TOK}.a@sucafina.com` }) });
+  await api('/traders', { method: 'POST', body: JSON.stringify({ name: `${TOK} Beta`, email: `${TOK}.b@sucafina.com` }) });
   const n5 = await rosterCount();
   await expectThrow('ambiguous roster name refused with the candidates listed', () => save.execute({ name: TOK, sample_ref: s1.ref }), new RegExp(`Several people.*${TOK} Alpha.*${TOK} Beta`, 'i'));
   ok('ambiguity created no roster row', (await rosterCount()) === n5);
@@ -106,7 +107,7 @@ try {
   const s9 = await newSample('nine', clientId);
   createdSampleIds.push(s9.id);
   ok('gap fires when the manager has no email, naming them', s9.notify_contact_gap?.account_manager === quiet.name, JSON.stringify(s9.notify_contact_gap));
-  const quietEmail = `quiet.loop.${stamp}@example.com`;
+  const quietEmail = `quiet.loop.${stamp}@sucafina.com`;
   const r9 = await save.execute({ name: quiet.name, email: quietEmail, client: CLIENT });
   const quietNow = ((await api('/traders?all=1')).data as any[]).find((t) => t.id === quiet.id);
   ok('email answer patched onto the existing manager (no rename, no new row)', r9.matched_by === 'name' && quietNow?.email === quietEmail && quietNow?.name === quiet.name, JSON.stringify(quietNow));
@@ -132,7 +133,7 @@ try {
     await api(`/clients/${clientId}`, { method: 'PATCH', body: JSON.stringify({ account_owner_id: null }) }).catch(() => {});
     await api(`/clients/${clientId}`, { method: 'DELETE' }).catch(() => {});
   }
-  const sql = `UPDATE clients SET account_owner_id = NULL WHERE account_owner_id IN (SELECT id FROM traders WHERE name ILIKE '%${stamp}%' OR name = 'Loop Harness' OR email LIKE '%${stamp}@example.com'); DELETE FROM traders WHERE name ILIKE '%${stamp}%' OR name = 'Loop Harness' OR email LIKE '%${stamp}@example.com';`;
+  const sql = `UPDATE clients SET account_owner_id = NULL WHERE account_owner_id IN (SELECT id FROM traders WHERE name ILIKE '%${stamp}%' OR name = 'Loop Harness' OR email LIKE '%${stamp}@sucafina.com'); DELETE FROM traders WHERE name ILIKE '%${stamp}%' OR name = 'Loop Harness' OR email LIKE '%${stamp}@sucafina.com';`;
   try {
     execSync(`docker exec sucafina-postgres psql -U sucafina sucafina -c "${sql.replace(/"/g, '\\"')}"`, { stdio: 'pipe' });
     console.log('🧹 cleaned up harness samples, client and roster rows');

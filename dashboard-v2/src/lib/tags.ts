@@ -27,7 +27,7 @@ const PALETTE = {
 
 type Color = keyof typeof PALETTE;
 
-export type TagKind = 'status' | 'result' | 'sample_type' | 'stock' | 'priority';
+export type TagKind = 'status' | 'result' | 'sample_type' | 'stock' | 'priority' | 'gap';
 
 const STATUS: Record<string, Color> = {
   requested: 'gray',
@@ -68,9 +68,35 @@ const PRIORITY: Record<string, Color> = {
   normal: 'gray',
 };
 
+// Data gaps the Quality desk has to close before a sample can ship (migration 016):
+// today just the missing delivery address, flagged on the sample AND the client.
+const GAP: Record<string, Color> = {
+  address_needed: 'amber',
+};
+// Gap values read as a call to action, not an enum state, so they get a sentence-case
+// label instead of StatusBadge's default lowercase humanization.
+const GAP_LABELS: Record<string, string> = {
+  address_needed: 'Address needed',
+};
+
+const MAPS: Record<TagKind, Record<string, Color>> = {
+  status: STATUS,
+  result: RESULT,
+  sample_type: SAMPLE_TYPE,
+  stock: STOCK,
+  priority: PRIORITY,
+  gap: GAP,
+};
+
 export function tagColor(kind: TagKind, value: string): string {
-  const map = kind === 'status' ? STATUS : kind === 'result' ? RESULT : kind === 'stock' ? STOCK : kind === 'priority' ? PRIORITY : SAMPLE_TYPE;
-  return PALETTE[map[value] ?? 'gray'];
+  return PALETTE[MAPS[kind][value] ?? 'gray'];
+}
+
+/** Display text for a tag value: the humanized snake_case (`results_in` → "results in")
+ * everywhere except the gap kind, whose labels are hand-written sentence case. */
+export function tagLabel(kind: TagKind, value: string): string {
+  if (kind === 'gap' && GAP_LABELS[value]) return GAP_LABELS[value];
+  return value.replace(/_/g, ' ');
 }
 
 /** 'out_of_stock' at zero grams, 'low_stock' when the lab holds less than the row

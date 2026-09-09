@@ -48,6 +48,7 @@ export function ClientDeleteDialog({ open, onOpenChange, clientId, clientName, o
           <DialogTitle>Delete {clientName}?</DialogTitle>
           <DialogDescription>
             This removes the client from active lists. Historical orders and events are kept for audit purposes.
+            The Quality team is notified of deletions.
           </DialogDescription>
         </DialogHeader>
 

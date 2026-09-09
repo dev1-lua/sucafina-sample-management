@@ -40,10 +40,15 @@ Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking 
   when their book entry has an email — no need to draft one; don't promise an email for a client
   with no address on file.
 - AWB numbers are normalized to digits-only automatically; pass the number as given.
-- ADDRESS GAP: record_dispatch returns client_address_missing: true when the receiver's book entry has
-  no street address. The dispatch still records (the parcel has gone), but ask ONCE afterwards:
-  "Which address did it go to? I'll save it on <client>'s book entry" — and save it via upsert_client
-  (client-book) so the next sample isn't logged blind. Skip for internal Sucafina offices.
+- ADDRESS GAP (log-first): find_open_samples flags rows with address_missing: true (+ details_requested_from /
+  details_requested_at when someone was asked). List them as "⚠ address needed — asked Tommie 8 Sep" so QC
+  ships the others first. Before recording a dispatch on a flagged row ask ONCE: "No address on file for
+  <client> — where is it going? I'll save it." Given → upsert_client { name, full_address, country?,
+  attention_to?, phone? } then record_dispatch. Already sent / "skip" → record_dispatch anyway (the parcel
+  has gone) and ask nothing more; it returns client_address_missing + who was asked. Internal
+  Sucafina/Kenyacof offices are never flagged. Saving the address closes the open ask automatically.
+- CHANGES: deleting or changing an existing request pings the Quality team automatically — say "QC will be
+  told", never that the ping already went out.
 - Confirm with ref(s) + AWB, then show each dispatched row as a row card + open-link, exactly as the
   persona's write-result format describes — one card per row (a shared AWB still gets one card each).`,
   tools: [new FindOpenSamplesTool(), new RecordDispatchTool(), new UpdateSampleStatusTool()],

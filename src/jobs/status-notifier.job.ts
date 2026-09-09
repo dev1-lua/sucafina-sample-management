@@ -1,6 +1,7 @@
 import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
 import { ccFor, EMAIL_CHANNEL_READY, loadTraders, sendToPerson, type TraderRow } from '../lib/notify';
+import { changeAlertMessage, isChangeAlert, type OutboxItem } from '../lib/change-alerts';
 
 // Timeline suffix when the QC desk mailbox was CC'd on an event's email (once per event).
 const CC_NOTE = ' · cc Specialty QC mailbox';
@@ -14,28 +15,7 @@ const CC_NOTE = ' · cc Specialty QC mailbox';
 // AFTER a successful send, so a failed send self-retries next run; unresolvable
 // recipients are marked 'skipped' and age out after 5 attempts (API-side cap).
 
-type OutboxItem = {
-  outbox_id: string;
-  tab: 'specialty' | 'bulk' | 'forwarding';
-  sample_id: string;
-  event: 'created' | 'preparing' | 'dispatched' | 'awb_added';
-  recipient: string | null;
-  ref: string | null;
-  title: string | null;
-  receiver: string | null;
-  status: string;
-  courier_norm: string | null;
-  awb: string | null;
-  qty_grams: number | null;
-  priority: string | null;
-  requested_by: string | null;
-  logged_by: string | null;
-  client_name: string | null;
-  /** Who is kept in the loop (migration 014): the client's account manager + per-sample loop-ins. */
-  recipients: { id: string; name: string; email: string | null }[];
-};
-
-const BOOK: Record<OutboxItem['tab'], string> = { specialty: 'Specialty', bulk: 'Commercial', forwarding: 'Forwarding' };
+const BOOK: Record<string, string> = { specialty: 'Specialty', bulk: 'Commercial', forwarding: 'Forwarding', client: 'Client', consignment: 'Consignment' };
 
 function describe(i: OutboxItem): string {
   const bits = [i.title, i.receiver ? `→ ${i.receiver}` : null, i.qty_grams ? `${i.qty_grams}g` : null, BOOK[i.tab]]
@@ -70,9 +50,16 @@ function qcMessage(i: OutboxItem): { text: string; subject: string } {
   const people = [i.logged_by ? `logged by ${i.logged_by}` : null,
                   i.requested_by && i.requested_by !== i.logged_by ? `for ${i.requested_by}` : null]
     .filter(Boolean).join(' ');
+  // Log-first (2026-09-08): the request is logged before the client's address exists — QC must see the
+  // gap on the ping itself, and who was asked to fill it.
+  const gap = !i.client_address_missing ? null
+    : i.details_requested_from
+      ? `⚠ No delivery address on file for ${i.client_name ?? i.receiver ?? 'the client'} — asked ${i.details_requested_from}` +
+        `${i.details_requested_via ? ` (${i.details_requested_via}` : ' ('}${i.details_requested_at ? `${i.details_requested_via ? ', ' : ''}${String(i.details_requested_at).slice(0, 10)}` : ''}) · chased daily`
+      : `⚠ No delivery address on file for ${i.client_name ?? i.receiver ?? 'the client'} — nobody asked yet${i.details_note ? ` (${i.logged_by ?? 'trader'}: "${i.details_note}")` : ''}`;
   return {
-    text: `New sample request${urgent}:\n- ${describe(i)}${people ? `\n- ${people}` : ''}`,
-    subject: `New sample request${urgent ? ' (URGENT)' : ''}: ${i.ref ?? i.title ?? ''}`,
+    text: `New sample request${urgent}:\n- ${describe(i)}${people ? `\n- ${people}` : ''}${gap ? `\n- ${gap}` : ''}`,
+    subject: `New sample request${urgent ? ' (URGENT)' : ''}: ${i.ref ?? i.title ?? ''}${gap ? ' — address pending' : ''}`,
   };
 }
 
@@ -97,7 +84,42 @@ export const statusNotifierJob = new LuaJob({
     let skipped = 0;
     let failed = 0;
 
-    for (const item of items) {
+    // Harriet (round 6): deletions and request edits go to QC as ONE grouped message per run — sent
+    // after the per-sample events below, marked row by row only after the send succeeds.
+    const changes = items.filter(isChangeAlert);
+    const rest = items.filter((i) => !isChangeAlert(i));
+    if (changes.length) {
+      try {
+        if (!qc.length) {
+          for (const c of changes) await mark(c.outbox_id, 'skipped', 'no Quality-team members with an email on file');
+          skipped += changes.length;
+        } else {
+          const { text, subject } = changeAlertMessage(changes);
+          const delivered: Array<{ t: TraderRow; via: 'teams' | 'email' }> = [];
+          let ccSent = false;
+          for (const t of qc) {
+            const via = await sendToPerson({ email: t.email!, text, subject, cc: ccSent ? [] : ccFor(t.email!) });
+            if (via === 'email') ccSent = true;
+            if (via) delivered.push({ t, via });
+          }
+          if (!delivered.length) {
+            failed += changes.length;
+            console.error(`status-notifier: change alert failed for all QC recipients (${changes.length} rows)`);
+          } else {
+            const anyTeams = delivered.some((d) => d.via === 'teams');
+            const detail = delivered.map((d) => `${d.t.name} (${d.via})`).join(', ') + (ccSent ? CC_NOTE : '');
+            for (const c of changes) await mark(c.outbox_id, anyTeams ? 'teams' : 'email', detail);
+            sent += changes.length;
+            console.log(`status-notifier: change alert (${changes.length} rows) → ${detail}`);
+          }
+        }
+      } catch (e) {
+        failed += changes.length;
+        console.error('status-notifier: change alert processing failed', e);
+      }
+    }
+
+    for (const item of rest) {
       try {
         if (item.event === 'created') {
           if (!qc.length) {

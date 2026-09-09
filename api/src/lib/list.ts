@@ -9,6 +9,7 @@ export interface ListConfig {
   defaultOrder?: 'asc' | 'desc';      // default 'desc'
   searchColumns?: readonly string[];  // columns OR-matched by ?q= (ILIKE)
   includeDeleted?: boolean;           // default false → adds `deleted_at IS NULL`
+  extraSelect?: string;               // extra SELECT expressions (trusted SQL from route code), e.g. gapColumns(table)
 }
 
 export interface ListResult {
@@ -56,7 +57,7 @@ export async function buildList(
   const { rows } = await pool.query(
     // created_at DESC breaks ties within the primary sort so the newest-created row surfaces first
     // (e.g. among rows sharing today's date_on); id ASC is the final deterministic fallback.
-    `SELECT *, count(*) OVER ()::int AS full_count FROM ${cfg.table} ${whereSql}
+    `SELECT ${cfg.table}.*, ${cfg.extraSelect ? cfg.extraSelect + ', ' : ''}count(*) OVER ()::int AS full_count FROM ${cfg.table} ${whereSql}
      ORDER BY ${sort} ${order} NULLS LAST, created_at DESC, id ASC
      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
     p,

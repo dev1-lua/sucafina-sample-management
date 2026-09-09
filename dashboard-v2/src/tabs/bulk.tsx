@@ -3,7 +3,14 @@ import { CellValue } from '@/components/CellValue';
 import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
-import { round3Columns, round3DetailFields, round3CreateFields } from './round3-fields';
+import {
+  round3Columns,
+  round3DetailFields,
+  round3CreateFields,
+  addressGapColumn,
+  addressGapDetailField,
+  addressGapFilter,
+} from './round3-fields';
 
 // Lab locations Muki named (feedback ⑦); free text elsewhere, so the select allows custom entry.
 const LOCATIONS = ['westlands', 'thika'];
@@ -54,6 +61,7 @@ export const bulkConfig: TabConfig = {
       render: (r) => <StatusBadge kind="sample_type" value={r.sample_type_norm as string | null} />,
     },
     { key: 'client', header: 'Client', sortKey: 'client' },
+    addressGapColumn,
     { key: 'country', header: 'Country', sortKey: 'country' },
     { key: 'awb', header: 'AWB', sortKey: 'awb' },
     // Display source is `courier_norm` — the only courier field the API ever writes
@@ -103,6 +111,7 @@ export const bulkConfig: TabConfig = {
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
     { key: 'low_stock', label: 'Low Stock', type: 'bool' },
     { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
+    addressGapFilter,
   ],
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
@@ -110,6 +119,7 @@ export const bulkConfig: TabConfig = {
     { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'result', label: 'Result', edit: { field: 'result_norm', type: 'select', options: RESULTS } },
     { key: 'rejection_reason', label: 'Rejection Reason', edit: { field: 'rejection_reason', type: 'text' } },
+    addressGapDetailField,
     { key: 'quality', label: 'Quality', edit: { field: 'quality', type: 'text' } },
     { key: 'blend', label: 'Blend', edit: { field: 'blend', type: 'text' } },
     { key: 'strategy', label: 'Strategy', edit: { field: 'strategy', type: 'text' } },

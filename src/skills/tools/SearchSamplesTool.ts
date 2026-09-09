@@ -50,6 +50,10 @@ export default class SearchSamplesTool implements LuaTool {
         date: s.date_on,
         delivery_date: s.delivery_on,
         result: s.result_norm,
+        // Log-first: the client has no delivery address on file yet (+ who was asked for it, when).
+        address_missing: s.client_address_missing === true,
+        details_requested_from: s.details_requested_from ?? null,
+        details_requested_at: s.details_requested_at ?? null,
       })),
     };
   }

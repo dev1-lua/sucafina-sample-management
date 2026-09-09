@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { IconSearch } from '@tabler/icons-react';
+import { IconSearch, IconUser } from '@tabler/icons-react';
 
 import { cn } from '@/lib/cn';
+import { useActorName } from '@/lib/actor';
+import { useActorPrompt } from '@/components/ActorPrompt';
 import { CommandMenu } from './CommandMenu';
 // Dark mode disabled for now (feedback #4) — theme toggle removed from the header.
 // import { ThemeToggle } from './ThemeToggle';
@@ -24,6 +26,8 @@ export function Header() {
   const [commandOpen, setCommandOpen] = useState(false);
   const active = activeNavItem(location.pathname);
   const ActiveIcon = active.icon;
+  const actorName = useActorName();
+  const { setOpen: setActorPromptOpen } = useActorPrompt();
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-border px-4">
@@ -43,6 +47,17 @@ export function Header() {
           <IconSearch className="size-3.5 shrink-0" />
           <span className="flex-1 text-left">Search…</span>
           <kbd className="rounded-[4px] border border-border bg-muted px-1 py-0.5 font-mono text-2xs leading-none">⌘K</kbd>
+        </button>
+        {/* Who edits/deletes go out as `x-actor: dashboard:<Name>`; the chip reopens the prompt. */}
+        <button
+          type="button"
+          onClick={() => setActorPromptOpen(true)}
+          title={actorName ? 'Change who is using the dashboard' : 'Set your name so the Quality team knows who made a change'}
+          aria-label={actorName ? `Using the dashboard as ${actorName} — change` : 'Set your name'}
+          className="flex h-7 max-w-[12rem] items-center gap-1.5 rounded-[4px] border border-border bg-background px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
+        >
+          <IconUser className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{actorName ?? 'Set your name'}</span>
         </button>
         {/* <ThemeToggle /> — dark mode disabled for now (feedback #4) */}
       </div>

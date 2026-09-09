@@ -1,22 +1,46 @@
 import type { PoolClient } from 'pg';
 
-export type OutboxEvent = 'created' | 'preparing' | 'dispatched' | 'awb_added';
+/**
+ * Every event the outbox may carry (migration 013 + 017). Validated here, not by a DB CHECK.
+ *   created / preparing / dispatched / awb_added — the original sample-status pings (013).
+ *   deleted / request_edited — change alerts to the Quality team (017, Harriet round 6).
+ *   delivered / tracking_exception — courier tracking (round 6, phase 4).
+ *   pss_due_soon / pss_overdue / pss_rejected / pss_schedule_imported — contracts & PSS (phase 5).
+ */
+export const OUTBOX_EVENTS = [
+  'created', 'preparing', 'dispatched', 'awb_added',
+  'deleted', 'request_edited',
+  'delivered', 'tracking_exception',
+  'pss_due_soon', 'pss_overdue', 'pss_rejected', 'pss_schedule_imported',
+] as const;
+export type OutboxEvent = (typeof OUTBOX_EVENTS)[number];
+
+export type OutboxTab = 'specialty' | 'bulk' | 'forwarding' | 'client' | 'consignment' | 'contract' | 'import';
 
 /**
- * Queue a proactive notification (migration 013). Only ever called from a
- * runWithEvent extraWrites callback so the enqueue commits (or rolls back)
- * with the sample write itself. UNIQUE(tab, sample_id, event) makes repeat
- * transitions no-ops — a sample is never announced twice for the same event.
+ * Queue a proactive notification. Only ever called from a runWithEvent extraWrites callback (or an
+ * explicit transaction) so the enqueue commits — or rolls back — with the write itself.
+ * UNIQUE (tab, sample_id, event, dedupe_key) makes repeats no-ops: with the default '' key an entity
+ * is never announced twice for the same event; callers that want one row per occurrence pass a key.
  */
 export async function enqueueOutbox(
   client: PoolClient,
-  o: { tab: 'specialty' | 'bulk' | 'forwarding'; sampleId: string; event: OutboxEvent; recipient: string | null },
+  o: {
+    tab: OutboxTab;
+    sampleId: string;
+    event: OutboxEvent;
+    recipient: string | null;
+    dedupeKey?: string;
+    payload?: Record<string, unknown> | null;
+    actor?: string | null;
+  },
 ): Promise<void> {
+  if (!OUTBOX_EVENTS.includes(o.event)) throw new Error(`unknown outbox event: ${o.event}`);
   await client.query(
-    `INSERT INTO notifications_outbox (tab, sample_id, event, recipient)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (tab, sample_id, event) DO NOTHING`,
-    [o.tab, o.sampleId, o.event, o.recipient],
+    `INSERT INTO notifications_outbox (tab, sample_id, event, recipient, dedupe_key, payload, actor)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (tab, sample_id, event, dedupe_key) DO NOTHING`,
+    [o.tab, o.sampleId, o.event, o.recipient, o.dedupeKey ?? '', o.payload ? JSON.stringify(o.payload) : null, o.actor ?? null],
   );
 }
 

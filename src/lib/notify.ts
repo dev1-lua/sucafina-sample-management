@@ -1,5 +1,9 @@
 import { Channels, User } from 'lua-cli';
 import { apiFetch } from './api';
+import { currentUser } from './current-user';
+import { isInternalEmail, nameFromEmail } from './names';
+
+export { isInternalEmail, nameFromEmail, INTERNAL_EMAIL_DOMAINS } from './names';
 
 // People directory + person-level delivery for the proactive notifications
 // (feedback #29/#30). The traders table is the roster: role 'qc' = the Quality
@@ -53,14 +57,79 @@ export function matchTraderByEmail(email: string | null | undefined, traders: Tr
 }
 
 /**
- * Display name from an email when that's all the desk gave us:
- * "thomas.mueller@sucafina.com" → "Thomas Mueller", "tmueller@…" → "Tmueller".
+ * Resolve a chat-supplied person to ONE roster row, creating it when needed (one inbox = one person):
+ *   1. email already on the roster → that row (whatever name the desk used in chat);
+ *   2. unique name match → that row (email patched onto it when given);
+ *   3. several name matches → throw a model-facing "which one?" listing them;
+ *   4. nobody → a NEW row needs an email (name defaults from the email; never collides with an
+ *      existing roster name, since traders.name is UNIQUE and POST /traders upserts on it).
+ * A CLIENT's email is refused here — it belongs on the client record, not the internal roster (RC7).
  */
-export function nameFromEmail(email: string): string {
-  const local = email.trim().split('@')[0] ?? '';
-  const parts = local.split(/[._\-+]+/).filter((p) => p && !/^\d+$/.test(p));
-  const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
-  return parts.length ? parts.map(cap).join(' ') : local || email.trim();
+export async function resolveOrCreatePerson(o: {
+  name?: string | null;
+  email?: string | null;
+}): Promise<{ person: TraderRow; matchedBy: 'email' | 'name' | 'created' }> {
+  const nameIn = o.name?.trim() || null;
+  const email = o.email?.trim().toLowerCase() || null;
+  if (!nameIn && !email) throw new Error('Say WHO: pass their name and/or email.');
+  if (email && !isInternalEmail(email)) {
+    throw new Error(
+      `${email} is not a Sucafina address — that is a client contact, not a colleague. Save it on the client (upsert_client { name, email }); status updates and detail asks need a Sucafina colleague.`,
+    );
+  }
+  const traders = await loadTraders();
+  const byEmail = matchTraderByEmail(email, traders);
+  if (byEmail) return { person: byEmail, matchedBy: 'email' };
+  const candidates = nameIn ? matchTraderCandidates(nameIn, traders) : [];
+  if (candidates.length > 1) {
+    throw new Error(
+      `Several people on the roster match "${nameIn}": ${candidates.map((c) => c.name).join(', ')}. ` +
+        'Ask which one, then retry with that exact roster name (or their email). If it is a NEW person, give their full name and email.',
+    );
+  }
+  if (candidates.length === 1) {
+    let person = candidates[0]!;
+    if (email && (person.email ?? '').toLowerCase() !== email) {
+      person = (await apiFetch(`/traders/${person.id}`, { method: 'PATCH', body: JSON.stringify({ email }) })) as TraderRow;
+      console.log(`roster: "${person.name}" email updated to <${email}>`);
+    }
+    return { person, matchedBy: 'name' };
+  }
+  if (!email) {
+    throw new Error(`"${nameIn}" is not on the roster yet — ask for their work email once, then call again with name + email.`);
+  }
+  let newName = nameIn ?? nameFromEmail(email);
+  if (traders.some((t) => t.name.trim().toLowerCase() === newName.toLowerCase())) newName = `${newName} (${email})`;
+  const person = (await apiFetch('/traders', {
+    method: 'POST',
+    body: JSON.stringify({ name: newName, email, role: 'trader', active: true }),
+  })) as TraderRow;
+  console.log(`roster: created "${person.name}" <${person.email}> role=${person.role}`);
+  return { person, matchedBy: 'created' };
+}
+
+const touched = new Set<string>();
+
+/**
+ * Roster self-heal: the real traders (Ivo, Muki, Omar…) sit on the roster WITHOUT an email, so they
+ * can never be pinged — which is exactly what makes the loop-in question fire so often. Whenever a
+ * colleague chats, patch their email onto the one roster row that shares their name. Once per user
+ * per process; never throws.
+ */
+export async function touchRoster(): Promise<void> {
+  try {
+    const me = await currentUser();
+    if (!me.email || !isInternalEmail(me.email) || touched.has(me.email)) return;
+    touched.add(me.email);
+    const traders = await loadTraders();
+    if (matchTraderByEmail(me.email, traders)) return;
+    const cands = matchTraderCandidates(me.name, traders).filter((t) => !t.email);
+    if (cands.length !== 1) return;
+    await apiFetch(`/traders/${cands[0]!.id}`, { method: 'PATCH', body: JSON.stringify({ email: me.email }) });
+    console.log(`roster: self-heal — "${cands[0]!.name}" now has email <${me.email}> (from the chatting user)`);
+  } catch (e) {
+    console.warn('roster: self-heal skipped', (e as Error)?.message ?? e);
+  }
 }
 
 /**

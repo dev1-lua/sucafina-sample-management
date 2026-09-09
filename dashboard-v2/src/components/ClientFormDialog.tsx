@@ -1,6 +1,6 @@
 import * as React from 'react';
 
-import { useCreateRecord, usePatchRecord } from '@/lib/query';
+import { useAddClientContact, useCreateRecord, usePatchRecord } from '@/lib/query';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,6 +20,8 @@ export type ClientFormDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** Required for `mode="edit"` — seeds the form. Ignored for `mode="create"`. */
   client?: { id: string; name: string; country?: string | null } | null;
+  /** Open with the contact block already expanded (e.g. from an "Add address" call to action). */
+  initialShowContact?: boolean;
   onSaved?: (record: Record<string, unknown>) => void;
 };
 
@@ -27,12 +29,21 @@ type ContactDraft = { attention_to: string; full_address: string; phone: string;
 
 const EMPTY_CONTACT: ContactDraft = { attention_to: '', full_address: '', phone: '', email: '' };
 
+function contactBody(contact: ContactDraft) {
+  return {
+    attention_to: contact.attention_to.trim() || null,
+    full_address: contact.full_address.trim() || null,
+    phone: contact.phone.trim() || null,
+    email: contact.email.trim() || null,
+  };
+}
+
 /** Create/edit dialog for a client. Account-owner assignment intentionally lives outside
- * this form (a dedicated always-visible control on ClientDetailPage) — this dialog only
- * covers the fields that make sense in a one-shot "create" flow (name, country, an
- * optional primary contact) plus the "edit" subset the PATCH schema supports (name,
- * country). */
-export function ClientFormDialog({ mode, open, onOpenChange, client, onSaved }: ClientFormDialogProps) {
+ * this form (a dedicated always-visible control on ClientDetailPage). Create covers name,
+ * country and an optional primary contact in one POST; edit PATCHes name/country and,
+ * when any contact field is filled, adds that contact via POST /clients/:id/contacts —
+ * the only way to put a delivery address on an existing client from the dashboard. */
+export function ClientFormDialog({ mode, open, onOpenChange, client, initialShowContact = false, onSaved }: ClientFormDialogProps) {
   const isEdit = mode === 'edit';
   const [name, setName] = React.useState('');
   const [country, setCountry] = React.useState('');
@@ -42,7 +53,8 @@ export function ClientFormDialog({ mode, open, onOpenChange, client, onSaved }: 
 
   const { mutate: createClient, isPending: isCreating } = useCreateRecord('/clients');
   const { mutate: patchClient, isPending: isPatching } = usePatchRecord('/clients');
-  const isPending = isCreating || isPatching;
+  const { mutate: addContact, isPending: isAddingContact } = useAddClientContact(client?.id ?? '');
+  const isPending = isCreating || isPatching || isAddingContact;
 
   // Reset the draft every time the dialog opens: blank for create, seeded from `client` for edit.
   React.useEffect(() => {
@@ -50,9 +62,9 @@ export function ClientFormDialog({ mode, open, onOpenChange, client, onSaved }: 
     setName(isEdit ? client?.name ?? '' : '');
     setCountry(isEdit ? client?.country ?? '' : '');
     setContact(EMPTY_CONTACT);
-    setShowContact(false);
+    setShowContact(initialShowContact);
     setError(null);
-  }, [open, isEdit, client]);
+  }, [open, isEdit, client, initialShowContact]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -63,14 +75,26 @@ export function ClientFormDialog({ mode, open, onOpenChange, client, onSaved }: 
     }
     setError(null);
 
+    const hasContact = showContact && Object.values(contact).some((v) => v.trim().length > 0);
+
     if (isEdit) {
       if (!client) return;
       patchClient(
         { id: client.id, body: { name: trimmedName, country: country.trim() || null } },
         {
           onSuccess: (row) => {
-            onSaved?.(row);
-            onOpenChange(false);
+            if (!hasContact) {
+              onSaved?.(row);
+              onOpenChange(false);
+              return;
+            }
+            addContact(contactBody(contact), {
+              onSuccess: () => {
+                onSaved?.(row);
+                onOpenChange(false);
+              },
+              onError: () => setError('Name and country were saved, but the contact could not be added. Please try again.'),
+            });
           },
           onError: () => setError('Failed to save changes. Please try again.'),
         },
@@ -78,19 +102,11 @@ export function ClientFormDialog({ mode, open, onOpenChange, client, onSaved }: 
       return;
     }
 
-    const hasContact = Object.values(contact).some((v) => v.trim().length > 0);
     createClient(
       {
         name: trimmedName,
         country: country.trim() || null,
-        contact: hasContact
-          ? {
-              attention_to: contact.attention_to.trim() || null,
-              full_address: contact.full_address.trim() || null,
-              phone: contact.phone.trim() || null,
-              email: contact.email.trim() || null,
-            }
-          : null,
+        contact: hasContact ? contactBody(contact) : null,
       },
       {
         onSuccess: (row) => {
@@ -108,7 +124,9 @@ export function ClientFormDialog({ mode, open, onOpenChange, client, onSaved }: 
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit client' : 'New client'}</DialogTitle>
           <DialogDescription>
-            {isEdit ? "Update this client's name and country." : 'Add a new client to the roster.'}
+            {isEdit
+              ? "Update this client's name and country, or add a contact with a delivery address."
+              : 'Add a new client to the roster.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -119,7 +137,7 @@ export function ClientFormDialog({ mode, open, onOpenChange, client, onSaved }: 
             </label>
             <Input
               id="client-name"
-              autoFocus
+              autoFocus={!initialShowContact}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Acme Coffee Co."
@@ -141,45 +159,49 @@ export function ClientFormDialog({ mode, open, onOpenChange, client, onSaved }: 
             />
           </div>
 
-          {!isEdit && (
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => setShowContact((v) => !v)}
-                className="self-start text-xs font-medium text-primary hover:underline"
-              >
-                {showContact ? 'Remove primary contact' : '+ Add a primary contact'}
-              </button>
-              {showContact && (
-                <div className="flex flex-col gap-2 rounded-[4px] border border-border p-3">
-                  <Input
-                    aria-label="Attention to"
-                    placeholder="Attention to"
-                    value={contact.attention_to}
-                    onChange={(e) => setContact((c) => ({ ...c, attention_to: e.target.value }))}
-                  />
-                  <Input
-                    aria-label="Address"
-                    placeholder="Address"
-                    value={contact.full_address}
-                    onChange={(e) => setContact((c) => ({ ...c, full_address: e.target.value }))}
-                  />
-                  <Input
-                    aria-label="Phone"
-                    placeholder="Phone"
-                    value={contact.phone}
-                    onChange={(e) => setContact((c) => ({ ...c, phone: e.target.value }))}
-                  />
-                  <Input
-                    aria-label="Email"
-                    placeholder="Email"
-                    value={contact.email}
-                    onChange={(e) => setContact((c) => ({ ...c, email: e.target.value }))}
-                  />
-                </div>
-              )}
-            </div>
-          )}
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setShowContact((v) => !v)}
+              className="self-start text-xs font-medium text-primary hover:underline"
+            >
+              {showContact
+                ? isEdit ? 'Remove new contact' : 'Remove primary contact'
+                : isEdit ? '+ Add a contact or delivery address' : '+ Add a primary contact'}
+            </button>
+            {showContact && (
+              <div className="flex flex-col gap-2 rounded-[4px] border border-border p-3">
+                <Input
+                  aria-label="Attention to"
+                  placeholder="Attention to"
+                  value={contact.attention_to}
+                  onChange={(e) => setContact((c) => ({ ...c, attention_to: e.target.value }))}
+                />
+                <Input
+                  aria-label="Delivery address"
+                  placeholder="Delivery address"
+                  autoFocus={isEdit && initialShowContact}
+                  value={contact.full_address}
+                  onChange={(e) => setContact((c) => ({ ...c, full_address: e.target.value }))}
+                />
+                <Input
+                  aria-label="Phone"
+                  placeholder="Phone"
+                  value={contact.phone}
+                  onChange={(e) => setContact((c) => ({ ...c, phone: e.target.value }))}
+                />
+                <Input
+                  aria-label="Email"
+                  placeholder="Email"
+                  value={contact.email}
+                  onChange={(e) => setContact((c) => ({ ...c, email: e.target.value }))}
+                />
+                {isEdit && (
+                  <p className="text-xs text-muted-foreground">Saved as a new contact on this client.</p>
+                )}
+              </div>
+            )}
+          </div>
 
           {error && <p className="text-xs text-destructive">{error}</p>}
 

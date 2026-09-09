@@ -29,7 +29,7 @@ export default class GetClientTool implements LuaTool {
       id = res.data[0].id;
     }
 
-    const c = await apiFetch(`/clients/${encodeURIComponent(id)}`);
+    const c = await apiFetch(`/clients/${encodeURIComponent(String(id))}`);
     const orders = Array.isArray(c.orders) ? c.orders : [];
     return {
       found: true,
