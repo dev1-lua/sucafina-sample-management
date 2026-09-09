@@ -2,6 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { pool } from '../src/db.js';
 import { resetDb, reapplyMigrationsFrom } from './helpers.js';
 import { issueRef } from '../src/lib/refs.js';
+import {
+  containerState, contractStatusFrom, containerStates,
+  type PssRow, type ContainerState, type ContractStatus,
+} from '../src/lib/contracts.js';
 
 // Phase 5 — Contracts + pre-shipment samples (Harriet, round 6: "PSS must be sent 45 days before
 // shipment; nest samples per contract into number of PSS and containers; client can reject one out of X").
@@ -85,5 +89,64 @@ describe('migration 020 — contracts + PSS schema', () => {
     expect(ref!).toBe(`SSKE-${before.rows[0].next_val}`);
     const after = await pool.query(`SELECT next_val FROM ref_counters WHERE prefix = 'SSKE'`);
     expect(after.rows[0].next_val).toBe(before.rows[0].next_val);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// The status machine, as pure functions: one container's live PSS rows → a container state, the
+// containers' states → the contract's status. No DB, so every branch is cheap to pin down.
+// ---------------------------------------------------------------------------------------------------
+
+const pss = (o: Partial<PssRow> = {}): PssRow => ({
+  tab: 'bulk', id: 'x', ref: null, container_no: 1, status: 'requested',
+  result_norm: null, replaces_sample_id: null, awb: null, dispatched_on: null, result_on: null, ...o,
+});
+
+describe('containerState', () => {
+  const cases: [string, PssRow[], ContainerState][] = [
+    ['no PSS drawn yet', [], 'none'],
+    ['drawn, no verdict', [pss()], 'pending'],
+    ['dispatched, feedback still owed', [pss({ status: 'dispatched', result_norm: 'pending_feedback' })], 'pending'],
+    ['approved', [pss({ result_norm: 'approved' })], 'approved'],
+    ['approved after a rejection', [pss({ result_norm: 'rejected' }), pss({ id: 'r', result_norm: 'approved' })], 'approved'],
+    ['one rejection — a replacement is owed', [pss({ result_norm: 'rejected' })], 'replacement_pending'],
+    ['rejection plus its pending replacement', [pss({ result_norm: 'rejected' }), pss({ id: 'r', replaces_sample_id: 'x' })], 'replacement_pending'],
+    ['the client rejected twice — the container has failed', [pss({ result_norm: 'rejected' }), pss({ id: 'r', result_norm: 'rejected' })], 'failed'],
+  ];
+  it.each(cases)('%s', (_name, rows, expected) => {
+    expect(containerState(rows)).toBe(expected);
+  });
+});
+
+describe('contractStatusFrom', () => {
+  const cases: [string, ContainerState[], ContractStatus, ContractStatus][] = [
+    ['nothing drawn yet', ['none', 'none'], 'open', 'open'],
+    ['all drawn, no verdicts', ['pending', 'pending'], 'open', 'pss_pending'],
+    ['one drawn, one still missing', ['pending', 'none'], 'open', 'pss_pending'],
+    ['one approved, one waiting', ['approved', 'pending'], 'pss_pending', 'pss_partial'],
+    ['a replacement is owed', ['replacement_pending', 'pending'], 'pss_pending', 'pss_partial'],
+    ['every container approved', ['approved', 'approved'], 'pss_partial', 'pss_approved'],
+    ['a failed container beats everything else', ['approved', 'failed'], 'pss_partial', 'pss_rejected'],
+    ['shipped is sticky', ['approved', 'pending'], 'shipped', 'shipped'],
+    ['cancelled is sticky', ['failed', 'failed'], 'cancelled', 'cancelled'],
+  ];
+  it.each(cases)('%s', (_name, states, current, expected) => {
+    expect(contractStatusFrom(states, current)).toBe(expected);
+  });
+});
+
+describe('containerStates', () => {
+  it('buckets rows into containers 1..pss_expected and leaves unassigned rows out', () => {
+    const rows = [
+      pss({ id: 'a', container_no: 1, result_norm: 'approved' }),
+      pss({ id: 'b', container_no: 2, result_norm: 'rejected' }),
+      pss({ id: 'c', container_no: null }),
+    ];
+    const states = containerStates(rows, 3);
+    expect(states.map((s) => s.container_no)).toEqual([1, 2, 3]);
+    expect(states.map((s) => s.state)).toEqual(['approved', 'replacement_pending', 'none']);
+    expect(states[0].samples.map((s) => s.id)).toEqual(['a']);
+    expect(states[2].samples).toEqual([]);
+    expect(states.flatMap((s) => s.samples).map((s) => s.id)).not.toContain('c');
   });
 });
