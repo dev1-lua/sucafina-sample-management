@@ -26,6 +26,15 @@ The bot no longer holds a sample request hostage over a missing client address. 
 
 Every sample dated before 1 August 2026 is hidden from the three books and the old sheet, so the tables show only current work. Nothing is deleted — every hidden row stays in the database and can be brought straight back with one command if anyone ever needs it. This only runs after a backup is taken and the counts are reviewed and approved.
 
+## 3c. Courier tracking
+
+Built and ready — waiting on Sucafina's DHL/FedEx developer keys (§8) to go live. Once they're in, an
+AWB on the record is looked up automatically every two hours in lab hours: a delivery fills in the
+delivery date and closes the loop with whoever is following the sample, and a customs hold, address
+problem, refusal or damage pings the Quality team and the client's account manager with the last scan
+and location. Ask the bot "where is it" any time — it always answers from what the courier reported
+(or, until the keys land, the log), and says so rather than guessing.
+
 ## 4. Say who you are on the dashboard
 
 The dashboard asks for your name the first time you open it (pick yourself from the Team list or type it). It goes on every edit and deletion so the alerts above can say *who*. Change it any time from the chip in the top bar. In chat nothing changes — the bot already knows who is typing.
@@ -41,7 +50,6 @@ Printed labels now carry the Sucafina wordmark, the sample type, and — for Spe
 ## 7. Still to come (next deploys)
 
 - **Pre-shipment samples:** the 45-day rule — PSS due dates computed from the shipment date, reminders at 14/7/0 days, an upload of the SOL PSS report that creates one PSS per container and nests them per contract ("2 of 3 approved"; one rejection tolerated, the replacement is drawn automatically). Needs one real SOL export from Harriet to finalise the column mapping.
-- **Courier tracking:** DHL and FedEx looked up automatically once an AWB is on the record — delivered dates filled in, customs holds and address problems pinged to you and the account manager. Needs Sucafina's DHL/FedEx developer keys.
 
 ## 8. Things we still need from you
 
