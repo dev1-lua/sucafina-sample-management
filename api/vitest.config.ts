@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 process.env.DATABASE_URL ??= 'postgres://sucafina:sucafina@localhost:5433/sucafina_test';
 process.env.API_KEY ??= 'dev-key-sucafina';
+process.env.TRACKING_STUB_FALLBACK ??= 'true';
 
 export default defineConfig({
   test: {

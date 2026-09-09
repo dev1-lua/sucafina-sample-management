@@ -10,26 +10,26 @@ const auth = (r: request.Test) => r.set('x-api-key', API_KEY);
 describe('tracking stub', () => {
   const stub = new StubTrackingProvider();
 
-  it('is deterministic for the same awb', () => {
+  it('is deterministic for the same awb', async () => {
     const d = new Date('2026-07-01T00:00:00Z');
     const now = new Date('2026-07-02T00:00:00Z');
-    const a = stub.track('9620551651', d, now);
-    const b = stub.track('9620551651', d, now);
+    const a = await stub.track('9620551651', d, now);
+    const b = await stub.track('9620551651', d, now);
     expect(a).toEqual(b);
   });
 
-  it('delivers after the transit window', () => {
+  it('delivers after the transit window', async () => {
     const d = new Date('2026-06-01T00:00:00Z');
     const now = new Date('2026-07-01T00:00:00Z'); // 30 days later, max transit is 6
-    const info = stub.track('1042774655', d, now);
+    const info = await stub.track('1042774655', d, now);
     expect(info.status).toBe('delivered');
     expect(info.delivered_at).toBeTruthy();
   });
 
-  it('is in transit right after dispatch with an eta', () => {
+  it('is in transit right after dispatch with an eta', async () => {
     const d = new Date('2026-07-01T00:00:00Z');
     const now = new Date('2026-07-01T12:00:00Z');
-    const info = stub.track('4720858811', d, now);
+    const info = await stub.track('4720858811', d, now);
     expect(info.status).toBe('in_transit');
     expect(info.eta).toBeTruthy();
   });
@@ -39,7 +39,8 @@ describe('endpoints', () => {
   it('GET /tracking/:awb works for unknown awb too', async () => {
     const res = await auth(request(app).get('/tracking/whatever123'));
     expect(res.status).toBe(200);
-    expect(['in_transit', 'delivered']).toContain(res.body.status);
+    expect(['in_transit', 'delivered', 'unknown']).toContain(res.body.status);
+    expect(res.body.rows).toEqual([]);
   });
 
   it('GET /stats returns tile payload', async () => {

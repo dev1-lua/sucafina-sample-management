@@ -50,6 +50,6 @@ describe('chaser over all_samples_v', () => {
     await auth(request(app).patch(`/bulk-samples/${s.body.id}`)).send({ status: 'dispatched', courier_norm: 'dhl', awb: 'TRK999' });
     const res = await auth(request(app).get('/tracking/TRK999'));
     expect(res.status).toBe(200);
-    expect(['in_transit', 'delivered']).toContain(res.body.status);
+    expect(['in_transit', 'delivered', 'unknown']).toContain(res.body.status);
   });
 });

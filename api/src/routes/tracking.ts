@@ -6,6 +6,7 @@ import { StubTrackingProvider } from '../lib/tracking.js';
 export const tracking = Router();
 const provider = new StubTrackingProvider();
 
+// Interim: await the provider and add rows: []. Fully rebuilt in Task 4.4.
 tracking.get('/:awb', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT date_on FROM all_samples_v
@@ -14,5 +15,6 @@ tracking.get('/:awb', h(async (req, res) => {
     [req.params.awb],
   );
   const dispatchedAt = rows[0]?.date_on ? new Date(rows[0].date_on) : null;
-  res.json(provider.track(req.params.awb, dispatchedAt));
+  const info = await provider.track(req.params.awb, dispatchedAt);
+  res.json({ ...info, rows: [] });
 }));

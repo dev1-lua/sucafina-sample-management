@@ -34,6 +34,13 @@ services:
       DATABASE_URL: postgres://sucafina:${DB_PASSWORD}@sucafina-postgres-prod:5432/sucafina
       API_KEY: ${API_KEY:?set API_KEY in .env.prod}
       PORT: 4000
+      NODE_ENV: production
+      DHL_API_KEY: ${DHL_API_KEY:-}
+      FEDEX_CLIENT_ID: ${FEDEX_CLIENT_ID:-}
+      FEDEX_CLIENT_SECRET: ${FEDEX_CLIENT_SECRET:-}
+      FEDEX_API_BASE: ${FEDEX_API_BASE:-https://apis-sandbox.fedex.com}
+      TRACKING_DHL_DAILY_CAP: ${TRACKING_DHL_DAILY_CAP:-200}
+      TRACKING_STUB_FALLBACK: ${TRACKING_STUB_FALLBACK:-false}
     networks:
       - sucafina-internal   # private link to Postgres
       - lua-edge            # so the existing edge Caddy can reverse_proxy to us
