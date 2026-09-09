@@ -70,7 +70,8 @@ export const dhlDailyCounter: { take(now?: Date): boolean; reset(): void } = (()
   const utcDay = (d: Date): string => d.toISOString().slice(0, 10);
   return {
     take(now: Date = new Date()): boolean {
-      const cap = Number(process.env.TRACKING_DHL_DAILY_CAP ?? '200');
+      const capRaw = Number(process.env.TRACKING_DHL_DAILY_CAP ?? '200');
+      const cap = Number.isFinite(capRaw) ? capRaw : 200;
       const today = utcDay(now);
       if (today !== day) {
         day = today;

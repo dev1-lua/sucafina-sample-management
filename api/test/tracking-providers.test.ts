@@ -23,9 +23,24 @@ describe('DhlProvider', () => {
     const info = await new DhlProvider({ apiKey: 'k' }).track('9620551651', null, now);
     expect(info).toMatchObject({ status: 'exception', exception_reason: 'customs_hold', location: 'NAIROBI - KENYA' });
   });
+  it('classifies a hold signal that only lives in events[0].description', async () => {
+    // status.description is neutral ("Shipment update") — only the first event carries the hold text.
+    vi.stubGlobal('fetch', vi.fn(() => json(fx('dhl-hold-in-event'))));
+    const info = await new DhlProvider({ apiKey: 'k' }).track('9620551651', null, now);
+    expect(info).toMatchObject({ status: 'exception', exception_reason: 'customs_hold' });
+  });
+  it('does not flip a completed-clearance transit shipment to exception', async () => {
+    // "Clearance processing complete" contains the word "clearance" but is not a hold —
+    // the /complete|cleared|released/i guard must keep this in_transit.
+    vi.stubGlobal('fetch', vi.fn(() => json(fx('dhl-transit-cleared'))));
+    const info = await new DhlProvider({ apiKey: 'k' }).track('9620551651', null, now);
+    expect(info).toMatchObject({ status: 'in_transit', exception_reason: null });
+  });
   it('404 → unknown, 429 → TrackingUnavailableError, cap → daily_cap', async () => {
     vi.stubGlobal('fetch', vi.fn(() => json({ detail: 'not found' }, 404)));
-    expect((await new DhlProvider({ apiKey: 'k' }).track('1', null, now)).status).toBe('unknown');
+    const unknown = await new DhlProvider({ apiKey: 'k' }).track('1', null, now);
+    expect(unknown.status).toBe('unknown');
+    expect(unknown.checked_at).toBe(now.toISOString());
     vi.stubGlobal('fetch', vi.fn(() => json({}, 429)));
     await expect(new DhlProvider({ apiKey: 'k' }).track('1', null, now)).rejects.toBeInstanceOf(TrackingUnavailableError);
     process.env.TRACKING_DHL_DAILY_CAP = '0';
@@ -89,6 +104,7 @@ describe('FedexProvider', () => {
     vi.stubGlobal('fetch', fetchMock);
     const info = await new FedexProvider({ clientId: 'id', clientSecret: 'secret' }).track('000000000000', null, now);
     expect(info.status).toBe('unknown');
+    expect(info.checked_at).toBe(now.toISOString());
   });
 
   it('refreshes the token once on a 401 from track', async () => {

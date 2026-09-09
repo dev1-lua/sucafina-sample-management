@@ -66,7 +66,12 @@ export class StubTrackingProvider implements TrackingProvider {
   }
 }
 
-export const unknownInfo = (awb: string, courier: TrackingInfo['courier'], note: string): TrackingInfo => ({
+export const unknownInfo = (
+  awb: string,
+  courier: TrackingInfo['courier'],
+  note: string,
+  now: Date = new Date(),
+): TrackingInfo => ({
   awb, courier, status: 'unknown', exception_reason: null, last_event: null, last_event_at: null,
-  location: null, eta: null, delivered_at: null, note, source: 'none', checked_at: new Date().toISOString(),
+  location: null, eta: null, delivered_at: null, note, source: 'none', checked_at: now.toISOString(),
 });

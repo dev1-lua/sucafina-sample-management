@@ -5,6 +5,7 @@ import {
   type TrackingInfo,
   type TrackingProvider,
 } from '../tracking.js';
+import { reasonFromText } from './reasons.js';
 
 type FedexError = { code?: string; message?: string };
 type FedexDateTime = { type?: string; dateTime?: string };
@@ -52,15 +53,6 @@ const CODE_REASON: Partial<Record<string, ExceptionReason>> = {
   CD: 'customs_hold',
   RS: 'returned',
 };
-
-function reasonFromText(text: string): ExceptionReason | null {
-  if (/customs|clearance/i.test(text)) return 'customs_hold';
-  if (/address/i.test(text)) return 'address_problem';
-  if (/return/i.test(text)) return 'returned';
-  if (/refus/i.test(text)) return 'refused';
-  if (/damag/i.test(text)) return 'damaged';
-  return null;
-}
 
 // Module-level: one FedEx OAuth token is shared across every FedexProvider instance/call,
 // refreshed lazily `expires_in − 60s` before it would actually expire.
@@ -170,7 +162,7 @@ export class FedexProvider implements TrackingProvider {
     const result = body.output?.completeTrackResults?.[0]?.trackResults?.[0];
     const checked_at = now.toISOString();
     if (!result || (result.error?.code && /NOTFOUND/.test(result.error.code))) {
-      return unknownInfo(awb, 'fedex', 'FedEx has no record of this AWB yet');
+      return unknownInfo(awb, 'fedex', 'FedEx has no record of this AWB yet', now);
     }
 
     const code = result.latestStatusDetail?.code ?? '';

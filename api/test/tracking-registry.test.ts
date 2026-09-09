@@ -1,8 +1,20 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { providerFor, guessCourier, setProviderForTests, dhlDailyCounter, notConfiguredNote } from '../src/lib/tracking/registry.js';
 import { StubTrackingProvider } from '../src/lib/tracking.js';
 
 beforeEach(() => { setProviderForTests('all', undefined); dhlDailyCounter.reset(); delete process.env.DHL_API_KEY; delete process.env.FEDEX_CLIENT_ID; delete process.env.FEDEX_CLIENT_SECRET; process.env.TRACKING_STUB_FALLBACK = 'true'; process.env.NODE_ENV = 'test'; });
+
+// vitest runs single-threaded (fileParallelism:false) with a shared process.env — anything a test
+// sets here must be cleared, or it leaks into whichever test file runs next (e.g. a future
+// tracking-sweep test that relies on the default 200 cap).
+afterEach(() => {
+  delete process.env.TRACKING_DHL_DAILY_CAP;
+  delete process.env.DHL_API_KEY;
+  delete process.env.FEDEX_CLIENT_ID;
+  delete process.env.FEDEX_CLIENT_SECRET;
+  process.env.TRACKING_STUB_FALLBACK = 'true';
+  process.env.NODE_ENV = 'test';
+});
 
 describe('registry', () => {
   it('guesses the courier from the AWB shape', () => {
@@ -26,6 +38,21 @@ describe('registry', () => {
     process.env.TRACKING_DHL_DAILY_CAP = '2';
     expect(dhlDailyCounter.take()).toBe(true); expect(dhlDailyCounter.take()).toBe(true); expect(dhlDailyCounter.take()).toBe(false);
     expect(dhlDailyCounter.take(new Date(Date.now() + 86_400_000))).toBe(true); // new UTC day resets
+  });
+  it('does not leave TRACKING_DHL_DAILY_CAP (or the other env this file sets) leaked for later tests', () => {
+    // This test must run after the one above sets TRACKING_DHL_DAILY_CAP='2' — the afterEach is
+    // what's actually under test here: beforeEach doesn't touch TRACKING_DHL_DAILY_CAP at all.
+    expect(process.env.TRACKING_DHL_DAILY_CAP).toBeUndefined();
+    expect(process.env.DHL_API_KEY).toBeUndefined();
+    expect(process.env.FEDEX_CLIENT_ID).toBeUndefined();
+    expect(process.env.FEDEX_CLIENT_SECRET).toBeUndefined();
+    expect(process.env.TRACKING_STUB_FALLBACK).toBe('true');
+    expect(process.env.NODE_ENV).toBe('test');
+  });
+  it('falls back to the default cap (200) when TRACKING_DHL_DAILY_CAP is not a valid number', () => {
+    process.env.TRACKING_DHL_DAILY_CAP = 'not-a-number';
+    for (let i = 0; i < 200; i++) expect(dhlDailyCounter.take()).toBe(true);
+    expect(dhlDailyCounter.take()).toBe(false);
   });
 });
 
