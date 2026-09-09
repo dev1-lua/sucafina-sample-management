@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
+import { HttpError } from '../errors.js';
 import { issueRef } from './refs.js';
 import { enqueueOutbox } from './notify-outbox.js';
 
@@ -71,6 +72,29 @@ export async function firstFreeContainer(db: Q, contractId: string, pssExpected:
     if (!rows.some((r) => r.container_no === n)) return n;
   }
   return null;
+}
+
+/**
+ * Resolve the contract a freshly logged sample belongs to from its contract NUMBER — the only handle the
+ * agent and the SOL sheet have. Shared by both sample routers' POST. Non-PSS rows, unknown numbers and
+ * deleted contracts all resolve to "unlinked"; an explicit container_no always wins over the free one.
+ */
+export async function resolveContractLink(
+  db: Q,
+  o: { contract_number?: string | null; sample_type_norm?: string | null; container_no?: number | null },
+): Promise<{ contract_id: string | null; container_no: number | null }> {
+  const containerNo = o.container_no ?? null;
+  if (!o.contract_number || o.sample_type_norm !== 'pss') return { contract_id: null, container_no: containerNo };
+  const { rows } = await db.query(
+    `SELECT id, pss_expected FROM contracts
+      WHERE upper(trim(contract_number)) = upper(trim($1)) AND deleted_at IS NULL`,
+    [o.contract_number],
+  );
+  if (!rows[0]) return { contract_id: null, container_no: containerNo };
+  return {
+    contract_id: String(rows[0].id),
+    container_no: containerNo ?? (await firstFreeContainer(db, String(rows[0].id), rows[0].pss_expected)),
+  };
 }
 
 /** Every live PSS row on a contract, from both books, oldest first within a container. */
@@ -150,11 +174,12 @@ export async function drawPss(
   const { rows: cRows } = await client.query(
     `SELECT c.*, cl.name AS resolved_client_name
        FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id
-      WHERE c.id = $1`,
+      WHERE c.id = $1 AND c.deleted_at IS NULL`,
     [o.contractId],
   );
   const contract = cRows[0];
-  if (!contract) throw new Error(`contract ${o.contractId} not found`);
+  // A deleted contract owes nothing: never draw against it, and never ping QC about one.
+  if (!contract) throw new HttpError(404, 'contract not found');
 
   // Rides the caller's transaction: a rolled-back draw never burns an SSKE number.
   const sampleRef = await issueRef('pss', client);
@@ -214,10 +239,16 @@ export async function maybeDrawReplacement(
   let drawn: { id: string; sample_ref: string } | null = null;
 
   if (flippedToRejected && row.sample_type_norm === 'pss' && containerNo != null) {
+    // A soft-deleted contract is out of the game: no replacement, no QC ping (the recompute below no-ops).
+    const { rows: live } = await client.query(
+      `SELECT 1 FROM contracts WHERE id = $1 AND deleted_at IS NULL`, [contractId],
+    );
     const container = (await loadContractPss(client, contractId)).filter((r) => r.container_no === containerNo);
     const rejections = container.filter((r) => r.result_norm === 'rejected').length;
     const approved = container.some((r) => r.result_norm === 'approved');
-    if (rejections === 1 && !approved) {
+    // A rejected → approved → rejected flip-flop must not draw a second replacement for the same row.
+    const alreadyReplaced = container.some((r) => r.replaces_sample_id === String(row.id));
+    if (live.length > 0 && rejections === 1 && !approved && !alreadyReplaced) {
       const reason = (row.rejection_reason as string | null) ?? 'no reason given';
       const ref = String((tab === 'bulk' ? row.sample_ref : row.ref) ?? '');
       drawn = await drawPss(client, {

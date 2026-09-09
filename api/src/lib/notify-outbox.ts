@@ -22,6 +22,8 @@ export type OutboxTab = 'specialty' | 'bulk' | 'forwarding' | 'client' | 'consig
  * explicit transaction) so the enqueue commits — or rolls back — with the write itself.
  * UNIQUE (tab, sample_id, event, dedupe_key) makes repeats no-ops: with the default '' key an entity
  * is never announced twice for the same event; callers that want one row per occurrence pass a key.
+ * Returns TRUE when a row was actually queued and FALSE when the dedupe swallowed it — the PSS sweep
+ * reports how many people it woke, not how many contracts it looked at. Most callers ignore it.
  */
 export async function enqueueOutbox(
   client: PoolClient,
@@ -34,14 +36,15 @@ export async function enqueueOutbox(
     payload?: Record<string, unknown> | null;
     actor?: string | null;
   },
-): Promise<void> {
+): Promise<boolean> {
   if (!OUTBOX_EVENTS.includes(o.event)) throw new Error(`unknown outbox event: ${o.event}`);
-  await client.query(
+  const { rowCount } = await client.query(
     `INSERT INTO notifications_outbox (tab, sample_id, event, recipient, dedupe_key, payload, actor)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (tab, sample_id, event, dedupe_key) DO NOTHING`,
     [o.tab, o.sampleId, o.event, o.recipient, o.dedupeKey ?? '', o.payload ? JSON.stringify(o.payload) : null, o.actor ?? null],
   );
+  return (rowCount ?? 0) > 0;
 }
 
 /**

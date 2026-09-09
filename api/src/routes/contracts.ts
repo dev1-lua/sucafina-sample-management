@@ -26,23 +26,30 @@ const SETTLED = `('pss_approved','shipped','cancelled')`;
 
 /**
  * Per-container roll-up for one contract row, as JSON: expected / approved / rejected / pending.
- * A container counts as rejected once the client has turned it down twice (the replacement failed too).
+ * Must agree with containerStates()/containerState() in lib/contracts.ts, so it obeys the same two rules:
+ *   • only containers 1..pss_expected count — a PSS with no container_no (every container taken when it
+ *     was logged) or one past the expected count is shown separately, never in these numbers;
+ *   • every container lands in exactly ONE bucket — approved wins (an approval ends the container even
+ *     after rejections), then failed (rejected twice, never approved), and the rest are still pending.
  * `alias` is the contracts alias in the enclosing query — the subquery correlates on it.
  */
 const pssCounts = (alias: string) => `(
     SELECT json_build_object(
              'expected', ${alias}.pss_expected,
              'approved', count(*) FILTER (WHERE s.approved),
-             'rejected', count(*) FILTER (WHERE s.rejections >= 2),
-             'pending',  ${alias}.pss_expected - count(*) FILTER (WHERE s.approved) - count(*) FILTER (WHERE s.rejections >= 2))
+             'rejected', count(*) FILTER (WHERE s.rejections >= 2 AND NOT s.approved),
+             'pending',  ${alias}.pss_expected
+                         - count(*) FILTER (WHERE s.approved)
+                         - count(*) FILTER (WHERE s.rejections >= 2 AND NOT s.approved))
       FROM (SELECT u.container_no,
-                   bool_or(u.result_norm = 'approved') AS approved,
+                   COALESCE(bool_or(u.result_norm = 'approved'), false) AS approved,
                    count(*) FILTER (WHERE u.result_norm = 'rejected') AS rejections
               FROM (SELECT container_no, result_norm FROM bulk_samples
                      WHERE contract_id = ${alias}.id AND sample_type_norm = 'pss' AND deleted_at IS NULL AND status <> 'cancelled'
                     UNION ALL
                     SELECT container_no, result_norm FROM specialty_samples
                      WHERE contract_id = ${alias}.id AND sample_type_norm = 'pss' AND deleted_at IS NULL AND status <> 'cancelled') u
+             WHERE u.container_no BETWEEN 1 AND ${alias}.pss_expected
              GROUP BY u.container_no) s) AS pss_counts`;
 
 type PssCounts = { expected: number; approved: number; rejected: number; pending: number };
@@ -55,8 +62,10 @@ const createSchema = z.object({
   destination: z.string().nullish(),
   shipment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').nullish(),
   shipment_month: z.string().nullish(),
-  containers: z.number().int().min(1).default(1),
-  pss_expected: z.number().int().min(1).nullish(),
+  // Capped: create_pss draws one PSS per container inside a single transaction, so an absurd count
+  // would hold that transaction (and a block of SSKE refs) open. No real contract is near 50.
+  containers: z.number().int().min(1).max(50).default(1),
+  pss_expected: z.number().int().min(1).max(50).nullish(),
   notes: z.string().nullish(),
   // Draw the whole set of PSS requests up front (the dashboard's "create + draw" path).
   create_pss: z.boolean().nullish(),
@@ -70,8 +79,8 @@ const patchSchema = z.object({
   destination: z.string().nullish(),
   shipment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD').nullish(),
   shipment_month: z.string().nullish(),
-  containers: z.number().int().min(1).nullish(),
-  pss_expected: z.number().int().min(1).nullish(),
+  containers: z.number().int().min(1).max(50).nullish(),
+  pss_expected: z.number().int().min(1).max(50).nullish(),
   notes: z.string().nullish(),
   // Only the states a human owns: the PSS ones are derived. 'open' hands the contract back to the machine.
   status: z.enum(['shipped', 'cancelled', 'open']).nullish(),
@@ -153,18 +162,20 @@ contracts.post('/pss-sweep', h(async (req, res) => {
         shipment_date: r.shipment_date, pss_due_date: r.pss_due_date,
         days_left: daysLeft, missing_pss: missing, approved: counts.approved, expected: counts.expected,
       };
+      // The counts are rows actually QUEUED, not contracts looked at: a second pass the same day
+      // dedupes into nothing and must report {0, 0} so the job can say "nothing new to send".
       if (daysLeft === 14 || daysLeft === 7 || daysLeft === 0) {
-        await enqueueOutbox(client, {
+        const queued = await enqueueOutbox(client, {
           tab: 'contract', sampleId: String(r.id), event: 'pss_due_soon', recipient: 'qc',
           dedupeKey: `D${daysLeft}`, payload, actor,
         });
-        dueSoon++;
+        if (queued) dueSoon++;
       } else if (daysLeft < 0) {
-        await enqueueOutbox(client, {
+        const queued = await enqueueOutbox(client, {
           tab: 'contract', sampleId: String(r.id), event: 'pss_overdue', recipient: 'qc',
           dedupeKey: String(r.week_key), payload: { ...payload, overdue_days: -daysLeft }, actor,
         });
-        overdue++;
+        if (queued) overdue++;
       }
     }
     await client.query('COMMIT');
@@ -246,6 +257,16 @@ contracts.patch('/:id', h(async (req, res) => {
   const prev = cur.rows[0];
   if (!prev) throw new HttpError(404, 'contract not found');
   if (Object.keys(body).length === 0) return res.json(prev);
+  // Renaming onto a number another live contract already holds is a conflict, not a crash
+  // (the partial unique index is still the backstop — errorHandler maps 23505 to 409 too).
+  if (body.contract_number) {
+    const dup = await pool.query(
+      `SELECT id FROM contracts
+        WHERE upper(trim(contract_number)) = upper(trim($1)) AND deleted_at IS NULL AND id <> $2`,
+      [body.contract_number, id],
+    );
+    if (dup.rows[0]) throw new HttpError(409, `contract ${body.contract_number.trim()} already exists`);
+  }
   const statusChange = body.status != null && body.status !== prev.status;
   const out: { status: ContractStatus | null } = { status: null };
   const row = await runWithEvent<Record<string, unknown>>(
@@ -294,31 +315,36 @@ contracts.delete('/:id', h(async (req, res) => {
   res.json({ ok: true, id });
 }));
 
-/** Dashboard "Draw PSS": raise the request for one container. */
+/**
+ * Dashboard "Draw PSS": raise the request for one container. The contract is locked FOR UPDATE before
+ * the container is inspected, so two people drawing the same container cannot both pass the guard.
+ */
 contracts.post('/:id/draw-pss', h(async (req, res) => {
   const id = parseId(req.params.id);
   const { container_no } = parseBody(drawSchema, req.body);
   const actor = actorFrom(req);
-  const cur = await pool.query(`SELECT id FROM contracts WHERE id = $1 AND deleted_at IS NULL`, [id]);
-  if (!cur.rows[0]) throw new HttpError(404, 'contract not found');
-  // Only a container with nothing live — or whose samples were all rejected — may be drawn.
-  const live = (await loadContractPss(pool, id)).filter((r) => r.container_no === container_no);
-  if (live.some((r) => r.result_norm !== 'rejected')) {
-    throw new HttpError(409, `container ${container_no} already has a live PSS`);
-  }
   const client = await pool.connect();
+  let drawn: { id: string; sample_ref: string };
   try {
     await client.query('BEGIN');
-    const drawn = await drawPss(client, { contractId: id, containerNo: container_no, actor });
+    const cur = await client.query(`SELECT id FROM contracts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [id]);
+    if (!cur.rows[0]) throw new HttpError(404, 'contract not found');
+    // Only a container with nothing live — or whose samples were all rejected — may be drawn.
+    const live = (await loadContractPss(client, id)).filter((r) => r.container_no === container_no);
+    if (live.some((r) => r.result_norm !== 'rejected')) {
+      throw new HttpError(409, `container ${container_no} already has a live PSS`);
+    }
+    drawn = await drawPss(client, { contractId: id, containerNo: container_no, actor });
     await recomputeContractStatus(client, id, actor);
     await client.query('COMMIT');
-    client.release();
-    res.status(201).json({ ...drawn, contract_id: id, container_no });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
-    client.release(e as Error);
+    // A refused request is not a broken connection: only a real fault destroys it.
+    client.release(e instanceof HttpError ? undefined : (e as Error));
     throw e;
   }
+  client.release();
+  res.status(201).json({ ...drawn, contract_id: id, container_no });
 }));
 
 /** Attach a sample that already exists (logged before anyone knew its contract) to a container. */
@@ -326,24 +352,25 @@ contracts.post('/:id/link', h(async (req, res) => {
   const id = parseId(req.params.id);
   const body = parseBody(linkSchema, req.body);
   const actor = actorFrom(req);
-  const cur = await pool.query(`SELECT * FROM contracts WHERE id = $1 AND deleted_at IS NULL`, [id]);
-  const contract = cur.rows[0];
-  if (!contract) throw new HttpError(404, 'contract not found');
   const table = body.tab === 'bulk' ? 'bulk_samples' : 'specialty_samples';
   const refColumn = body.tab === 'bulk' ? 'sample_ref' : 'ref';
-  const found = await pool.query(`SELECT id FROM ${table} WHERE id = $1 AND deleted_at IS NULL`, [body.sample_id]);
-  if (!found.rows[0]) throw new HttpError(404, `${body.tab} sample not found`);
 
   const client = await pool.connect();
+  let containerNo: number | null;
   try {
     await client.query('BEGIN');
-    const containerNo = body.container_no ?? await firstFreeContainer(client, id, contract.pss_expected);
+    // Locked first: the free-container lookup below must not race another link or draw.
+    const cur = await client.query(`SELECT * FROM contracts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [id]);
+    const contract = cur.rows[0];
+    if (!contract) throw new HttpError(404, 'contract not found');
+    containerNo = body.container_no ?? await firstFreeContainer(client, id, contract.pss_expected);
     const { rows } = await client.query(
       `UPDATE ${table} SET contract_id = $2, contract_number = $3, container_no = $4, updated_at = now()
         WHERE id = $1 AND deleted_at IS NULL RETURNING id, ${refColumn} AS ref`,
       [body.sample_id, id, contract.contract_number, containerNo],
     );
     const sample = rows[0];
+    if (!sample) throw new HttpError(404, `${body.tab} sample not found`);
     const where = containerNo ? ` container ${containerNo}` : ' (no free container)';
     await client.query(
       `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ($1, $2, 'edited', $3, $4)`,
@@ -355,11 +382,11 @@ contracts.post('/:id/link', h(async (req, res) => {
     );
     await recomputeContractStatus(client, id, actor);
     await client.query('COMMIT');
-    client.release();
-    res.json({ ok: true, tab: body.tab, id: body.sample_id, container_no: containerNo });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
-    client.release(e as Error);
+    client.release(e instanceof HttpError ? undefined : (e as Error));
     throw e;
   }
+  client.release();
+  res.json({ ok: true, tab: body.tab, id: body.sample_id, container_no: containerNo });
 }));

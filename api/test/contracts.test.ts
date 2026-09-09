@@ -3,6 +3,7 @@ import request from 'supertest';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
 import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
+import { errorHandler } from '../src/errors.js';
 import { issueRef } from '../src/lib/refs.js';
 import {
   containerState, contractStatusFrom, containerStates,
@@ -297,7 +298,9 @@ describe('/contracts', () => {
     const first = await auth(request(app).post('/contracts/pss-sweep')).send({});
     expect(first.status).toBe(200);
     expect(first.body).toEqual({ due_soon: 1, overdue: 1 });
-    await auth(request(app).post('/contracts/pss-sweep')).send({});   // a second pass must not repeat itself
+    // A second pass the same day dedupes into nothing, and says so: the counts are rows QUEUED.
+    const again = await auth(request(app).post('/contracts/pss-sweep')).send({});
+    expect(again.body).toEqual({ due_soon: 0, overdue: 0 });
 
     const dueSoon = (await outboxFor(soon.id)).filter((r) => r.event === 'pss_due_soon');
     expect(dueSoon).toHaveLength(1);
@@ -414,5 +417,96 @@ describe('/contracts', () => {
     const item = pending.body.items.find((i: Row) => i.outbox_id === deleted[0].id);
     expect(item.ref).toBe('CT-2026-07');
     expect((await auth(request(app).post('/notifications/outbox-mark')).send({ id: item.outbox_id, via: 'email' })).status).toBe(200);
+  });
+
+  it('10. pss_counts ignores unassigned rows and puts every container in exactly one bucket', async () => {
+    const c = await mkContract({ contract_number: 'CT-2026-10', containers: 2, create_pss: true });
+    const first = (await pssRows(c.id))[0];                       // container 1
+    await verdict(first.id, 'rejected', 'bad');
+    const replacement = (await pssRows(c.id)).find((r) => r.replaces_sample_id === first.id)!;
+    await verdict(replacement.id, 'rejected', 'worse');           // container 1 has now failed
+    expect((await getContract(c.id)).pss_counts).toEqual({ expected: 2, approved: 0, rejected: 1, pending: 1 });
+
+    // A third draw on the failed container, approved: an approval ends the container, so it must be
+    // counted ONCE, as approved — never in both the approved and the rejected bucket.
+    const third = await auth(request(app).post(`/contracts/${c.id}/draw-pss`)).send({ container_no: 1 });
+    expect(third.status).toBe(201);
+    await verdict(third.body.id, 'approved');
+
+    // A PSS pinned to the contract but to no container must not move the headline numbers at all.
+    const loose = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB FAQ', client: 'Container Roasters', sample_type: 'pss', contract_id: c.id });
+    expect(loose.body.container_no).toBeNull();
+    await verdict(loose.body.id, 'approved');
+
+    const d = await getContract(c.id);
+    expect(d.pss_counts).toEqual({ expected: 2, approved: 1, rejected: 0, pending: 1 });
+    expect(d.unassigned.map((r: Row) => r.id)).toEqual([loose.body.id]);
+    // …and the counts agree with the container states they summarise (the whole point of the fix).
+    expect(d.containers.map((x: Row) => x.state)).toEqual(['approved', 'pending']);
+    expect(d.pss_counts.approved).toBe(d.containers.filter((x: Row) => x.state === 'approved').length);
+    expect(d.pss_counts.rejected).toBe(d.containers.filter((x: Row) => x.state === 'failed').length);
+    expect(d.pss_counts.pending).toBeGreaterThanOrEqual(0);
+    expect(d.status).toBe('pss_partial');
+    // The list roll-up runs the same SQL and must say the same thing.
+    const list = await auth(request(app).get('/contracts?q=CT-2026-10'));
+    expect(list.body.data[0].pss_counts).toEqual({ expected: 2, approved: 1, rejected: 0, pending: 1 });
+  });
+
+  it('11. a rejected → approved → rejected flip-flop draws only one replacement', async () => {
+    const c = await mkContract({ contract_number: 'CT-2026-11', containers: 1, create_pss: true });
+    const row = (await pssRows(c.id))[0];
+    expect((await verdict(row.id, 'rejected', 'moldy')).body.replacement_ref).toMatch(/^SSKE-/);
+    await verdict(row.id, 'approved');
+    const again = await verdict(row.id, 'rejected', 'moldy again');
+    expect(again.body.replacement_ref).toBeNull();
+    expect((await pssRows(c.id)).filter((r) => r.replaces_sample_id === row.id)).toHaveLength(1);
+  });
+
+  it('12. a rejection on a deleted contract draws nothing and pings nobody', async () => {
+    const c = await mkContract({ contract_number: 'CT-2026-12', containers: 1, create_pss: true });
+    const row = (await pssRows(c.id))[0];
+    expect((await auth(request(app).delete(`/contracts/${c.id}`))).status).toBe(200);
+    const before = (await pssRows(c.id)).length;
+
+    const res = await verdict(row.id, 'rejected', 'moldy');
+    expect(res.status).toBe(200);
+    expect(res.body.replacement_ref).toBeNull();
+    expect(await pssRows(c.id)).toHaveLength(before);
+    // No replacement ⇒ no replacement ping (a plain first draw carries no payload).
+    const { rows } = await pool.query(
+      `SELECT o.* FROM notifications_outbox o JOIN bulk_samples b ON b.id = o.sample_id
+        WHERE b.contract_id = $1 AND o.event = 'created' AND o.payload IS NOT NULL`, [c.id]);
+    expect(rows).toEqual([]);
+    // The route refuses to draw against it too.
+    expect((await auth(request(app).post(`/contracts/${c.id}/draw-pss`)).send({ container_no: 1 })).status).toBe(404);
+  });
+
+  it('13. renaming onto a live number is a 409, and the container count is capped', async () => {
+    const a = await mkContract({ contract_number: 'CT-2026-13A' });
+    await mkContract({ contract_number: 'CT-2026-13B' });
+    const clash = await auth(request(app).patch(`/contracts/${a.id}`)).send({ contract_number: ' ct-2026-13b ' });
+    expect(clash.status).toBe(409);
+    // A free number still renames, and a no-op rename onto its own number is fine.
+    expect((await auth(request(app).patch(`/contracts/${a.id}`)).send({ contract_number: 'CT-2026-13C' })).status).toBe(200);
+    expect((await auth(request(app).patch(`/contracts/${a.id}`)).send({ contract_number: 'CT-2026-13C' })).status).toBe(200);
+    expect((await auth(request(app).post('/contracts')).send({ contract_number: 'CT-2026-13D', containers: 51 })).status).toBe(400);
+    expect((await auth(request(app).patch(`/contracts/${a.id}`)).send({ pss_expected: 99 })).status).toBe(400);
+  });
+});
+
+// A unique index that fires past a route's own pre-check (a concurrent insert) must read as a conflict,
+// not as a broken server — the contract number index is the one this batch can actually hit.
+describe('errorHandler', () => {
+  it('maps a Postgres unique violation to 409', () => {
+    const seen: { status: number | null; body: unknown } = { status: null, body: null };
+    const res = {
+      status(code: number) { seen.status = code; return this; },
+      json(body: unknown) { seen.body = body; return this; },
+    };
+    errorHandler({ code: '23505', constraint: 'contracts_number_live_idx' },
+      {} as never, res as never, (() => {}) as never);
+    expect(seen.status).toBe(409);
+    expect(seen.body).toEqual({ error: 'already exists', constraint: 'contracts_number_live_idx' });
   });
 });

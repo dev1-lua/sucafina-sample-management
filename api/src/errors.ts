@@ -17,6 +17,12 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details ?? null });
   }
+  // A unique index caught what a route's own pre-check could not (a concurrent insert, or a partial
+  // index nobody checked). That is a conflict, not a server fault — 23505 = unique_violation.
+  const pg = err as { code?: string; constraint?: string };
+  if (pg && pg.code === '23505') {
+    return res.status(409).json({ error: 'already exists', constraint: pg.constraint ?? null });
+  }
   console.error(err);
   return res.status(500).json({ error: 'internal error' });
 }

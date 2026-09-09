@@ -10,7 +10,7 @@ import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
 import { gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
-import { firstFreeContainer, maybeDrawReplacement, recomputeContractStatus } from '../lib/contracts.js';
+import { maybeDrawReplacement, recomputeContractStatus, resolveContractLink } from '../lib/contracts.js';
 
 export const bulkSamples = Router();
 
@@ -200,15 +200,12 @@ bulkSamples.post('/', h(async (req, res) => {
   // first container still without one, so nobody has to know contract ids. Non-PSS rows are left alone.
   let contractId = body.contract_id ?? null;
   let containerNo = body.container_no ?? null;
-  if (!contractId && body.contract_number && body.sample_type === 'pss') {
-    const { rows } = await pool.query(
-      `SELECT id, pss_expected FROM contracts WHERE upper(trim(contract_number)) = upper(trim($1)) AND deleted_at IS NULL`,
-      [body.contract_number],
-    );
-    if (rows[0]) {
-      contractId = rows[0].id;
-      if (containerNo == null) containerNo = await firstFreeContainer(pool, rows[0].id, rows[0].pss_expected);
-    }
+  if (!contractId) {
+    const link = await resolveContractLink(pool, {
+      contract_number: body.contract_number, sample_type_norm: body.sample_type, container_no: containerNo,
+    });
+    contractId = link.contract_id;
+    containerNo = link.container_no;
   }
   const row = await runWithEvent(
     // date + date_on default to today in Nairobi time when no explicit date is given; $21 overrides.
