@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
 import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
-import { purgeBefore, restorePurge, PURGE_ACTOR } from '../src/lib/purge-before.js';
+import { purgeBefore, restorePurge, PURGE_ACTOR, requiredFlagValue, restoreNeedsAttention } from '../src/lib/purge-before.js';
 
 beforeAll(resetDb);
 const auth = (r: request.Test) => r.set('x-api-key', API_KEY).set('x-actor', 'test');
@@ -32,8 +32,35 @@ describe('migration 018 (legacy samples soft delete)', () => {
   });
 });
 
+describe('requiredFlagValue (review round 1, #3 — strict CLI flag parsing)', () => {
+  it('returns undefined when the flag is absent', () => {
+    expect(requiredFlagValue(['--apply'], '--before')).toBeUndefined();
+  });
+  it('returns the token that follows the flag', () => {
+    expect(requiredFlagValue(['--before', '2026-08-01'], '--before')).toBe('2026-08-01');
+  });
+  it('rejects a flag with nothing after it', () => {
+    expect(() => requiredFlagValue(['--restore'], '--restore')).toThrow(/--restore requires a value/);
+  });
+  it('rejects a flag whose "value" is actually another flag (e.g. --apply --backup-ack --i-mean-it)', () => {
+    expect(() => requiredFlagValue(['--apply', '--backup-ack', '--i-mean-it'], '--backup-ack')).toThrow(/--backup-ack requires a value/);
+  });
+});
+
+describe('restoreNeedsAttention (review round 1, #3 — cheap post-restore guard)', () => {
+  it('flags a restore that brought samples back but reopened no consignment', () => {
+    expect(restoreNeedsAttention({ specialty_samples: 1, bulk_samples: 0, forwarding_samples: 0, samples: 0 }, 0)).toBe(true);
+  });
+  it('does not flag a no-op restore (nothing restored)', () => {
+    expect(restoreNeedsAttention({ specialty_samples: 0, bulk_samples: 0, forwarding_samples: 0, samples: 0 }, 0)).toBe(false);
+  });
+  it('does not flag a restore that did reopen a consignment', () => {
+    expect(restoreNeedsAttention({ specialty_samples: 1, bulk_samples: 0, forwarding_samples: 0, samples: 0 }, 1)).toBe(false);
+  });
+});
+
 describe('purge-before script', () => {
-  let oldSpec: string, newSpec: string, oldBulk: string, oldFwd: string, oldLegacy: string, cn: string;
+  let oldSpec: string, newSpec: string, oldBulk: string, oldFwd: string, oldLegacy: string, cn: string, cn2: string;
   beforeAll(async () => {
     await resetDb();
     const trader = (await auth(request(app).post('/traders')).send({ name: 'Harriet', email: 'h@sucafina.com', role: 'qc' })).body.id;
@@ -48,6 +75,10 @@ describe('purge-before script', () => {
     oldLegacy = (await pool.query(`INSERT INTO samples (ref, quality, requested_at) VALUES ('LEG-2','AA', '2026-05-01') RETURNING id`)).rows[0].id;
     cn = (await auth(request(app).post('/consignments')).send({ location: 'Westlands' })).body.id;
     await auth(request(app).post(`/consignments/${cn}/samples`)).send({ tab: 'specialty', ids: [oldSpec] }); // membersSchema { tab, ids }
+    // A second consignment, already 'dispatched' (not the default 'open'), whose only member also goes
+    // stale — review round 1, #1: closing this must not forget it was 'dispatched' before the purge.
+    cn2 = (await auth(request(app).post('/consignments')).send({ location: 'Thika', status: 'dispatched' })).body.id;
+    await auth(request(app).post(`/consignments/${cn2}/samples`)).send({ tab: 'forwarding', ids: [oldFwd] });
     // a pending outbox row for an old sample (POST already queued a 'created' row; this makes the assertion explicit)
     await pool.query(`INSERT INTO notifications_outbox (tab, sample_id, event, dedupe_key) VALUES ('bulk', $1, 'preparing', '') ON CONFLICT DO NOTHING`, [oldBulk]);
   });
@@ -65,7 +96,7 @@ describe('purge-before script', () => {
     expect(r.tables.find((t) => t.table === 'samples')).toMatchObject({ would_hide: 1 });
     const expectedOutbox = (await pool.query(`SELECT count(*)::int AS n FROM notifications_outbox WHERE sent_at IS NULL AND sample_id = ANY($1::uuid[])`, [[oldSpec, oldBulk, oldFwd]])).rows[0].n;
     expect(r.outbox_pending_affected).toBe(expectedOutbox); // the 'created' rows queued by the seeding POSTs + the explicit one
-    expect(r.consignments_to_close.map((c) => c.id)).toEqual([cn]);
+    expect(r.consignments_to_close.map((c) => c.id)).toEqual([cn, cn2]);
     const live = await pool.query(`SELECT count(*)::int AS n FROM specialty_samples WHERE deleted_at IS NULL`);
     expect(live.rows[0].n).toBe(2);
   });
@@ -94,19 +125,52 @@ describe('purge-before script', () => {
     const newOb = await pool.query(`SELECT sent_at FROM notifications_outbox WHERE sample_id=$1`, [newSpec]);
     expect(newOb.rows[0].sent_at).toBeNull(); // pending rows for live samples untouched
     expect((await pool.query(`SELECT status FROM consignments WHERE id=$1`, [cn])).rows[0].status).toBe('closed');
+    expect((await pool.query(`SELECT status FROM consignments WHERE id=$1`, [cn2])).rows[0].status).toBe('closed');
+    // review round 1, #1: the close note records what the consignment was before, per consignment
+    const cnNote = await pool.query(`SELECT note FROM events WHERE entity_type='consignment' AND entity_id=$1 AND type='edited' AND note LIKE 'closed by purge%'`, [cn]);
+    expect(cnNote.rows[0].note).toMatch(/\(was open\)/);
+    const cn2Note = await pool.query(`SELECT note FROM events WHERE entity_type='consignment' AND entity_id=$1 AND type='edited' AND note LIKE 'closed by purge%'`, [cn2]);
+    expect(cn2Note.rows[0].note).toMatch(/\(was dispatched\)/);
     expect((await pool.query(`SELECT prefix, next_val FROM ref_counters ORDER BY prefix`)).rows).toEqual(before);
     expect(r.ref_counters_after).toEqual(before);
     // second apply is a no-op
     const again = await purgeBefore(pool, { before: '2026-08-01', apply: true, backupAck: 'x' });
     expect(again.hidden).toEqual({ specialty_samples: 0, bulk_samples: 0, forwarding_samples: 0, samples: 0 });
+    expect(again.consignments_to_close).toEqual([]); // both already closed
   });
 
-  it('restore brings exactly that purge back and reopens the consignment', async () => {
+  it('restore brings exactly that purge back, reopens both consignments and puts each back to its PRIOR status', async () => {
     const { rows } = await pool.query(`SELECT deleted_at::text AS ts FROM bulk_samples WHERE id=$1`, [oldBulk]);
     const r = await restorePurge(pool, { purgeTs: rows[0].ts });
     expect(r.restored).toEqual({ specialty_samples: 1, bulk_samples: 1, forwarding_samples: 1, samples: 1 });
-    expect(r.consignments_reopened).toBe(1);
+    expect(r.consignments_reopened).toBe(2);
     expect((await auth(request(app).get('/specialty-samples'))).body.data).toHaveLength(2);
     expect((await pool.query(`SELECT count(*)::int AS n FROM events WHERE type='restored' AND actor=$1`, [PURGE_ACTOR])).rows[0].n).toBe(3);
+    // review round 1, #1: cn was 'open' before the purge, cn2 was 'dispatched' — restore must not force 'open' on both
+    expect((await pool.query(`SELECT status FROM consignments WHERE id=$1`, [cn])).rows[0].status).toBe('open');
+    expect((await pool.query(`SELECT status FROM consignments WHERE id=$1`, [cn2])).rows[0].status).toBe('dispatched');
+  });
+
+  it('drives the hide/close set and the report from an in-transaction snapshot, not the pre-BEGIN preview (review round 1, #2)', async () => {
+    // A brand new consignment, not yet attached to anything when this call starts — attached from inside
+    // the injected connect(), landing in the gap between the pre-BEGIN preview and the transaction start.
+    // A fix-#2 regression would size the close set off the stale pre-BEGIN preview and miss it entirely.
+    const racer = (await auth(request(app).post('/clients')).send({ name: 'RaceCo', country: 'Kenya' })).body.id;
+    const raceSpec = (await auth(request(app).post('/specialty-samples')).send({ description: 'AA', receiver_company: 'RaceCo', qty: '300g', client_id: racer, date: '2026-07-01' })).body.id;
+    const raceCn = (await auth(request(app).post('/consignments')).send({ location: 'Race' })).body.id;
+    let attached = false;
+    const racyDb = {
+      query: pool.query.bind(pool),
+      connect: async () => {
+        if (!attached) {
+          attached = true;
+          await auth(request(app).post(`/consignments/${raceCn}/samples`)).send({ tab: 'specialty', ids: [raceSpec] });
+        }
+        return pool.connect();
+      },
+    };
+    const r = await purgeBefore(racyDb as unknown as typeof pool, { before: '2026-08-01', apply: true, backupAck: 'x' });
+    expect(r.consignments_to_close.map((c) => c.id)).toContain(raceCn);
+    expect((await pool.query(`SELECT status FROM consignments WHERE id=$1`, [raceCn])).rows[0].status).toBe('closed');
   });
 });

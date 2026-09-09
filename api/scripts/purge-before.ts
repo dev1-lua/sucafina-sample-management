@@ -4,17 +4,29 @@
 // Restore:  npx tsx scripts/purge-before.ts --restore "2026-09-14 16:02:11.123456+00"
 // Any other --before needs --i-mean-it. Runs against DATABASE_URL (on the VPS: docker compose … exec -T api npx tsx scripts/purge-before.ts …).
 import { pool } from '../src/db.js';
-import { purgeBefore, restorePurge, DEFAULT_BEFORE } from '../src/lib/purge-before.js';
+import { purgeBefore, restorePurge, DEFAULT_BEFORE, requiredFlagValue, restoreNeedsAttention } from '../src/lib/purge-before.js';
 
 const argv = process.argv.slice(2);
-const val = (flag: string) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : undefined; };
-const restore = val('--restore');
+// Review round 1, #3: a flag present with no value, or whose "value" is another flag (e.g.
+// `--apply --backup-ack --i-mean-it`), is a usage error — never a silent fallback/default.
+let restore: string | undefined, before: string | undefined, backupAck: string | undefined;
+try {
+  restore = requiredFlagValue(argv, '--restore');
+  before = requiredFlagValue(argv, '--before');
+  backupAck = requiredFlagValue(argv, '--backup-ack');
+} catch (e) {
+  console.error(`error: ${(e as Error).message}`);
+  process.exit(1);
+}
 if (restore) {
   const r = await restorePurge(pool, { purgeTs: restore });
   console.log(`RESTORED purge ${restore}:`); for (const [t, n] of Object.entries(r.restored)) console.log(`  ${t.padEnd(20)} ${n}`);
   console.log(`  consignments reopened: ${r.consignments_reopened}`);
+  if (restoreNeedsAttention(r.restored, r.consignments_reopened)) {
+    console.warn(`  WARNING: samples were restored but no consignment was reopened — worth a manual glance.`);
+  }
 } else {
-  const report = await purgeBefore(pool, { before: val('--before') ?? DEFAULT_BEFORE, apply: argv.includes('--apply'), backupAck: val('--backup-ack'), iMeanIt: argv.includes('--i-mean-it') });
+  const report = await purgeBefore(pool, { before: before ?? DEFAULT_BEFORE, apply: argv.includes('--apply'), backupAck, iMeanIt: argv.includes('--i-mean-it') });
   console.log(`${report.applied ? 'APPLIED' : 'DRY RUN'} — cutoff ${report.before}`);
   console.log(`  table                before_cutoff  live  would_hide`);
   for (const t of report.tables) console.log(`  ${t.table.padEnd(20)} ${String(t.before_cutoff).padStart(13)}  ${String(t.live).padStart(4)}  ${String(t.would_hide).padStart(10)}`);
