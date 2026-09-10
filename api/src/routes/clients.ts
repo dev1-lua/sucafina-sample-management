@@ -247,7 +247,8 @@ const detailRequestSchema = z.object({
   asked_by: z.string().trim().min(1).nullish(),
   asked_by_email: z.string().trim().min(1).nullish(),
   note: z.string().trim().min(1).nullish(),
-  via: z.enum(['teams', 'email']).nullish(),
+  // 'group' = posted into the Teams group chat the ask was raised in (agent v56, migration 021).
+  via: z.enum(['teams', 'email', 'group']).nullish(),
   samples: z.array(z.object({ tab: z.enum(['specialty', 'bulk', 'forwarding']), id: z.string().uuid() })).max(50).nullish(),
 });
 

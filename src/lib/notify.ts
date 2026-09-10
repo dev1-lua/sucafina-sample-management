@@ -208,8 +208,11 @@ const EMAIL_FOOTER =
  * Returns how it went out, or null when neither channel could deliver.
  */
 export async function sendToPerson(
-  o: { email: string; text: string; subject: string; cc?: string[] },
+  o: { email: string; text: string; subject: string; cc?: string[]; emailOnly?: boolean },
 ): Promise<'teams' | 'email' | null> {
+  // emailOnly: the ask was just posted into the Teams group chat in front of this person — a DM on top
+  // would be noise; the email still goes so the QC desk and the person logging have a copy.
+  if (o.emailOnly) return sendEmailLeg(o);
   try {
     const user = await User.get({ email: o.email });
     const userId: string | undefined = user?._luaProfile?.userId ?? user?.userId;
@@ -225,6 +228,10 @@ export async function sendToPerson(
   } catch (e) {
     console.warn(`notify: Teams DM to ${o.email} unavailable (not warm on Teams?), falling back to email —`, (e as Error)?.message ?? e);
   }
+  return sendEmailLeg(o);
+}
+
+async function sendEmailLeg(o: { email: string; text: string; subject: string; cc?: string[] }): Promise<'email' | null> {
   if (!EMAIL_CHANNEL_READY) {
     console.warn(`notify: email to ${o.email} not attempted — no email channel wired yet (Teams-only until then)`);
     return null;
@@ -236,5 +243,23 @@ export async function sendToPerson(
   } catch (e) {
     console.error(`notify: email to ${o.email} failed`, e);
     return null;
+  }
+}
+
+/**
+ * Post into a Teams GROUP chat the bot is already part of (lua-cli ≥ 3.26: `to: { conversationId }`).
+ * Warm-only by nature — the bot must have been added and @mentioned there once. Returns whether the
+ * platform confirmed delivery; never throws. A group send has no single recipient, so the platform
+ * reports `persisted: false` — that is expected, not a failure.
+ */
+export async function sendToGroup(o: { conversationId: string; text: string }): Promise<boolean> {
+  try {
+    const r = await Channels.send({ channel: 'teams', to: { conversationId: o.conversationId }, text: o.text });
+    if (r?.delivered) return true;
+    console.warn(`notify: group post to ${o.conversationId} not delivered (${JSON.stringify(r)})`);
+    return false;
+  } catch (e) {
+    console.warn(`notify: group post to ${o.conversationId} failed —`, (e as Error)?.message ?? e);
+    return false;
   }
 }

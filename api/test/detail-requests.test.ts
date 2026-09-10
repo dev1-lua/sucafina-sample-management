@@ -159,6 +159,25 @@ describe('POST /clients/:id/detail-requests', () => {
     expect(rows[0].note).toBe('the lab has the address');
   });
 
+  it("an ask posted into a Teams group chat is recorded with via 'group' (migration 021)", async () => {
+    const res = await auth(request(app).post(`/clients/${clientId}/detail-requests`)).send({
+      missing: ['full street address'],
+      asked_name: 'Tommie Schretlen',
+      asked_email: 'tommie.schretlen@sucafina.com',
+      via: 'group',
+    });
+    expect(res.status).toBe(201);
+    const { rows } = await pool.query(`SELECT via, delivered_at FROM client_detail_requests WHERE client_id = $1 AND resolved_at IS NULL`, [clientId]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].via).toBe('group');
+    expect(rows[0].delivered_at).not.toBeNull();
+    const { rows: ev } = await pool.query(
+      `SELECT note FROM events WHERE entity_type = 'client' AND entity_id = $1 AND type = 'details_requested' ORDER BY created_at DESC LIMIT 1`, [clientId]);
+    expect(ev[0].note).toMatch(/Tommie Schretlen \(group\)/);
+    // anything else is still refused
+    expect((await auth(request(app).post(`/clients/${clientId}/detail-requests`)).send({ missing: ['x'], via: 'carrier-pigeon' })).status).toBe(400);
+  });
+
   it('404 for an unknown client, 409 when the address is already on file', async () => {
     const nope = await auth(request(app).post('/clients/00000000-0000-0000-0000-000000000000/detail-requests')).send({ missing: ['x'] });
     expect(nope.status).toBe(404);

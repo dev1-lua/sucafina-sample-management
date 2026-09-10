@@ -8,6 +8,9 @@ import { nameFromEmail } from './names';
  * Teams profile carries no fullName and her rows were landing with logged_by = null.
  */
 export async function currentUser(): Promise<{ name: string | null; email: string | null }> {
+  // The local harnesses (scripts/*-harness.ts, LUA_LOCAL_HARNESS=1) run outside the Lua runtime: there is
+  // no chatting user, and since lua-cli 3.32 User.get() spends ~6 s asking the platform before saying so.
+  if (process.env.LUA_LOCAL_HARNESS === '1') return { name: null, email: null };
   try {
     const user = await User.get();
     const p: any = user?._luaProfile ?? {};

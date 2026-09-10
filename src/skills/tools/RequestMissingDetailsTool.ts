@@ -12,13 +12,17 @@ import {
   matchTraderCandidates,
   nameFromEmail,
   resolveOrCreatePerson,
+  sendToGroup,
   sendToPerson,
   type TraderRow,
 } from '../../lib/notify';
+import { currentConversation, GROUP_ASKS_ENABLED, type Conversation } from '../../lib/conversation';
 import { resolveSampleByRef, sampleEndpoint } from '../../lib/resolve-sample';
 import { TABS } from '../../lib/normalize';
 
-type Deliver = (o: { email: string; text: string; subject: string; cc?: string[] }) => Promise<'teams' | 'email' | null>;
+type Deliver = (o: { email: string; text: string; subject: string; cc?: string[]; emailOnly?: boolean }) => Promise<'teams' | 'email' | null>;
+type DeliverGroup = (o: { conversationId: string; text: string }) => Promise<boolean>;
+type Via = 'group' | 'teams' | 'email';
 type Person = { name: string; email: string; trader_id: string | null };
 
 /**
@@ -29,11 +33,16 @@ type Person = { name: string; email: string; trader_id: string | null };
  *
  * Replaces notify_trader_missing_details, which took a name only, refused anyone not on the roster,
  * was warm-Teams-only with no email fallback, and had never delivered.
+ *
+ * Group chats (v56): when the message arrived in a Teams GROUP chat, the ask is posted INTO THAT SAME
+ * CHAT addressed to the colleague by name (they are there, or they are cold on Teams and a DM would
+ * never reach them), and the email still goes with the QC desk + the person logging copied. The bot
+ * cannot attribute speakers in a group, so nothing here depends on who said what.
  */
 export default class RequestMissingDetailsTool implements LuaTool {
   name = 'request_missing_details';
   description =
-    'Route a missing-client-details ask (delivery address / country / contact person / phone / email) to the Sucafina colleague who has them, AFTER the sample is logged. Resolves the person by email first (a new colleague is added to the roster), then by roster name; delivers a Teams DM if they have chatted with me, otherwise an email with the QC desk and the person logging copied; records who was asked and when on the client and the sample; the desk chases them every morning until the address is saved. With no to_name/to_email it asks the Sales Trader (when that is not the person logging), else the client\'s account manager, else just records the gap for the daily chase. A client\'s own email is never a recipient. Call at most ONCE per sample. Returns {delivered, via, to, recorded, reason} — only say a message went out when delivered is true.';
+    'Route a missing-client-details ask (delivery address / country / contact person / phone / email) to the Sucafina colleague who has them, AFTER the sample is logged. Resolves the person by email first (a new colleague is added to the roster), then by roster name; in a Teams GROUP chat it posts the ask into that same chat addressed to them by name AND emails them (QC desk + the person logging copied); in a 1:1 it sends a Teams DM if they have chatted with me, otherwise the email; records who was asked and when on the client and the sample; the desk chases them every morning until the address is saved. With no to_name/to_email it asks the Sales Trader (when that is not the person logging), else the client\'s account manager, else just records the gap for the daily chase. A client\'s own email is never a recipient. Call at most ONCE per sample. Returns {delivered, via: group|teams|email|null, to, recorded, reason} — only say a message went out when delivered is true, and say WHERE (via).';
 
   inputSchema = z.object({
     sample_ref: z.string().min(1).describe('The sample just logged, e.g. "TYPE-113" — its client is who the details are for.'),
@@ -45,9 +54,15 @@ export default class RequestMissingDetailsTool implements LuaTool {
   });
 
   private deliver: Deliver;
+  private deliverGroup: DeliverGroup;
+  private conversation: () => Promise<Conversation>;
+  private groupAsks: boolean;
 
-  constructor(opts: { deliver?: Deliver } = {}) {
+  constructor(opts: { deliver?: Deliver; deliverGroup?: DeliverGroup; conversation?: () => Promise<Conversation>; groupAsks?: boolean } = {}) {
     this.deliver = opts.deliver ?? sendToPerson;
+    this.deliverGroup = opts.deliverGroup ?? sendToGroup;
+    this.conversation = opts.conversation ?? currentConversation;
+    this.groupAsks = opts.groupAsks ?? GROUP_ASKS_ENABLED;
   }
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -110,8 +125,11 @@ export default class RequestMissingDetailsTool implements LuaTool {
       if (!to) reason = `Nobody to ask: the Sales Trader${requester ? ` (${requester})` : ''} has no work email on the roster and ${client.name} has no account manager. The gap is recorded; the desk chases the person logging each morning until the address is saved.`;
     }
 
-    // 3. Deliver — Teams if warm, else email with the QC desk + the person logging copied.
-    let via: 'teams' | 'email' | null = null;
+    // 3. Deliver — in a group chat: post the ask into that chat + email; in a 1:1: Teams DM if warm, else
+    //    email. The email always copies the QC desk + the person logging.
+    let via: Via | null = null;
+    let alsoEmailed = false;
+    let groupConversation: string | null = null;
     const missing = [...new Set([...input.missing.map((m) => m.trim()).filter(Boolean)])];
     if (to) {
       const open = await this.openRefs(client.id);
@@ -130,13 +148,34 @@ export default class RequestMissingDetailsTool implements LuaTool {
       ].filter(Boolean).join('\n');
       const subject = `${client.name}: delivery address needed for ${refs.join(', ')}`;
       const cc = [...ccFor(to.email), ...(logger.email && isInternalEmail(logger.email) && logger.email !== to.email ? [logger.email] : [])];
+
+      // Group chat: the ask goes into the chat the request was made in, addressed to the person by name.
+      const conv = this.groupAsks ? await this.conversation() : null;
+      if (conv?.isGroup && conv.conversationId) {
+        groupConversation = conv.conversationId;
+        const groupText = [
+          `@${to.name} — ${who} logged ${refs.join(', ')} (${summary}); the lab can't send it yet: ${client.name} has no delivery address in the sample book. Could you send:`,
+          ...missing.map((m) => `- ${m}`),
+          input.note ? `Note from ${who}: "${input.note}"` : null,
+          `Reply here (@mention me) or add it yourself: ${clientUrl} — I'm emailing you too, with the Kenya QC desk copied.`,
+        ].filter(Boolean).join('\n');
+        try {
+          if (await this.deliverGroup({ conversationId: conv.conversationId, text: groupText })) via = 'group';
+        } catch (e) {
+          console.error(`request_missing_details: group post to ${conv.conversationId} failed`, e);
+        }
+      }
+
       try {
-        via = await this.deliver({ email: to.email, text, subject, cc });
+        // After a group post the DM leg is skipped (the ask is already in front of them); the email still goes.
+        const r = await this.deliver({ email: to.email, text, subject, cc, emailOnly: via === 'group' });
+        if (via === 'group') alsoEmailed = r === 'email';
+        else via = r;
       } catch (e) {
         console.error(`request_missing_details: delivery to ${to.email} failed`, e);
-        via = null;
+        if (via !== 'group') via = null;
       }
-      if (!via) reason = `Couldn't reach ${to.name} on Teams or email — the gap is recorded and the desk retries each morning.`;
+      if (!via) reason = `Couldn't reach ${to.name}${groupConversation ? ' in this chat,' : ''} on Teams or email — the gap is recorded and the desk retries each morning.`;
     }
 
     // 4. Record the ask on the client (+ the sample's timeline) — always, delivered or not.
@@ -169,6 +208,8 @@ export default class RequestMissingDetailsTool implements LuaTool {
     return {
       delivered,
       via,
+      // via 'group': posted into this Teams group chat, addressed to them — say "asked <name> here in the chat".
+      ...(groupConversation ? { group_conversation: groupConversation, also_emailed: alsoEmailed } : {}),
       to: to ? { name: to.name, email: to.email } : null,
       recorded,
       needs_email: needsEmail,

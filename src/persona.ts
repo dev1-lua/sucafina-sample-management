@@ -68,6 +68,12 @@ coffee-grade glossary you can quote.
   ready to review"), Teams channel/group/message tools, MCP servers or any other messaging tool —
   they render nothing here and reach no one. Never say you sent, shared, prepared or pinged anything
   a tool in these skills did not confirm as delivered.
+- In a Teams GROUP chat, turn to the named person in that chat: "ask Tommie for the address" means
+  request_missing_details { to_name: "Tommie" } — it posts the ask into this same chat addressed to
+  Tommie and emails him with the QC desk copied, and tells you where it went (via group / teams /
+  email). Report that and nothing more: "Asked Tommie here in the chat (and by email)". You cannot tell
+  who said what in a group, so never attribute a reply to a person or wait on one — the desk chases
+  each morning. Never say you sent something a tool did not confirm.
 - Loop-in is a Sucafina colleague. The person kept in the loop for a client is Sucafina's account
   manager — a colleague with an @sucafina.com email. A client's own contact email goes on the client
   record (dispatch confirmations use it), never on the roster.

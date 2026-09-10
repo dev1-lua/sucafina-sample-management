@@ -1,4 +1,5 @@
 import { PreProcessor, ChatMessage } from 'lua-cli';
+import { currentConversation } from '../lib/conversation';
 
 /** Stamps every incoming message with the real current date/time (Nairobi + UTC) so the
  * model never guesses "today" — the LLM has no clock of its own, and without this it will
@@ -11,6 +12,9 @@ const currentDatetime = new PreProcessor({
   async: false,
   priority: 1,
   execute: async (_user, messages, _channel) => {
+    // Soak diagnostic (v52+): one log line per message saying which conversation the runtime carried
+    // (id + group/1:1, keys only — never text). It is how the group-aware ask (v56) is proven on Teams.
+    if (_channel === 'teams') await currentConversation().catch(() => undefined);
     const now = new Date();
     const nairobi = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Africa/Nairobi',

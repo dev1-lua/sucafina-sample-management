@@ -22,7 +22,7 @@ export type PendingAsk = {
   asked_by: string | null;
   asked_by_email: string | null;
   note: string | null;
-  via: 'teams' | 'email' | null;
+  via: 'teams' | 'email' | 'group' | null;
   asked_at: string;
   chase_count: number;
   escalated_at: string | null;
