@@ -24,12 +24,15 @@ import { dispatchNotifierJob } from './jobs/dispatch-notifier.job';
 // (QC ping on new requests, trader pings on preparing/dispatched/AWB). Armed 2026-08-24
 // after v26 soaked healthy, per the one-job-per-version protocol above.
 import { statusNotifierJob } from './jobs/status-notifier.job';
-// 2026-09-09 (round 6, log-first intake): details-chaser nudges the colleague asked for a client's missing
-// delivery details every morning. Written and harness-tested with v52; REGISTER IT IN v53 only, after v52
-// soaks healthy (one job per version). Uncomment both lines:
-// import { detailsChaserJob } from './jobs/details-chaser.job';
-// v54 (after v53 soaks): import { trackingSweepJob } from './jobs/tracking-sweep.job';
-// v55 (after v54 soaks): import { pssScheduleSkill } from './skills/pss-schedule.skill';
+// 2026-09-10: the last three primitives go live together, at the user's instruction, now that API 021 is
+// deployed. This is the shape that hurt in July (three jobs at once, then no tool ran), so the safety net
+// here is the rollback rather than the staging: `lua version promote v55` restores the agent in seconds.
+//   • details-chaser  — nudges the colleague asked for a client's missing delivery details each morning
+//   • tracking-sweep  — re-checks open AWBs (a no-op until the DHL/FedEx keys land: the API answers zeros)
+//   • pss-schedule    — Harriet's contracts + PSS options: import the SOL schedule, what's due, one contract
+import { detailsChaserJob } from './jobs/details-chaser.job';
+import { trackingSweepJob } from './jobs/tracking-sweep.job';
+import { pssScheduleSkill } from './skills/pss-schedule.skill';
 
 // v56 (after v55 soaks) — the Beyers incident, round 6: the model reached for a platform share card
 // (`prepare_share`, renders nothing on Teams) and the stale Unified.to Teams MCP (bound to Lua's own
@@ -79,12 +82,11 @@ const agent = new LuaAgent({
     resultsCaptureSkill,
     clientBookSkill,
     consignmentsSkill,
-  ], // v55: …, consignmentsSkill, pssScheduleSkill]
-  // Legacy reminder jobs stay parked — see note above. New jobs enter one per version:
-  // dispatch-notifier and status-notifier live; client-feedback-chaser is next in line
-  // (add it only after status-notifier soaks healthy).
-  jobs: [dispatchNotifierJob, statusNotifierJob], // v53: [dispatchNotifierJob, statusNotifierJob, detailsChaserJob]
-  // v54: [dispatchNotifierJob, statusNotifierJob, detailsChaserJob, trackingSweepJob]
+    pssScheduleSkill,
+  ],
+  // Legacy reminder jobs stay parked — see note above. client-feedback-chaser is the one still held back
+  // deliberately: it emails CLIENTS, so it waits until the desk has watched the internal pings for a while.
+  jobs: [dispatchNotifierJob, statusNotifierJob, detailsChaserJob, trackingSweepJob],
   // The model has no clock — this stamps every message with the real current date/time
   // so "today", relative dates, and recorded dates are never guessed.
   preProcessors: [currentDatetime],
