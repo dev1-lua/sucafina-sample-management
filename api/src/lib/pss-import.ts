@@ -316,11 +316,15 @@ export async function buildPreview(
     // The options: the PSS column, else "quantity per sample" ("3x600grams" = 3 options), else one per line.
     const qty = group.lines.map((l) => parseQtyPerSample(cell(l, 'qty_per_sample'))).find((q) => q !== null) ?? null;
     const pssCell = parseIntCell(cell(first, 'pss_expected'));
-    const pss_expected = pssCell !== null && pssCell > 0 ? pssCell : qty?.options ?? containers;
-    const pss_qty_grams = qty?.grams ?? null;
     const listed = [...new Set(
       group.lines.map((l) => parseIntCell(cell(l, 'container_no'))).filter((n): n is number => n != null && n >= 1),
     )].sort((a, b) => a - b);
+    const counted = pssCell !== null && pssCell > 0 ? pssCell : qty?.options ?? containers;
+    // Every slot the sheet names must be a slot the contract HAS: an option past pss_expected is bucketed
+    // nowhere (loadContractPss ignores it, pss_counts never counts it), so the contract could never reach
+    // its own count and the 45-day reminder would nag for ever. The sheet's numbering wins.
+    const pss_expected = listed.length > 0 ? Math.max(counted, listed[listed.length - 1]) : counted;
+    const pss_qty_grams = qty?.grams ?? null;
     const container_nos = listed.length > 0 ? listed : Array.from({ length: Math.max(pss_expected, 0) }, (_, i) => i + 1);
 
     const client_name = firstWith('client_name');

@@ -75,6 +75,19 @@ const PER_SAMPLE_CSV = csvText([
   'SSKE-104929,Marc Bang on behalf of CK CORPORATION,,2x500 grams,AA,10/12/2026,Korea',
 ]);
 
+// A "Qty" column holding BAG COUNTS, not sample sizes: the mapper claims it (qty/quantity are real
+// synonyms of "Quantity PER SAMPLE"), so the VALUE parser must refuse a bare count.
+const COUNT_QTY_CSV = csvText([
+  'Contract No,Buyer,Quality,Destination,Shipment,Qty Bags,PSS',
+  'CT-2026-50,Paulig,AB FAQ,Finland,20/11/2026,320,2',
+]);
+// The sheet numbers its own slots past the PSS count: every listed option must still be a real slot.
+const HIGH_SLOTS_CSV = csvText([
+  'Contract No,Buyer,Quality,Destination,Shipment,PSS,Container No',
+  'CT-2026-51,Paulig,AB FAQ,Finland,20/11/2026,2,1',
+  'CT-2026-51,Paulig,AB FAQ,Finland,20/11/2026,2,5',
+]);
+
 const HOST = 'https://cdn.heylua.ai/uploads';
 const FILES: Record<string, { body: Buffer | string; status?: number; headers?: Record<string, string> }> = {
   [`${HOST}/sol-pss.csv`]: { body: csvBytes },
@@ -85,6 +98,8 @@ const FILES: Record<string, { body: Buffer | string; status?: number; headers?: 
   [`${HOST}/sol-zeroes.csv`]: { body: ZEROES_CSV },
   [`${HOST}/sol-ddmm.csv`]: { body: DDMM_CSV },
   [`${HOST}/sol-per-sample.csv`]: { body: PER_SAMPLE_CSV },
+  [`${HOST}/sol-count-qty.csv`]: { body: COUNT_QTY_CSV },
+  [`${HOST}/sol-high-slots.csv`]: { body: HIGH_SLOTS_CSV },
   [`${HOST}/sol-datecell.xlsx`]: { body: DATE_CELL_XLSX },
   [`${HOST}/sol.pdf`]: { body: Buffer.from('%PDF-1.4 not a spreadsheet') },
   [`${HOST}/gone.csv`]: { body: 'nope', status: 404 },
@@ -196,6 +211,34 @@ describe('pss-mapping', () => {
     expect(parseQtyPerSample('')).toBeNull();
     expect(parseQtyPerSample(null)).toBeNull();
     expect(parseQtyPerSample('two bags')).toBeNull();
+  });
+
+  it('leaves an ambiguous count header unmapped rather than sizing every PSS from it', () => {
+    // "Qty Bags" / a bare "Quantity" are bag counts as often as sample sizes — unmapped is honest.
+    expect(matchHeaders(['Contract', 'Qty Bags']).mapping).toEqual({ contract_number: 0 });
+    expect(matchHeaders(['Contract', 'Quantity']).mapping).toEqual({ contract_number: 0 });
+    expect(matchHeaders(['Contract', 'Qty Bags']).unmapped).toEqual(['Qty Bags']);
+    // The real column, and the explicit override a human would type, still map.
+    expect(matchHeaders(['Contract', 'Quantity PER SAMPLE']).mapping).toEqual({ contract_number: 0, qty_per_sample: 1 });
+    expect(matchHeaders(['Contract', 'Qty Bags'], { qty_per_sample: 'Qty Bags' }).mapping).toEqual({ contract_number: 0, qty_per_sample: 1 });
+  });
+
+  it('refuses a bare count or an implausible size — a PSS size needs a unit or a plausible number', () => {
+    // A bag count, a container count, a typo: none of these is a sample size.
+    expect(parseQtyPerSample('40')).toBeNull();
+    expect(parseQtyPerSample('2')).toBeNull();
+    // …but a bare number inside the plausible window stays a size: JDE really does take 300 g.
+    expect(parseQtyPerSample('320')).toEqual({ options: null, grams: 320 });
+    expect(parseQtyPerSample('1000000')).toBeNull();
+    expect(parseQtyPerSample('30kg')).toBeNull();          // past the 10 kg-per-option ceiling
+    expect(parseQtyPerSample(2)).toBeNull();
+    // A bare number inside the plausible gram range is still read as grams.
+    expect(parseQtyPerSample('1000')).toEqual({ options: null, grams: 1000 });
+    expect(parseQtyPerSample(600)).toEqual({ options: null, grams: 600 });
+    // Anything with a unit or a multiplier is unambiguous and unchanged.
+    expect(parseQtyPerSample('4x1kg')).toEqual({ options: 4, grams: 1000 });
+    expect(parseQtyPerSample('2x50 g')).toEqual({ options: 2, grams: 50 });
+    expect(parseQtyPerSample('0.5kg')).toEqual({ options: null, grams: 500 });
   });
 
   it('client names as the desk writes them: "X / Y", "(… destination)", "on behalf of"', () => {
@@ -639,6 +682,30 @@ describe('/imports/pss-schedule', () => {
       { sample_ref: 'SSKE-103503B', option_letter: 'B', container_no: 2, qty: '600g', qty_grams: 600 },
       { sample_ref: 'SSKE-103503C', option_letter: 'C', container_no: 3, qty: '600g', qty_grams: 600 },
     ]);
+  });
+
+  it('16. a count column is never read as a PSS size, and a listed slot past the count raises it', async () => {
+    // "Qty Bags: 320" must leave the contract with NO size (the draw then uses the client's usual).
+    const counts = await preview('sol-count-qty.csv');
+    expect(counts.status).toBe(200);
+    expect(counts.body.rows[0]).toMatchObject({ contract_number: 'CT-2026-50', pss_expected: 2, pss_qty_grams: null });
+    const doneCounts = await commit(counts.body.import_id);
+    expect(doneCounts.status).toBe(200);
+    expect((await contractByNumber('CT-2026-50')).pss_qty_grams).toBeNull();
+
+    // Slots 1 and 5 listed against "PSS: 2" — every listed option must be inside 1..pss_expected,
+    // otherwise the option lands unassigned and the contract can never reach its own count.
+    const slots = await preview('sol-high-slots.csv');
+    expect(slots.status).toBe(200);
+    expect(slots.body.rows[0]).toMatchObject({ contract_number: 'CT-2026-51', container_nos: [1, 5], pss_expected: 5 });
+    expect(slots.body.summary.pss_to_create).toBe(2);
+    const doneSlots = await commit(slots.body.import_id);
+    expect(doneSlots.body.pss_created).toBe(2);
+    const c51 = await contractByNumber('CT-2026-51');
+    expect(c51.pss_expected).toBe(5);
+    const detail = await auth(request(app).get(`/contracts/${c51.id}`));
+    expect(detail.body.unassigned).toEqual([]);
+    expect(detail.body.pss_counts).toEqual({ expected: 5, approved: 0, rejected: 0, pending: 5 });
   });
 
   it('13. a zero in the count columns reads as "not given", never as a contract of no containers', async () => {

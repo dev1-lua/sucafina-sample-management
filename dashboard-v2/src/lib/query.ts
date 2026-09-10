@@ -308,9 +308,9 @@ export function useConsignmentMembers(id: string) {
 export function useContract(id: string) { return useRecord('/contracts', id); }
 
 /**
- * POST /contracts/:id/draw-pss — raise the PSS request for one container. It writes a Commercial-book
- * row (a fresh SSKE ref) and recomputes the contract's status, so both the contract and the Commercial
- * book are refreshed on settle.
+ * POST /contracts/:id/draw-pss — raise the next PSS option for one slot. It writes a Commercial-book row
+ * (ref derived from the contract: SSKE-<digits><letter>) and recomputes the contract's status, so both
+ * the contract and the Commercial book are refreshed on settle.
  */
 export function useDrawPss() {
   const qc = useQueryClient();

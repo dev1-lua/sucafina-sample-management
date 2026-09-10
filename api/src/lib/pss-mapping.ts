@@ -26,7 +26,10 @@ export const DEFAULT_SYNONYMS: Record<CanonicalField, string[]> = {
   pss_expected: ['pss', 'pss qty', 'no of pss', 'samples'],
   container_no: ['container no', 'container #', 'ctr no'],
   notes: ['notes', 'remarks', 'comments'],
-  qty_per_sample: ['quantity per sample', 'qty per sample', 'quantity', 'sample quantity', 'sample size', 'qty', 'grams per sample', 'weight per sample'],
+  // Deliberately NOT bare 'qty' / 'quantity': on a SOL sheet those are bag or container counts as often
+  // as sample sizes, and a wrong hit here silently resizes every PSS drawn for the contract. An ambiguous
+  // header is left unmapped (the preview lists it) so a human can point at it with an explicit mapping.
+  qty_per_sample: ['quantity per sample', 'qty per sample', 'sample quantity', 'sample size', 'grams per sample', 'weight per sample'],
   po_ref: ['po ref', 'po', 'po number', 'po no', 'purchase order', 'client po', 'client ref'],
 };
 
@@ -67,6 +70,14 @@ const BY_SYNONYM: Map<string, CanonicalField> = (() => {
 })();
 
 /**
+ * Fields a guess is not good enough for. A bare "Quantity" scores 0.5 against "sample quantity" — the
+ * weakest possible overlap — and claiming it would size every PSS on the contract from a column that is
+ * just as likely to hold bag counts. These fields need an exact synonym or the caller's own override;
+ * anything else is reported in `unmapped` so a human can point at it deliberately.
+ */
+const FUZZY_EXEMPT = new Set<CanonicalField>(['qty_per_sample']);
+
+/**
  * Header row → { canonical field: column index }. Three passes, strongest first, so a weaker rule can
  * never steal a column a stronger one wanted: the caller's own `override` (field → the header text it
  * lives under), then an exact synonym, then token overlap of at least a half. A column serves ONE field
@@ -103,7 +114,7 @@ export function matchHeaders(
     const words = tokens(n);
     let best: { field: CanonicalField; score: number } | null = null;
     for (const field of CANONICAL_FIELDS) {
-      if (mapping[field] !== undefined) continue;
+      if (mapping[field] !== undefined || FUZZY_EXEMPT.has(field)) continue;
       for (const syn of DEFAULT_SYNONYMS[field]) {
         const score = jaccard(words, tokens(normHeader(syn)));
         if (score >= 0.5 && (best === null || score > best.score)) best = { field, score };
@@ -211,20 +222,34 @@ export function parseIntCell(v: unknown): number | null {
   return m ? Math.trunc(Number(m[0])) : null;
 }
 
+/** Below this, a number with no unit is a COUNT (bags, containers), not a sample size. */
+const MIN_BARE_GRAMS = 100;
+/** Above this it is not a per-option sample size either — the desk's largest option is 1 kg. */
+const MAX_OPTION_GRAMS = 10_000;
+
 /**
- * "4x1kg", "3x600grams", "2x500 grams", "2 × 300 g" → { options, grams }; a bare "600 g" / "1.5kg" / 600 →
- * grams with options null (the sheet's other columns say how many). Anything else → null.
+ * "4x1kg", "3x600grams", "2x500 grams", "2 × 300 g" → { options, grams }; a bare "600" / "1.5kg" → grams
+ * with options null (the sheet's other columns say how many). Anything else → null.
+ *
+ * A number with NO unit and NO multiplier is only read as grams inside a plausible window: a column of
+ * bag counts must never become a 40 g PSS, and a typo must never become a 1000 kg one. Refusing simply
+ * means "the sheet does not say" — the draw then falls back to the client's usual size, which is right.
  */
 export function parseQtyPerSample(v: unknown): { options: number | null; grams: number } | null {
   if (v == null) return null;
-  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? { options: null, grams: Math.round(v) } : null;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v) || v < MIN_BARE_GRAMS || v > MAX_OPTION_GRAMS) return null;
+    return { options: null, grams: Math.round(v) };
+  }
   const s = String(v).trim().toLowerCase().replace(/,/g, '.');
   if (s === '') return null;
   const m = s.match(/^(?:(\d+)\s*[x×*]\s*)?(\d+(?:\.\d+)?)\s*(kgs?|kilos?|kilograms?|g|gr|gms?|grams?)?$/);
   if (!m) return null;
+  const unit = m[3];
   const n = Number(m[2]);
-  const grams = /^k/.test(m[3] ?? 'g') ? Math.round(n * 1000) : Math.round(n);
-  if (!(grams > 0)) return null;
+  const grams = /^k/.test(unit ?? 'g') ? Math.round(n * 1000) : Math.round(n);
+  if (!(grams > 0) || grams > MAX_OPTION_GRAMS) return null;
+  if (!unit && grams < MIN_BARE_GRAMS) return null;
   return { options: m[1] ? Number(m[1]) : null, grams };
 }
 

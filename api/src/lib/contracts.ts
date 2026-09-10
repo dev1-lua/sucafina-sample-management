@@ -91,6 +91,18 @@ export function pssStageLabel(r: Pick<PssRow, 'status' | 'result_norm' | 'replac
 }
 
 const qtyText = (g: number): string => (g % 1000 === 0 ? `${g / 1000}kg` : `${g}g`);
+
+/** Is this ref already on a live row in either book? (No unique index exists on the ref columns.) */
+async function refTaken(db: Q, ref: string): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM bulk_samples WHERE sample_ref = $1 AND deleted_at IS NULL
+     UNION ALL
+     SELECT 1 FROM specialty_samples WHERE ref = $1 AND deleted_at IS NULL
+     LIMIT 1`,
+    [ref],
+  );
+  return rows.length > 0;
+}
 /** Stamped on a row whose size was assumed, so that row never becomes another draw's "history". */
 export const QTY_ASSUMED_NOTE = '1 kg assumed';
 
@@ -300,8 +312,14 @@ export async function drawPss(
   if (!contract) throw new HttpError(404, 'contract not found');
 
   const letter = o.optionLetter?.trim().toUpperCase() || nextOptionLetters(await usedOptionLetters(client, o.contractId), 1)[0];
-  // Rides the caller's transaction: a rolled-back draw never burns a counter number either.
-  const sampleRef = pssRefFor(String(contract.contract_number), letter) ?? `${await issueRef('pss', client)}${letter}`;
+  // The ref is the contract's own digits + the letter. Two DIFFERENT contract numbers can reduce to the
+  // same digits ("SSKE-104929" vs "SSKE 104929" — the contracts index is on the whole trimmed number), and
+  // a duplicate ref would make the agent refuse both rows ("Several rows share ref …", lib/resolve-sample).
+  // So a taken ref falls back to the SSKE counter. Rides the caller's transaction: a rolled-back draw
+  // never burns a counter number either.
+  const derived = pssRefFor(String(contract.contract_number), letter);
+  const taken = derived ? await refTaken(client, derived) : true;
+  const sampleRef = derived && !taken ? derived : `${await issueRef('pss', client)}${letter}`;
   const qty = await pssQtyFor(client, contract);
   const clientName = contract.client_name ?? contract.resolved_client_name ?? 'the client';
   const comments = [

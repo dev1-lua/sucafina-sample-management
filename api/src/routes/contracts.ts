@@ -376,6 +376,18 @@ contracts.post('/:id/link', h(async (req, res) => {
     const cur = await client.query(`SELECT * FROM contracts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [id]);
     const contract = cur.rows[0];
     if (!contract) throw new HttpError(404, 'contract not found');
+    // A contract's options are pre-shipment samples in slots the contract actually has. Anything else
+    // would sit in the contract's picture without ever being counted (loadContractPss filters on
+    // sample_type_norm = 'pss'; containerStates buckets 1..pss_expected only).
+    const { rows: sampleRows } = await client.query(
+      `SELECT sample_type_norm FROM ${table} WHERE id = $1 AND deleted_at IS NULL`, [body.sample_id]);
+    if (!sampleRows[0]) throw new HttpError(404, `${body.tab} sample not found`);
+    if (sampleRows[0].sample_type_norm !== 'pss') {
+      throw new HttpError(409, `that ${body.tab} sample is not a PSS — only a pre-shipment sample can be a contract option`);
+    }
+    if (body.container_no != null && body.container_no > contract.pss_expected) {
+      throw new HttpError(400, `contract ${contract.contract_number} expects ${contract.pss_expected} option(s) — there is no slot ${body.container_no}`, { pss_expected: contract.pss_expected });
+    }
     containerNo = body.container_no ?? await firstFreeContainer(client, id, contract.pss_expected);
     // The linked sample keeps its own ref (it exists) but takes the next option letter.
     const letter = nextOptionLetters(await usedOptionLetters(client, id), 1)[0];

@@ -53,19 +53,41 @@ const REASON_LABEL: Record<string, string> = {
   other: 'courier exception',
 };
 
+// Our own month names: `Intl` with month:'short' renders September as "Sept" on current ICU, and the
+// desk's own shorthand (and every other date in these messages) is three letters — "9 Sep 2026".
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** The instant, read in Nairobi time, as plain numbers — or null when it is not a date at all. */
+function nairobiParts(iso: string): { d: number; m: number; y: number; hh: string; mm: string } | null {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Nairobi', year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(at);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  const [d, m, y] = [Number(get('day')), Number(get('month')), Number(get('year'))];
+  if (!d || !m || !y) return null;
+  return { d, m, y, hh: get('hour'), mm: get('minute') };
+}
+
+/** "9 Sep 2026" */
 function shortDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   try {
-    return new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+    const p = nairobiParts(String(iso));
+    return p ? `${p.d} ${MONTH_ABBR[p.m - 1]} ${p.y}` : String(iso).slice(0, 10);
   } catch {
     return String(iso).slice(0, 10);
   }
 }
 
+/** "9 Sep 11:22" — a courier scan, where the year is noise and the time is the point. */
 function shortDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   try {
-    return new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+    const p = nairobiParts(String(iso));
+    return p ? `${p.d} ${MONTH_ABBR[p.m - 1]} ${p.hh}:${p.mm}` : String(iso).slice(0, 16).replace('T', ' ');
   } catch {
     return String(iso).slice(0, 16).replace('T', ' ');
   }
@@ -115,17 +137,20 @@ export function pssMessage(i: OutboxItem): { text: string; subject: string } {
   const ref = i.ref ?? '';
   const who = i.client_name ?? p.client_name ?? '—';
   const options = (n: number | undefined) => `${n ?? '?'} option${n === 1 ? '' : 's'}`;
+  // Every number here comes off the outbox payload the sweep wrote; a row queued by an older API still
+  // formats as "? of ?" rather than "undefined of undefined".
+  const num = (n: number | undefined) => (n == null ? '?' : String(n));
   if (i.event === 'pss_due_soon') {
-    const when = p.days_left === 0 ? 'TODAY' : `in ${p.days_left} days`;
+    const when = p.days_left === 0 ? 'TODAY' : p.days_left == null ? 'soon' : `in ${p.days_left} days`;
     return {
-      text: `PSS due ${when}: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${p.approved} of ${p.expected} options approved • ${options(p.missing_pss)} still to send`,
+      text: `PSS due ${when}: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${num(p.approved)} of ${num(p.expected)} options approved • ${options(p.missing_pss)} still to send`,
       subject: `PSS due ${when}: ${ref}`,
     };
   }
   if (i.event === 'pss_overdue') {
     return {
-      text: `⚠️ PSS OVERDUE ${p.overdue_days}d: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${options(p.missing_pss)} still to send`,
-      subject: `PSS OVERDUE ${p.overdue_days}d: ${ref}`,
+      text: `⚠️ PSS OVERDUE ${num(p.overdue_days)}d: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${options(p.missing_pss)} still to send`,
+      subject: `PSS OVERDUE ${num(p.overdue_days)}d: ${ref}`,
     };
   }
   if (i.event === 'pss_rejected') {
@@ -139,7 +164,7 @@ export function pssMessage(i: OutboxItem): { text: string; subject: string } {
   }
   // pss_schedule_imported
   return {
-    text: `SOL schedule imported (${p.file_name ?? ref}) by ${p.actor ?? 'the desk'}: ${options(p.pss_created)} scheduled across ${(p.contracts_created ?? 0) + (p.contracts_updated ?? 0)} contracts (${p.contracts_created} new) • first due ${shortDate(p.first_due)}`,
+    text: `SOL schedule imported (${p.file_name ?? ref}) by ${p.actor ?? 'the desk'}: ${options(p.pss_created)} scheduled across ${(p.contracts_created ?? 0) + (p.contracts_updated ?? 0)} contracts (${num(p.contracts_created)} new) • first due ${shortDate(p.first_due)}`,
     subject: `SOL PSS schedule imported: ${options(p.pss_created)}`,
   };
 }

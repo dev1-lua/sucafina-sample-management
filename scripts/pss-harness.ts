@@ -145,6 +145,9 @@ try {
   }
   const [soon, over, rej, imp] = items.map(pssMessage);
   ok('due-soon names the countdown, the ship date and what is left', /PSS due in 7 days/.test(soon.text) && /0 of 2 options approved/.test(soon.text) && /2 options still to send/.test(soon.text), soon.text);
+  // The ship date on the due-soon fake is 2026-11-05 → "5 Nov 2026" (three letters, no leading zero).
+  ok('dates read as "5 Nov 2026"', /ship 5 Nov 2026 /.test(soon.text), soon.text);
+  ok('no ICU "Sept" anywhere in the four messages', ![soon, over, rej, imp].some((m) => /Sept/.test(m.text + m.subject)), [soon, over, rej, imp].map((m) => m.text).join(' | ').slice(0, 160));
   ok('overdue leads with how late it is', /PSS OVERDUE 4d/.test(over.text) && over.subject.startsWith('PSS OVERDUE 4d'), over.text);
   ok("a twice-rejected option is Harriet's 'PSS replacement rejected', names the letter and the next draw", /PSS replacement rejected — option C; SSKE-202614D drawn as the next option/.test(rej.text) && /settle with the trader/.test(rej.text), rej.text);
   ok('the import summary counts contracts and options', /5 options scheduled across 3 contracts \(3 new\)/.test(imp.text), imp.text);

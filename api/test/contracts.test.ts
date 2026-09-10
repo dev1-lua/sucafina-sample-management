@@ -626,6 +626,45 @@ describe('/contracts', () => {
     expect(redoA.body.option_letter).toBe('C');             // A was not the highest — C, not A
   });
 
+  it('18. two contracts whose numbers carry the same digits never share a PSS ref', async () => {
+    // The contracts table is unique on upper(trim(number)), so these are two DIFFERENT contracts whose
+    // digits both reduce to 104929 — the derived ref would collide, and a duplicate ref makes the agent
+    // refuse BOTH rows ("Several rows share ref …" in resolve-sample.ts).
+    const a = await mkContract({ contract_number: 'SSKE-104929', containers: 1, create_pss: true });
+    const b = await mkContract({ contract_number: 'SSKE 104929', containers: 1, create_pss: true });
+    const refA = (await pssRows(a.id))[0].sample_ref;
+    const refB = (await pssRows(b.id))[0].sample_ref;
+    expect(refA).toBe('SSKE-104929A');
+    expect(refB).not.toBe(refA);
+    expect(refB).toMatch(/^SSKE-\d+A$/);
+    const { rows } = await pool.query(
+      `SELECT sample_ref, count(*) FROM bulk_samples WHERE deleted_at IS NULL GROUP BY sample_ref HAVING count(*) > 1`);
+    expect(rows).toEqual([]);
+  });
+
+  it('19. /link takes only a PSS, and only into a slot the contract actually has', async () => {
+    const c = await mkContract({ contract_number: 'CT-2026-19', containers: 2 });
+    const notPss = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB FAQ', client: 'Container Roasters', client_id: clientId, sample_type: 'type' });
+    const refused = await auth(request(app).post(`/contracts/${c.id}/link`))
+      .send({ tab: 'bulk', sample_id: notPss.body.id });
+    expect(refused.status).toBe(409);
+    expect(String(refused.body.error ?? refused.body.message)).toMatch(/pre-shipment sample|not a PSS/i);
+    // …and the sample is untouched.
+    const { rows } = await pool.query(`SELECT contract_id, option_letter FROM bulk_samples WHERE id = $1`, [notPss.body.id]);
+    expect(rows[0]).toEqual({ contract_id: null, option_letter: null });
+
+    const pssRow = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB FAQ', client: 'Container Roasters', client_id: clientId, sample_type: 'pss' });
+    const tooHigh = await auth(request(app).post(`/contracts/${c.id}/link`))
+      .send({ tab: 'bulk', sample_id: pssRow.body.id, container_no: 7 });
+    expect(tooHigh.status).toBe(400);
+    const ok = await auth(request(app).post(`/contracts/${c.id}/link`))
+      .send({ tab: 'bulk', sample_id: pssRow.body.id, container_no: 2 });
+    expect(ok.status).toBe(200);
+    expect(ok.body.container_no).toBe(2);
+  });
+
   it('15. a soft-deleted ref is reused when it was the latest number for its prefix (Harriet A)', async () => {
     const mk = (type: string) => auth(request(app).post('/bulk-samples'))
       .send({ quality: 'AB FAQ', client: 'Container Roasters', client_id: clientId, sample_type: type });
