@@ -25,6 +25,8 @@ export type ContractDraft = {
   shipment_date?: string | null;
   containers?: number | null;
   pss_expected?: number | null;
+  po_ref?: string | null;
+  pss_qty_grams?: number | null;
   notes?: string | null;
 };
 
@@ -42,12 +44,13 @@ const NO_CLIENT = '__none__';
 
 type Draft = {
   contract_number: string; client_id: string; client_name: string; quality: string;
-  destination: string; shipment_date: string; containers: string; pss_expected: string; notes: string;
+  destination: string; shipment_date: string; containers: string; pss_expected: string;
+  po_ref: string; pss_qty_grams: string; notes: string;
 };
 
 const EMPTY: Draft = {
   contract_number: '', client_id: NO_CLIENT, client_name: '', quality: '',
-  destination: '', shipment_date: '', containers: '1', pss_expected: '', notes: '',
+  destination: '', shipment_date: '', containers: '1', pss_expected: '', po_ref: '', pss_qty_grams: '', notes: '',
 };
 
 const intOr = (v: string, fallback: number | null): number | null => {
@@ -89,6 +92,8 @@ export function ContractFormDialog({ mode, open, onOpenChange, contract, onSaved
             shipment_date: (contract.shipment_date ?? '').slice(0, 10),
             containers: contract.containers != null ? String(contract.containers) : '1',
             pss_expected: contract.pss_expected != null ? String(contract.pss_expected) : '',
+            po_ref: contract.po_ref ?? '',
+            pss_qty_grams: contract.pss_qty_grams != null ? String(contract.pss_qty_grams) : '',
             notes: contract.notes ?? '',
           }
         : EMPTY,
@@ -116,7 +121,11 @@ export function ContractFormDialog({ mode, open, onOpenChange, contract, onSaved
       destination: draft.destination.trim() || null,
       shipment_date: draft.shipment_date.trim() || null,
       containers,
+      // Harriet: the number of lettered options is the client's ask, not the container count — it only
+      // falls back to the containers when nobody typed it.
       pss_expected: intOr(draft.pss_expected, containers),
+      po_ref: draft.po_ref.trim() || null,
+      pss_qty_grams: intOr(draft.pss_qty_grams, null),
       notes: draft.notes.trim() || null,
     };
 
@@ -146,7 +155,7 @@ export function ContractFormDialog({ mode, open, onOpenChange, contract, onSaved
           <DialogTitle>{isEdit ? 'Edit contract' : 'New contract'}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Update this contract. PSS status follows the containers’ verdicts and is not set by hand.'
+              ? 'Update this contract. PSS status follows the options’ verdicts and is not set by hand.'
               : 'PSS are due 45 days before the shipment date — set that date and the deadline follows.'}
           </DialogDescription>
         </DialogHeader>
@@ -218,7 +227,7 @@ export function ContractFormDialog({ mode, open, onOpenChange, contract, onSaved
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="contract-pss" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                PSS expected
+                PSS options
               </label>
               <Input
                 id="contract-pss"
@@ -228,6 +237,29 @@ export function ContractFormDialog({ mode, open, onOpenChange, contract, onSaved
                 value={draft.pss_expected}
                 onChange={(e) => set({ pss_expected: e.target.value })}
                 placeholder={draft.containers || '1'}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="contract-po" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                PO ref
+              </label>
+              <Input id="contract-po" value={draft.po_ref} onChange={(e) => set({ po_ref: e.target.value })} placeholder="Client's PO number" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="contract-qty" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Grams per option
+              </label>
+              <Input
+                id="contract-qty"
+                type="number"
+                min={1}
+                max={50000}
+                value={draft.pss_qty_grams}
+                onChange={(e) => set({ pss_qty_grams: e.target.value })}
+                placeholder="client's usual"
               />
             </div>
           </div>

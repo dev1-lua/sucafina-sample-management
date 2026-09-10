@@ -87,16 +87,17 @@ const CONTRACT_STATUS: Record<string, Color> = {
   pss_pending: 'amber',
   pss_partial: 'blue',
   pss_approved: 'green',
-  pss_rejected: 'red',
+  pss_replacement_rejected: 'red',
   shipped: 'teal',
   cancelled: 'gray',
 };
 // "PSS" is an initialism the desk says out loud — humanizing it to "pss partial" reads as a typo.
+// The flag state is Harriet's own wording (2026-09-10): "PSS Replacement Rejected".
 const CONTRACT_STATUS_LABELS: Record<string, string> = {
   pss_pending: 'PSS pending',
   pss_partial: 'PSS partial',
   pss_approved: 'PSS approved',
-  pss_rejected: 'PSS rejected',
+  pss_replacement_rejected: 'PSS replacement rejected',
 };
 
 const MAPS: Record<TagKind, Record<string, Color>> = {

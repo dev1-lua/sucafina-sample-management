@@ -24,6 +24,19 @@ const ROWS = [
     status: 'pss_pending',
     pss_counts: { expected: 2, approved: 1, rejected: 0, pending: 1 },
   },
+  {
+    id: 'c-2',
+    contract_number: 'SSKE-104929',
+    client_name: 'CK Corporation',
+    quality: 'AA',
+    destination: 'Korea',
+    shipment_date: '2026-12-10',
+    pss_due_date: '2026-10-26',
+    containers: 1,
+    po_ref: 'PO-9',
+    status: 'pss_replacement_rejected',
+    pss_counts: { expected: 2, approved: 0, rejected: 1, pending: 1 },
+  },
 ];
 
 function stubFetch() {
@@ -56,4 +69,8 @@ it('lists contracts with their PSS progress and status', async () => {
   // A due date already past reads as overdue in the cell, not as a bare date.
   expect(screen.getByText(/^2026-09-05 · overdue \d+d$/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /new contract/i })).toBeInTheDocument();
+  // Harriet's vocabulary: a twice-rejected option flags the contract and is counted as such.
+  expect(screen.getByText('PSS replacement rejected')).toBeInTheDocument();
+  expect(screen.getByText(/1 replacement rejected/)).toBeInTheDocument();
+  expect(screen.getByText('PO-9')).toBeInTheDocument();
 });

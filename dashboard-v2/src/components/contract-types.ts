@@ -1,23 +1,27 @@
 import type { EventRow } from '@/types';
 
-// Contracts + pre-shipment samples (migration 020). A contract ships N containers and owes one PSS
-// per container 45 days before the shipment date; the container states below are derived from those
-// samples' verdicts server-side (api/src/lib/contracts.ts), never set by hand.
+// Contracts + pre-shipment samples (migration 020, reshaped by 021 — Harriet, 2026-09-10). A contract
+// owes N lettered PSS OPTIONS (A, B, C…) of X g each, 45 days before the shipment date; each option fills
+// a slot (`container_no`) and a rejected option is replaced in the same slot with the next unused letter.
+// The slot states below are derived from the samples' verdicts server-side (api/src/lib/contracts.ts).
 
 export type ContractStatus =
-  | 'open' | 'pss_pending' | 'pss_partial' | 'pss_rejected' | 'pss_approved' | 'shipped' | 'cancelled';
+  | 'open' | 'pss_pending' | 'pss_partial' | 'pss_replacement_rejected' | 'pss_approved' | 'shipped' | 'cancelled';
 
 export type ContainerState = 'none' | 'pending' | 'approved' | 'replacement_pending' | 'failed';
 
 /** Per-contract roll-up carried on every list row and on the detail response. */
 export type PssCounts = { expected: number; approved: number; rejected: number; pending: number };
 
-/** One PSS sample under a container (a Commercial-book row unless it was linked from Specialty). */
+/** One PSS option in a slot (a Commercial-book row unless it was linked from Specialty). */
 export type ContractPss = {
   tab: 'specialty' | 'bulk';
   id: string;
   ref: string | null;
   container_no: number | null;
+  option_letter?: string | null;
+  /** Harriet's stage wording, computed server-side: "Pending PSS dispatch", "Pending replacement results"… */
+  stage?: string;
   status: string;
   result_norm: string | null;
   replaces_sample_id: string | null;
@@ -47,6 +51,8 @@ export type ContractDetail = {
   // integer count column, which only the list rows carry.
   containers: ContractContainer[];
   pss_expected: number;
+  po_ref?: string | null;
+  pss_qty_grams?: number | null;
   pss_counts: PssCounts;
   status: ContractStatus;
   notes: string | null;

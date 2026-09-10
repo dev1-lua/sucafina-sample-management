@@ -51,10 +51,10 @@ export const bulkConfig: TabConfig = {
     { key: 'blend', header: 'Blend', sortKey: 'blend' },
     { key: 'location', header: 'Location', sortKey: 'location', render: (r) => <CellValue value={formatLocation(r.location)} /> },
     { key: 'shipment_month', header: 'Shipment Month', sortKey: 'shipment_month', defaultHidden: true },
-    // Contracts + PSS (migration 020): the contract a PSS belongs to is now a real link, so the
-    // column comes out of hiding; the container and the 45-day deadline ride alongside it.
+    // Contracts + PSS (migration 020/021): the contract a PSS belongs to is now a real link, so the
+    // column comes out of hiding; the option letter and the 45-day deadline ride alongside it.
     { key: 'contract_number', header: 'Contract #', sortKey: 'contract_number' },
-    { key: 'container_no', header: 'Container', sortKey: 'container_no', defaultHidden: true },
+    { key: 'option_letter', header: 'Option', sortKey: 'option_letter', defaultHidden: true },
     { key: 'pss_due_date', header: 'PSS due', sortKey: 'pss_due_date', render: (r) => <PssDueCell row={r} /> },
     // Feedback ⑬ (migration 009): strategy + cup-profile highlights on approved samples.
     { key: 'strategy', header: 'Strategy', sortKey: 'strategy', defaultHidden: true },
@@ -149,6 +149,7 @@ export const bulkConfig: TabConfig = {
         ),
       edit: { field: 'contract_number', type: 'text' },
     },
+    { key: 'option_letter', label: 'PSS option' },
     { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
     { key: 'phyto_cert', label: 'Phyto Cert', edit: { field: 'phyto_cert', type: 'text' } },
     { key: 'comments', label: 'Comments', edit: { field: 'comments', type: 'text' } },

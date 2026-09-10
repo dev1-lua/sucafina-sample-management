@@ -99,13 +99,14 @@ export function sampleLabelData(row: Record<string, unknown>): LabelData {
     : isPss ? 'Commercial sample · PSS'
     : 'Commercial sample';
 
-  // Second headline: the outturn on a specialty lot; the contract (+ container) on a PSS.
+  // Second headline: the outturn on a specialty lot; the contract (+ option letter) on a PSS. A row from
+  // before the letters existed (migration 021) still shows its slot number.
   const outturn = str(row, 'outturn');
   const contract = str(row, 'contract_number');
-  const container = str(row, 'container_no');
+  const container = str(row, 'option_letter') ?? str(row, 'container_no');
   const headline2: LabelField | undefined =
     outturn ? { label: 'OUTTURN', value: outturn }
-    : isPss && contract ? { label: 'CONTRACT', value: `${contract}${container ? ` · CTR ${container}` : ''}` }
+    : isPss && contract ? { label: 'CONTRACT', value: `${contract}${container ? ` · Option ${container}` : ''}` }
     : undefined;
   const shownOutturn = headline2?.label === 'OUTTURN';
   const shownContract = headline2?.label === 'CONTRACT';
@@ -116,7 +117,7 @@ export function sampleLabelData(row: Record<string, unknown>): LabelData {
     { label: 'Outturn', value: shownOutturn ? null : outturn },
     { label: 'Contract #', value: shownContract ? null : contract },
     { label: 'Shipment month', value: str(row, 'shipment_month') },
-    { label: 'Container', value: shownContract && container ? null : container },
+    { label: 'Option', value: shownContract && container ? null : container },
     { label: 'Client', value: str(row, 'client') ?? str(row, 'receiver_company') ?? str(row, 'receiver') ?? str(row, 'name') },
     { label: 'Consignment', value: str(row, 'consignment_number') },
     { label: 'Location', value: loc(str(row, 'consignment_location') ?? str(row, 'location')) },

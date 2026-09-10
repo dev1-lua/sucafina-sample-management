@@ -25,15 +25,22 @@ import type { ContractContainer, ContractDetail, ContractPss } from '@/component
 /** Dashboard route for one PSS row — Specialty lives at /samples, Commercial at /bulk. */
 const sampleHref = (s: ContractPss) => `${s.tab === 'specialty' ? '/samples' : '/bulk'}/${s.id}`;
 
-// A container's own state (api/src/lib/contracts.ts) is a smaller vocabulary than a contract's, so it
+// An option slot's own state (api/src/lib/contracts.ts) is a smaller vocabulary than a contract's, so it
 // gets its own chip rather than a tags.ts kind: the same palette family, read as a stage not a status.
 const CONTAINER_STATE: Record<string, { label: string; className: string }> = {
   none: { label: 'no PSS yet', className: 'bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300' },
   pending: { label: 'PSS pending', className: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' },
   approved: { label: 'approved', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' },
   replacement_pending: { label: 'replacement pending', className: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' },
-  failed: { label: 'rejected twice', className: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' },
+  failed: { label: 'replacement rejected', className: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' },
 };
+
+/** "Option A" / "Option A → C" — the letters the slot has carried, oldest first. */
+function slotTitle(c: ContractContainer): string {
+  const letters = c.samples.map((s) => s.option_letter).filter((l): l is string => !!l);
+  if (letters.length === 0) return `Option slot ${c.container_no}`;
+  return `Option ${letters.join(' → ')}`;
+}
 
 function ContainerStateChip({ state }: { state: string }) {
   const s = CONTAINER_STATE[state] ?? { label: state.replace(/_/g, ' '), className: CONTAINER_STATE.none.className };
@@ -63,11 +70,15 @@ function PssRow({ sample }: { sample: ContractPss }) {
       <Link to={sampleHref(sample)} className="font-medium text-primary hover:underline">
         {sample.ref ?? '(no ref)'}
       </Link>
+      {sample.option_letter && (
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">option {sample.option_letter}</span>
+      )}
       {sample.replaces_sample_id && (
         <span className="rounded-full bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground">replacement</span>
       )}
       <StatusBadge kind="status" value={sample.status} />
       {sample.result_norm && <StatusBadge kind="result" value={sample.result_norm} />}
+      {sample.stage && <span className="text-muted-foreground">{sample.stage}</span>}
       {sample.dispatched_on && <span className="text-muted-foreground">sent {String(sample.dispatched_on).slice(0, 10)}</span>}
       {sample.result_on && <span className="text-muted-foreground">answered {String(sample.result_on).slice(0, 10)}</span>}
     </div>
@@ -79,15 +90,15 @@ function ContainerCard({ container, onDraw, drawing }: {
   onDraw: (containerNo: number) => void;
   drawing: boolean;
 }) {
-  // A container may be drawn when nothing has been raised for it yet, or when its only PSS was
-  // rejected and the replacement has not been raised (the API refuses any other case).
+  // A slot may be drawn by hand when nothing has been raised for it yet, or when every option in it was
+  // rejected and the automatic replacement is gone (the API refuses any other case).
   const canDraw =
     container.state === 'none' ||
     (container.state === 'replacement_pending' && container.samples.every((s) => s.result_norm === 'rejected'));
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-foreground">Container {container.container_no}</h3>
+        <h3 className="text-sm font-medium text-foreground">{slotTitle(container)}</h3>
         <ContainerStateChip state={container.state} />
       </div>
       {container.samples.length === 0 ? (
@@ -101,7 +112,7 @@ function ContainerCard({ container, onDraw, drawing }: {
       )}
       {canDraw && (
         <Button variant="outline" size="sm" className="self-start" disabled={drawing} onClick={() => onDraw(container.container_no)}>
-          <IconPlus className="size-3.5" /> {drawing ? 'Drawing…' : 'Draw PSS'}
+          <IconPlus className="size-3.5" /> {drawing ? 'Drawing…' : 'Draw next option'}
         </Button>
       )}
     </div>
@@ -149,7 +160,7 @@ export default function ContractDetailPage() {
     setError(null);
     draw.mutate(
       { contractId: id, containerNo },
-      { onError: () => setError(`Could not draw a PSS for container ${containerNo}. Refresh and try again.`) },
+      { onError: () => setError(`Could not draw an option into slot ${containerNo}. Refresh and try again.`) },
     );
   }
 
@@ -178,6 +189,7 @@ export default function ContractDetailPage() {
             )}
             {data.quality && <> · {data.quality}</>}
             {data.destination && <> → {data.destination}</>}
+            {data.po_ref && <> · PO {data.po_ref}</>}
           </p>
           <p className="text-sm text-muted-foreground">
             {data.shipment_date ? `Ship ${String(data.shipment_date).slice(0, 10)}` : 'No shipment date'}
@@ -186,8 +198,9 @@ export default function ContractDetailPage() {
           </p>
           {counts && (
             <p className="text-sm text-muted-foreground">
-              {counts.approved} of {counts.expected} PSS approved
-              {counts.rejected > 0 && <span className="text-rose-600 dark:text-rose-400"> · {counts.rejected} rejected twice</span>}
+              {counts.approved} of {counts.expected} PSS options approved
+              {data.pss_qty_grams ? ` · ${data.pss_qty_grams >= 1000 && data.pss_qty_grams % 1000 === 0 ? `${data.pss_qty_grams / 1000} kg` : `${data.pss_qty_grams} g`} per option` : ''}
+              {counts.rejected > 0 && <span className="text-rose-600 dark:text-rose-400"> · {counts.rejected} replacement rejected</span>}
             </p>
           )}
           {data.client?.account_owner && (
@@ -206,14 +219,14 @@ export default function ContractDetailPage() {
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
-      {/* One card per container — its state and the PSS raised against it */}
+      {/* One card per option slot — its state and the lettered options raised in it */}
       <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="text-sm font-medium text-foreground">Containers</h2>
+        <h2 className="text-sm font-medium text-foreground">PSS options</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          One pre-shipment sample per container, due 45 days before shipment.
+          Lettered options (A, B, C…), due 45 days before shipment. A rejected option is replaced in the same slot with the next letter.
         </p>
         {data.containers.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">No containers on this contract.</p>
+          <p className="py-6 text-center text-sm text-muted-foreground">No PSS options expected on this contract.</p>
         ) : (
           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {data.containers.map((c) => (
@@ -223,12 +236,12 @@ export default function ContractDetailPage() {
         )}
       </section>
 
-      {/* Samples on this contract that no container claimed */}
+      {/* Samples on this contract that no slot claimed */}
       {data.unassigned?.length > 0 && (
         <section className="rounded-lg border border-border bg-card p-4">
-          <h2 className="text-sm font-medium text-foreground">Not on a container</h2>
+          <h2 className="text-sm font-medium text-foreground">Not in an option slot</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Linked to this contract without a container number, or past the expected count.
+            Linked to this contract without a slot, or past the expected number of options.
           </p>
           <div className="mt-3 flex flex-col gap-1.5">
             {data.unassigned.map((s) => (
@@ -259,6 +272,8 @@ export default function ContractDetailPage() {
           shipment_date: data.shipment_date,
           containers: Array.isArray(data.containers) ? data.containers.length : null,
           pss_expected: data.pss_expected,
+          po_ref: data.po_ref ?? null,
+          pss_qty_grams: data.pss_qty_grams ?? null,
           notes: data.notes,
         }}
       />

@@ -30,11 +30,12 @@ it('contract_status kind: PSS states get sentence-case labels and their own colo
   expect(tagLabel('contract_status', 'pss_partial')).toBe('PSS partial');
   expect(tagLabel('contract_status', 'pss_pending')).toBe('PSS pending');
   expect(tagLabel('contract_status', 'pss_approved')).toBe('PSS approved');
-  expect(tagLabel('contract_status', 'pss_rejected')).toBe('PSS rejected');
+  // Harriet's words (2026-09-10): the second rejection flags the contract "PSS replacement rejected".
+  expect(tagLabel('contract_status', 'pss_replacement_rejected')).toBe('PSS replacement rejected');
   // Not a PSS state — humanized like every other kind.
   expect(tagLabel('contract_status', 'shipped')).toBe('shipped');
   expect(tagColor('contract_status', 'pss_approved')).toContain('emerald');
-  expect(tagColor('contract_status', 'pss_rejected')).toContain('rose');
+  expect(tagColor('contract_status', 'pss_replacement_rejected')).toContain('rose');
   expect(tagColor('contract_status', 'pss_partial')).toContain('blue');
   expect(tagColor('contract_status', 'shipped')).toContain('teal');
   expect(tagColor('contract_status', 'open')).toContain('slate');

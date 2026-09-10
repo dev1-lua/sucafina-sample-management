@@ -10,7 +10,7 @@ import type { TabConfig } from './registry';
 // ContractsPage passes these pieces straight to RecordTable, the way ClientsPage does.
 
 export const CONTRACT_STATUSES = [
-  'open', 'pss_pending', 'pss_partial', 'pss_rejected', 'pss_approved', 'shipped', 'cancelled',
+  'open', 'pss_pending', 'pss_partial', 'pss_replacement_rejected', 'pss_approved', 'shipped', 'cancelled',
 ];
 
 /**
@@ -34,14 +34,14 @@ export function PssDueCell({ row }: { row: Record<string, unknown> }) {
   );
 }
 
-/** "1 of 2" approved — the one number that says how far a contract's PSS have got. */
+/** "1 of 2" approved — the one number that says how far a contract's PSS options have got. */
 function PssProgressCell({ row }: { row: Record<string, unknown> }) {
   const counts = row.pss_counts as PssCounts | undefined;
   if (!counts) return <CellValue value={null} />;
   return (
     <span className="tabular-nums">
       {counts.approved} of {counts.expected}
-      {counts.rejected > 0 && <span className="text-rose-600 dark:text-rose-400"> · {counts.rejected} rejected</span>}
+      {counts.rejected > 0 && <span className="text-rose-600 dark:text-rose-400"> · {counts.rejected} replacement rejected</span>}
     </span>
   );
 }
@@ -54,12 +54,13 @@ export const contractsConfig: TabConfig = {
   columns: [
     { key: 'contract_number', header: 'Contract #', sortKey: 'contract_number' },
     { key: 'client_name', header: 'Client', sortKey: 'client_name' },
+    { key: 'po_ref', header: 'PO ref', width: 110 },
     { key: 'quality', header: 'Quality' },
     { key: 'destination', header: 'Destination' },
     { key: 'shipment_date', header: 'Shipment', sortKey: 'shipment_date' },
     { key: 'pss_due_date', header: 'PSS due', sortKey: 'pss_due_date', render: (r) => <PssDueCell row={r} /> },
     { key: 'containers', header: 'Containers', sortKey: 'containers', width: 110 },
-    { key: 'pss_counts', header: 'PSS approved', width: 150, render: (r) => <PssProgressCell row={r} /> },
+    { key: 'pss_counts', header: 'PSS options approved', width: 170, render: (r) => <PssProgressCell row={r} /> },
     {
       key: 'status',
       header: 'Status',

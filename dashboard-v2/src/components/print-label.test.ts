@@ -70,13 +70,16 @@ describe('sampleLabelData', () => {
     expect(label.fields.map((f) => f.label)).toEqual(['Quality', 'Grade', 'Shipment month', 'Client']);
   });
 
-  it('PSS: the contract (+ container) is the second headline, subtitle says PSS, neither is repeated', () => {
+  it('PSS: the contract (+ option letter) is the second headline, subtitle says PSS, neither is repeated', () => {
     const label = sampleLabelData({
-      id: 'u-4', sample_ref: 'SSKE-9001', quality: 'AB FAQ', sample_type_norm: 'pss',
-      contract_number: 'P-77812', container_no: 3, shipment_month: 'Nov', client: 'Paulig',
+      id: 'u-4', sample_ref: 'SSKE-77812C', quality: 'AB FAQ', sample_type_norm: 'pss',
+      contract_number: 'P-77812', container_no: 3, option_letter: 'C', shipment_month: 'Nov', client: 'Paulig',
     });
     expect(label.subtitle).toBe('Commercial sample · PSS');
-    expect(label.headline2).toEqual({ label: 'CONTRACT', value: 'P-77812 · CTR 3' });
+    expect(label.headline2).toEqual({ label: 'CONTRACT', value: 'P-77812 · Option C' });
+    // A row from before the letters existed still shows its slot.
+    expect(sampleLabelData({ sample_ref: 'SSKE-9001', sample_type_norm: 'pss', contract_number: 'P-1', container_no: 3 }).headline2)
+      .toEqual({ label: 'CONTRACT', value: 'P-1 · Option 3' });
     expect(label.fields).toEqual([
       { label: 'Quality', value: 'AB FAQ' },
       { label: 'Shipment month', value: 'Nov' },
@@ -84,13 +87,13 @@ describe('sampleLabelData', () => {
     ]);
   });
 
-  it('non-PSS commercial rows keep contract and container as ordinary fields', () => {
-    const label = sampleLabelData({ sample_ref: 'SL-9002', quality: 'AA', sample_type_norm: 'offer', contract_number: 'P-1', container_no: 2 });
+  it('non-PSS commercial rows keep contract and option as ordinary fields', () => {
+    const label = sampleLabelData({ sample_ref: 'SL-9002', quality: 'AA', sample_type_norm: 'offer', contract_number: 'P-1', container_no: 2, option_letter: 'B' });
     expect(label.headline2).toBeUndefined();
     expect(label.fields).toEqual([
       { label: 'Quality', value: 'AA' },
       { label: 'Contract #', value: 'P-1' },
-      { label: 'Container', value: '2' },
+      { label: 'Option', value: 'B' },
     ]);
   });
 
