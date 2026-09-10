@@ -6,7 +6,7 @@ import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
 import { errorHandler } from '../src/errors.js';
 import { issueRef } from '../src/lib/refs.js';
 import {
-  containerState, contractStatusFrom, containerStates,
+  containerState, contractStatusFrom, containerStates, nextOptionLetters, pssRefFor, pssStageLabel,
   type PssRow, type ContainerState, type ContractStatus,
 } from '../src/lib/contracts.js';
 
@@ -95,6 +95,42 @@ describe('migration 020 — contracts + PSS schema', () => {
   });
 });
 
+// Harriet's answers (2026-09-10): a PSS request is N lettered OPTIONS (A, B, C…) of X g each; refs are
+// contract-derived (SSKE-<contract digits> + letter); a replacement takes the next unused letter; the
+// second rejection flags the contract "PSS replacement rejected" AND draws again.
+describe('migration 021 — lettered options, contract-derived refs, group asks', () => {
+  beforeAll(async () => {
+    await reapplyMigrationsFrom('021');   // idempotent: the constraint drop/add must survive a re-run
+  });
+  afterAll(async () => {
+    await pool.query(`DELETE FROM contracts`);
+  });
+
+  it('adds po_ref + pss_qty_grams on contracts and option_letter on both sample books', async () => {
+    const cols = async (table: string) => (await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = $1`, [table])).rows.map((r) => r.column_name);
+    expect(await cols('contracts')).toEqual(expect.arrayContaining(['po_ref', 'pss_qty_grams']));
+    expect(await cols('bulk_samples')).toContain('option_letter');
+    expect(await cols('specialty_samples')).toContain('option_letter');
+  });
+
+  it('renames the flag status: pss_replacement_rejected is allowed, pss_rejected is not', async () => {
+    const ok = await pool.query(
+      `INSERT INTO contracts (contract_number, status) VALUES ('M021-A', 'pss_replacement_rejected') RETURNING status`);
+    expect(ok.rows[0].status).toBe('pss_replacement_rejected');
+    await expect(pool.query(`INSERT INTO contracts (contract_number, status) VALUES ('M021-B', 'pss_rejected')`))
+      .rejects.toThrow(/contracts_status_check/);
+    await expect(pool.query(`INSERT INTO contracts (contract_number, pss_qty_grams) VALUES ('M021-C', 0)`))
+      .rejects.toThrow(/pss_qty_grams/);
+  });
+
+  it('client_detail_requests.via accepts group', async () => {
+    const { rows } = await pool.query(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'client_detail_requests_via_check'`);
+    expect(rows[0].def).toMatch(/'group'/);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------------
 // The status machine, as pure functions: one container's live PSS rows → a container state, the
 // containers' states → the contract's status. No DB, so every branch is cheap to pin down.
@@ -129,7 +165,7 @@ describe('contractStatusFrom', () => {
     ['one approved, one waiting', ['approved', 'pending'], 'pss_pending', 'pss_partial'],
     ['a replacement is owed', ['replacement_pending', 'pending'], 'pss_pending', 'pss_partial'],
     ['every container approved', ['approved', 'approved'], 'pss_partial', 'pss_approved'],
-    ['a failed container beats everything else', ['approved', 'failed'], 'pss_partial', 'pss_rejected'],
+    ['a twice-rejected option beats everything else', ['approved', 'failed'], 'pss_partial', 'pss_replacement_rejected'],
     ['shipped is sticky', ['approved', 'pending'], 'shipped', 'shipped'],
     ['cancelled is sticky', ['failed', 'failed'], 'cancelled', 'cancelled'],
   ];
@@ -151,6 +187,40 @@ describe('containerStates', () => {
     expect(states[0].samples.map((s) => s.id)).toEqual(['a']);
     expect(states[2].samples).toEqual([]);
     expect(states.flatMap((s) => s.samples).map((s) => s.id)).not.toContain('c');
+  });
+});
+
+describe('option letters + contract-derived refs (Harriet, 2026-09-10)', () => {
+  it('nextOptionLetters hands out the letters nobody holds yet, in order', () => {
+    expect(nextOptionLetters([], 3)).toEqual(['A', 'B', 'C']);
+    expect(nextOptionLetters(['A', 'B', 'C'], 3)).toEqual(['D', 'E', 'F']);   // A–C rejected → D–F
+    expect(nextOptionLetters(['A', 'C'], 1)).toEqual(['D']);                 // never re-uses a letter in play
+    expect(nextOptionLetters(['b'], 1)).toEqual(['C']);
+    expect(nextOptionLetters(Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)), 2)).toEqual(['AA', 'AB']);
+  });
+
+  it('pssRefFor is SSKE-<contract digits><letter>, and null when the number has no digits', () => {
+    expect(pssRefFor('SSKE-104929', 'D')).toBe('SSKE-104929D');   // the sheet's SSKE-104929D-F
+    expect(pssRefFor(' 103503 ', 'A')).toBe('SSKE-103503A');
+    expect(pssRefFor('CT-2026-14', 'B')).toBe('SSKE-202614B');
+    expect(pssRefFor('NO-DIGITS', 'A')).toBeNull();
+    expect(pssRefFor(null, 'A')).toBeNull();
+  });
+
+  it("pssStageLabel speaks Harriet's status vocabulary", () => {
+    const row = (o: Partial<PssRow>) => pss(o);
+    expect(pssStageLabel(row({ status: 'requested' }))).toBe('Pending PSS dispatch');
+    expect(pssStageLabel(row({ status: 'preparing' }))).toBe('Pending PSS dispatch');
+    expect(pssStageLabel(row({ status: 'dispatched' }))).toBe('PSS dispatched');
+    expect(pssStageLabel(row({ status: 'delivered' }))).toBe('Pending PSS results');
+    expect(pssStageLabel(row({ status: 'dispatched', result_norm: 'pending_feedback' }))).toBe('Pending PSS results');
+    expect(pssStageLabel(row({ status: 'results_in', result_norm: 'approved' }))).toBe('Sample approved');
+    expect(pssStageLabel(row({ status: 'results_in', result_norm: 'rejected' }))).toBe('PSS rejected');
+    expect(pssStageLabel(row({ status: 'requested', replaces_sample_id: 'x' }))).toBe('Replacement PSS requested after rejection');
+    expect(pssStageLabel(row({ status: 'dispatched', replaces_sample_id: 'x' }))).toBe('Pending replacement results');
+    expect(pssStageLabel(row({ status: 'results_in', result_norm: 'approved', replaces_sample_id: 'x' }))).toBe('Sample approved');
+    expect(pssStageLabel(row({ status: 'results_in', result_norm: 'rejected', replaces_sample_id: 'x' }))).toBe('PSS replacement rejected');
+    expect(pssStageLabel(row({ status: 'cancelled' }))).toBe('Cancelled');
   });
 });
 
@@ -193,18 +263,22 @@ describe('/contracts', () => {
   const outboxFor = async (id: string): Promise<Row[]> =>
     (await pool.query(`SELECT * FROM notifications_outbox WHERE sample_id = $1 ORDER BY created_at`, [id])).rows;
 
-  it('1. create with create_pss draws one PSS per container, quietly', async () => {
-    const c = await mkContract({ contract_number: 'CT-2026-01', containers: 2, create_pss: true });
+  it('1. create with create_pss draws one lettered option per PSS expected, quietly, with contract-derived refs', async () => {
+    const c = await mkContract({ contract_number: 'CT-2026-01', containers: 2, pss_qty_grams: 600, po_ref: 'PO-4711', create_pss: true });
     expect(c.pss_expected).toBe(2);
     expect(c.status).toBe('pss_pending');
+    expect(c.po_ref).toBe('PO-4711');
+    expect(c.pss_qty_grams).toBe(600);
     const rows = await pssRows(c.id);
-    expect(rows.map((r) => r.sample_ref)).toEqual(['SSKE-108000', 'SSKE-108001']);
+    // SSKE-<contract digits> + option letter — never the SSKE counter (real SSKE-108575 exists out there).
+    expect(rows.map((r) => r.sample_ref)).toEqual(['SSKE-202601A', 'SSKE-202601B']);
+    expect(rows.map((r) => r.option_letter)).toEqual(['A', 'B']);
     expect(rows.map((r) => r.container_no)).toEqual([1, 2]);
     for (const r of rows) {
       expect(r.sample_type_norm).toBe('pss');
       expect(r.status).toBe('requested');
-      expect(r.qty).toBe('1kg');
-      expect(r.qty_grams).toBe(1000);
+      expect(r.qty).toBe('600g');
+      expect(r.qty_grams).toBe(600);
       expect(r.quality).toBe('AB FAQ');
       expect(r.client).toBe('Container Roasters');
       expect(r.client_id).toBe(clientId);
@@ -243,6 +317,9 @@ describe('/contracts', () => {
 
     const replacement = (await pssRows(c.id)).find((r) => r.replaces_sample_id === rejected.id)!;
     expect(replacement.sample_ref).toBe(res.body.replacement_ref);
+    // Same option slot, the next unused letter: A, B rejected-B → C (the sheet's "…D-F" convention).
+    expect(replacement.sample_ref).toBe('SSKE-202603C');
+    expect(replacement.option_letter).toBe('C');
     expect(replacement.container_no).toBe(2);
     expect(replacement.status).toBe('requested');
     expect(replacement.comments).toBe(`Replacement PSS for ${rejected.sample_ref} — client rejected: moldy`);
@@ -258,23 +335,40 @@ describe('/contracts', () => {
     expect(d.status).toBe('pss_partial');
   });
 
-  it('4. a second rejection fails the container, flags the contract and reaches the outbox', async () => {
+  it('4. a second rejection flags the contract "PSS replacement rejected" AND draws the next letter', async () => {
     const c = await mkContract({ contract_number: 'CT-2026-04', containers: 1, create_pss: true });
     const first = (await pssRows(c.id))[0];
     await verdict(first.id, 'rejected', 'moldy');
     const replacement = (await pssRows(c.id)).find((r) => r.replaces_sample_id === first.id)!;
+    expect(replacement.option_letter).toBe('B');
     const res = await verdict(replacement.id, 'rejected', 'sour');
-    expect(res.body.replacement_ref).toBeNull();          // no third draw
+    // Harriet: "flag the contract AND draw the third sample with the next letter".
+    expect(res.body.replacement_ref).toBe('SSKE-202604C');
+    const third = (await pssRows(c.id)).find((r) => r.replaces_sample_id === replacement.id)!;
+    expect(third.option_letter).toBe('C');
+    expect(third.container_no).toBe(1);
 
-    const d = await getContract(c.id);
+    let d = await getContract(c.id);
     expect(d.containers[0].state).toBe('failed');
-    expect(d.status).toBe('pss_rejected');
+    expect(d.status).toBe('pss_replacement_rejected');
+    expect(d.containers[0].samples.map((r: Row) => r.stage)).toEqual([
+      'PSS rejected', 'PSS replacement rejected', 'Replacement PSS requested after rejection',
+    ]);
 
     const flags = (await outboxFor(c.id)).filter((r) => r.event === 'pss_rejected');
     expect(flags).toHaveLength(1);
     expect(flags[0].tab).toBe('contract');
     expect(flags[0].recipient).toBe('qc');
-    expect(flags[0].payload).toEqual({ contract_number: 'CT-2026-04', client_name: 'Container Roasters', failed_containers: [1] });
+    expect(flags[0].payload).toEqual({
+      contract_number: 'CT-2026-04', client_name: 'Container Roasters',
+      failed_containers: [1], failed_options: ['B'], replacements: ['SSKE-202604C'],
+    });
+
+    // The flag stays until an approval: the third option approved clears it.
+    await verdict(third.id, 'approved');
+    d = await getContract(c.id);
+    expect(d.status).toBe('pss_approved');
+    expect(d.containers[0].state).toBe('approved');
 
     const pending = await auth(request(app).get('/notifications/outbox-pending'));
     const item = pending.body.items.find((i: Row) => i.outbox_id === flags[0].id);
@@ -344,9 +438,19 @@ describe('/contracts', () => {
     expect(one.status).toBe(201);
     expect(one.body.contract_id).toBe(target.id);
     expect(one.body.container_no).toBe(1);
+    // A PSS logged against a contract gets the contract-derived ref and its option letter.
+    expect(one.body.sample_ref).toBe('SSKE-202614A');
+    expect(one.body.option_letter).toBe('A');
     const two = await auth(request(app).post('/bulk-samples'))
       .send({ quality: 'AB FAQ', client: 'Container Roasters', sample_type: 'pss', contract_number: ' ct-2026-14 ' });
     expect(two.body.container_no).toBe(2);
+    expect(two.body.sample_ref).toBe('SSKE-202614B');
+    // An explicit ref is kept as typed.
+    const typed = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB FAQ', client: 'Container Roasters', sample_type: 'pss', contract_number: 'CT-2026-14', sample_ref: 'SSKE-999999Z' });
+    expect(typed.body.sample_ref).toBe('SSKE-999999Z');
+    expect(typed.body.contract_id).toBe(target.id);
+    expect(typed.body.container_no).toBeNull();          // both slots taken
     expect((await getContract(target.id)).status).toBe('pss_pending');
     // A non-PSS row naming the same contract is left alone.
     const other = await auth(request(app).post('/bulk-samples'))
@@ -371,8 +475,9 @@ describe('/contracts', () => {
     const link = await auth(request(app).post(`/contracts/${c.id}/link`)).send({ tab: 'specialty', sample_id: s.body.id });
     expect(link.status).toBe(200);
     expect(link.body.container_no).toBe(2);
-    const { rows } = await pool.query(`SELECT contract_id, contract_number, container_no FROM specialty_samples WHERE id = $1`, [s.body.id]);
-    expect(rows[0]).toEqual({ contract_id: c.id, contract_number: 'CT-2026-09', container_no: 2 });
+    const { rows } = await pool.query(`SELECT contract_id, contract_number, container_no, option_letter FROM specialty_samples WHERE id = $1`, [s.body.id]);
+    expect(rows[0]).toEqual({ contract_id: c.id, contract_number: 'CT-2026-09', container_no: 2, option_letter: 'B' });
+    expect(drawn.body.sample_ref).toBe('SSKE-202609A');
     const d = await getContract(c.id);
     expect(d.containers.map((x: Row) => x.state)).toEqual(['pending', 'pending']);
     expect(d.containers[1].samples[0].tab).toBe('specialty');
@@ -385,9 +490,11 @@ describe('/contracts', () => {
     const list = await auth(request(app).get('/contracts?pageSize=100'));
     expect(list.status).toBe(200);
     expect(list.body.data.find((r: Row) => r.contract_number === 'CT-2026-04').pss_counts)
-      .toEqual({ expected: 1, approved: 0, rejected: 1, pending: 0 });
-    const flagged = await auth(request(app).get('/contracts?status=pss_rejected'));
-    expect(flagged.body.data.map((r: Row) => r.contract_number)).toEqual(['CT-2026-04']);
+      .toEqual({ expected: 1, approved: 1, rejected: 0, pending: 0 });
+    // CT-2026-04's flag cleared when its third option was approved (scenario 4) — nothing is flagged yet.
+    const flagged = await auth(request(app).get('/contracts?status=pss_replacement_rejected'));
+    expect(flagged.body.data).toEqual([]);
+    expect((await auth(request(app).get('/contracts?status=pss_rejected'))).status).toBe(400);
     expect((await auth(request(app).get('/contracts?status=bogus'))).status).toBe(400);
     const over = await auth(request(app).get('/contracts?overdue=true'));
     expect(over.body.data.map((r: Row) => r.contract_number)).toEqual(['CT-2026-05B']);
@@ -419,19 +526,30 @@ describe('/contracts', () => {
     expect((await auth(request(app).post('/notifications/outbox-mark')).send({ id: item.outbox_id, via: 'email' })).status).toBe(200);
   });
 
-  it('10. pss_counts ignores unassigned rows and puts every container in exactly one bucket', async () => {
+  it('10. pss_counts ignores unassigned rows and puts every option slot in exactly one bucket', async () => {
     const c = await mkContract({ contract_number: 'CT-2026-10', containers: 2, create_pss: true });
-    const first = (await pssRows(c.id))[0];                       // container 1
+    const first = (await pssRows(c.id))[0];                       // slot 1, option A
     await verdict(first.id, 'rejected', 'bad');
-    const replacement = (await pssRows(c.id)).find((r) => r.replaces_sample_id === first.id)!;
-    await verdict(replacement.id, 'rejected', 'worse');           // container 1 has now failed
+    const replacement = (await pssRows(c.id)).find((r) => r.replaces_sample_id === first.id)!;   // C
+    await verdict(replacement.id, 'rejected', 'worse');           // slot 1 flagged, D drawn automatically
     expect((await getContract(c.id)).pss_counts).toEqual({ expected: 2, approved: 0, rejected: 1, pending: 1 });
-
-    // A third draw on the failed container, approved: an approval ends the container, so it must be
-    // counted ONCE, as approved — never in both the approved and the rejected bucket.
-    const third = await auth(request(app).post(`/contracts/${c.id}/draw-pss`)).send({ container_no: 1 });
-    expect(third.status).toBe(201);
-    await verdict(third.body.id, 'approved');
+    expect((await auth(request(app).get('/contracts?status=pss_replacement_rejected'))).body.data.map((r: Row) => r.contract_number)).toContain('CT-2026-10');
+    // The slot already holds the auto-drawn D, so a manual draw is refused.
+    expect((await auth(request(app).post(`/contracts/${c.id}/draw-pss`)).send({ container_no: 1 })).status).toBe(409);
+    const third = (await pssRows(c.id)).find((r) => r.replaces_sample_id === replacement.id)!;
+    expect(third.option_letter).toBe('D');
+    // Leave CT-2026-10 flagged for scenario 8 — it approves a different slot's loose row below, and
+    // verifies the third option elsewhere.
+    const fourth = await mkContract({ contract_number: 'CT-2026-10B', containers: 2, create_pss: true });
+    const f1 = (await pssRows(fourth.id))[0];
+    await verdict(f1.id, 'rejected', 'bad');
+    const fr = (await pssRows(fourth.id)).find((r) => r.replaces_sample_id === f1.id)!;
+    await verdict(fr.id, 'rejected', 'worse');
+    const f3 = (await pssRows(fourth.id)).find((r) => r.replaces_sample_id === fr.id)!;
+    // An approval ends the slot, so it must be counted ONCE, as approved — never in both buckets.
+    await verdict(f3.id, 'approved');
+    expect((await getContract(fourth.id)).pss_counts).toEqual({ expected: 2, approved: 1, rejected: 0, pending: 1 });
+    expect((await getContract(fourth.id)).status).toBe('pss_partial');
 
     // A PSS pinned to the contract but to no container must not move the headline numbers at all.
     const loose = await auth(request(app).post('/bulk-samples'))
@@ -440,17 +558,69 @@ describe('/contracts', () => {
     await verdict(loose.body.id, 'approved');
 
     const d = await getContract(c.id);
-    expect(d.pss_counts).toEqual({ expected: 2, approved: 1, rejected: 0, pending: 1 });
+    expect(d.pss_counts).toEqual({ expected: 2, approved: 0, rejected: 1, pending: 1 });
     expect(d.unassigned.map((r: Row) => r.id)).toEqual([loose.body.id]);
-    // …and the counts agree with the container states they summarise (the whole point of the fix).
-    expect(d.containers.map((x: Row) => x.state)).toEqual(['approved', 'pending']);
+    // …and the counts agree with the slot states they summarise (the whole point of the fix).
+    expect(d.containers.map((x: Row) => x.state)).toEqual(['failed', 'pending']);
     expect(d.pss_counts.approved).toBe(d.containers.filter((x: Row) => x.state === 'approved').length);
     expect(d.pss_counts.rejected).toBe(d.containers.filter((x: Row) => x.state === 'failed').length);
     expect(d.pss_counts.pending).toBeGreaterThanOrEqual(0);
-    expect(d.status).toBe('pss_partial');
+    expect(d.status).toBe('pss_replacement_rejected');
     // The list roll-up runs the same SQL and must say the same thing.
-    const list = await auth(request(app).get('/contracts?q=CT-2026-10'));
-    expect(list.body.data[0].pss_counts).toEqual({ expected: 2, approved: 1, rejected: 0, pending: 1 });
+    const list = await auth(request(app).get('/contracts?q=CT-2026-10&status=pss_replacement_rejected'));
+    expect(list.body.data[0].pss_counts).toEqual({ expected: 2, approved: 0, rejected: 1, pending: 1 });
+  });
+
+  it('14. PSS quantity: the contract says, else the client\'s last PSS, else 1 kg', async () => {
+    // A PSS the desk logged for this client at 500 g is the client's "usual".
+    const usual = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB FAQ', client: 'Container Roasters', client_id: clientId, sample_type: 'pss', qty_grams: 500 });
+    expect(usual.status).toBe(201);
+    const byClient = await mkContract({ contract_number: 'CT-2026-14A', containers: 1, create_pss: true });
+    expect((await pssRows(byClient.id))[0].qty_grams).toBe(500);
+    expect((await pssRows(byClient.id))[0].qty).toBe('500g');
+    // A contract's own grams-per-option wins over the client's history.
+    const byContract = await mkContract({ contract_number: 'CT-2026-14B', containers: 1, pss_qty_grams: 300, create_pss: true });
+    expect((await pssRows(byContract.id))[0].qty_grams).toBe(300);
+    // A client with no PSS history and a contract that does not say: 1 kg, flagged in the comments.
+    const fresh = await auth(request(app).post('/clients')).send({ name: 'Newcomer Roasters' });
+    const noHistory = await auth(request(app).post('/contracts'))
+      .send({ contract_number: 'CT-2026-14C', client_id: fresh.body.id, containers: 1, create_pss: true });
+    const row = (await pssRows(noHistory.body.id))[0];
+    expect(row.qty_grams).toBe(1000);
+    expect(row.qty).toBe('1kg');
+    expect(row.comments).toMatch(/1 kg assumed/);
+    // PATCH accepts the two new fields.
+    const patched = await auth(request(app).patch(`/contracts/${byClient.id}`)).send({ po_ref: 'PO-1', pss_qty_grams: 600 });
+    expect(patched.body).toMatchObject({ po_ref: 'PO-1', pss_qty_grams: 600 });
+  });
+
+  it('15. a soft-deleted ref is reused when it was the latest number for its prefix (Harriet A)', async () => {
+    const mk = (type: string) => auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB FAQ', client: 'Container Roasters', client_id: clientId, sample_type: type });
+    const a = await mk('type');
+    const b = await mk('type');
+    const n = (ref: string) => Number(ref.split('-')[1]);
+    expect(n(b.body.sample_ref)).toBe(n(a.body.sample_ref) + 1);
+    // Delete the LATEST → its number comes back on the next request.
+    expect((await auth(request(app).delete(`/bulk-samples/${b.body.id}`))).status).toBe(200);
+    const c = await mk('type');
+    expect(c.body.sample_ref).toBe(b.body.sample_ref);
+    // Delete an OLDER one → the counter does not move.
+    expect((await auth(request(app).delete(`/bulk-samples/${a.body.id}`))).status).toBe(200);
+    const d = await mk('type');
+    expect(n(d.body.sample_ref)).toBe(n(c.body.sample_ref) + 1);
+    // Same rule on the Specialty book (SL-…).
+    const s1 = await auth(request(app).post('/specialty-samples')).send({ description: 'AA lot', receiver_company: 'X', sample_type_norm: 'offer' });
+    expect((await auth(request(app).delete(`/specialty-samples/${s1.body.id}`))).status).toBe(200);
+    const s2 = await auth(request(app).post('/specialty-samples')).send({ description: 'AA lot', receiver_company: 'X', sample_type_norm: 'offer' });
+    expect(s2.body.ref).toBe(s1.body.ref);
+    // A deleted option letter is free again too: A,B drawn, B deleted → next draw on slot 2 is B.
+    const ct = await mkContract({ contract_number: 'CT-2026-15', containers: 2, create_pss: true });
+    const rows = await pssRows(ct.id);
+    expect((await auth(request(app).delete(`/bulk-samples/${rows[1].id}`))).status).toBe(200);
+    const again = await auth(request(app).post(`/contracts/${ct.id}/draw-pss`)).send({ container_no: 2 });
+    expect(again.body.sample_ref).toBe('SSKE-202615B');
   });
 
   it('11. a rejected → approved → rejected flip-flop draws only one replacement', async () => {

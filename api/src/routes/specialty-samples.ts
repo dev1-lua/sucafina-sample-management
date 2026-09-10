@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
-import { issueRef } from '../lib/refs.js';
+import { issueRef, releaseRefIfLatest } from '../lib/refs.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
@@ -19,7 +19,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at','option_letter'] as const;
 
 // `sample_type_norm`/`courier_norm` are free text (migration 004) so operators can
 // enter values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -175,18 +175,22 @@ specialtySamples.get('/:id', h(async (req, res) => {
 specialtySamples.post('/', h(async (req, res) => {
   const body = parseBody(createSchema, req.body);
   const actor = actorFrom(req);
-  const ref = body.ref ?? (await issueRef(body.sample_type_norm));
-  // Auto-link (migration 020): a PSS logged with just its contract number finds the contract and the
-  // first container still without one. Non-PSS rows are left alone.
+  // Auto-link (migration 020/021): a PSS logged with just its contract number finds the contract, the
+  // first free option slot, its letter and its contract-derived ref. Non-PSS rows are left alone.
   let contractId = body.contract_id ?? null;
   let containerNo = body.container_no ?? null;
+  let optionLetter: string | null = null;
+  let linkedRef: string | null = null;
   if (!contractId) {
     const link = await resolveContractLink(pool, {
       contract_number: body.contract_number, sample_type_norm: body.sample_type_norm, container_no: containerNo,
     });
     contractId = link.contract_id;
     containerNo = link.container_no;
+    optionLetter = link.option_letter;
+    linkedRef = link.ref;
   }
+  const ref = body.ref ?? linkedRef ?? (await issueRef(body.sample_type_norm));
   const row = await runWithEvent(
     // date (verbatim text, shown in the dashboard's Date column) and date_on (typed, sorted on)
     // both default to today in Nairobi time when no explicit date is given; $18 supplies an override.
@@ -194,10 +198,10 @@ specialtySamples.post('/', h(async (req, res) => {
        (ref, description, receiver_company, sample_type_norm, outturn, name, grade, bags,
         awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, priority, logged_by, contract_id, container_no, date, date_on, status)
+        requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              COALESCE($17, (SELECT default_phyto_cert FROM clients WHERE id = $15::uuid)),
-             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,$30::uuid,$31,
+             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,$30::uuid,$31,$32,
              COALESCE($25, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($25::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -209,7 +213,7 @@ specialtySamples.post('/', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null, contractId, containerNo],
+     body.logged_by ?? null, contractId, containerNo, optionLetter],
     { entityType: 'specialty', type: 'created', note: `${body.description} for ${body.receiver_company}`, actor },
     // Feedback #29: Quality is pinged for every request added in full (create implies the intake gates passed).
     async (client, row) => {
@@ -321,7 +325,9 @@ specialtySamples.delete('/:id', h(async (req, res) => {
     // Harriet (round 6): every deletion is announced to QC; the row's other pending pings are closed.
     async (client, row) => {
       await enqueueDeleted(client, 'specialty', String(row.id), actor);
-      // A deleted PSS leaves its container empty again.
+      // Harriet (2026-09-10): the ref is reusable when it was the latest number for its prefix.
+      await releaseRefIfLatest(client, row.ref as string | null);
+      // A deleted PSS leaves its option slot (and letter) free again.
       if (row.contract_id) await recomputeContractStatus(client, String(row.contract_id), actor);
     },
   );

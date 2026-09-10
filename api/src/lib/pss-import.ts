@@ -6,7 +6,7 @@ import { drawPss, loadContractPss, recomputeContractStatus } from './contracts.j
 import { enqueueOutbox } from './notify-outbox.js';
 import {
   CANONICAL_FIELDS, detectHeaderRow, dueDateFrom, matchHeaders, monthLabel,
-  parseIntCell, parseShipmentDate, type CanonicalField,
+  parseIntCell, parseQtyPerSample, parseShipmentDate, type CanonicalField,
 } from './pss-mapping.js';
 
 // The SOL PSS schedule import (phase 5, task 5.4 — Harriet: "feed the PSS table from the SOL report").
@@ -144,6 +144,24 @@ export function readRows(
 // 2. The preview
 // ---------------------------------------------------------------------------------------------------
 
+/**
+ * The ways the desk writes a client on its own sheets (Harriet's pending-dispatch file): "Zoegas / Nestlé
+ * Sverige" (either name), "Nestlé España (Japan destination)" (the destination is not the client),
+ * "Marc Bang on behalf of CK CORPORATION" (the client is who it is FOR). The name as written comes first;
+ * the book is searched for each variant in turn.
+ */
+export function clientNameVariants(name: string): string[] {
+  const out: string[] = [];
+  const push = (v: string) => { const t = v.trim(); if (t && !out.includes(t)) out.push(t); };
+  push(name);
+  const obo = name.match(/^(.*?)\s+on behalf of\s+(.*)$/i);
+  if (obo) { push(obo[2]); push(obo[1]); }
+  const noParen = name.replace(/\s*\([^)]*\)\s*/g, ' ');
+  if (noParen.trim() !== name.trim()) push(noParen);
+  if (/\s\/\s/.test(name)) for (const part of name.split(/\s\/\s/)) push(part);
+  return out;
+}
+
 export type PreviewRow = {
   row_no: number;                       // 1-based sheet row of the group's FIRST line, as Excel shows it
   contract_number: string | null;
@@ -156,7 +174,9 @@ export type PreviewRow = {
   shipment_month: string | null;
   pss_due_date: string | null;
   containers: number;
-  pss_expected: number;
+  pss_expected: number;                 // the number of lettered PSS options (Harriet: free of the container count)
+  pss_qty_grams: number | null;         // grams per option, from "Quantity PER SAMPLE"
+  po_ref: string | null;
   container_nos: number[];
   notes: string | null;                 // the sheet's remarks column, carried onto the contract on commit
   existing_contract: { id: string; status: string; pss_expected: number } | null;
@@ -253,16 +273,20 @@ export async function buildPreview(
   /** Book match: the same client under a different spelling (exact), or one that merely looks like it. */
   const matchClient = (name: string | null): PreviewRow['client_match'] => {
     if (!name) return null;
-    const n = normalizeClientName(name);
-    if (n === '') return null;
-    const exact = book.find((c) => c.norm === n);
-    if (exact) return { id: exact.id, name: exact.name, kind: 'exact' };
-    if (n.length < 3) return null;
-    // "Gustav Paulig Ltd (NEW) Jan 23" ⊃ "Paulig". The longest candidate wins: it is the most specific.
-    const near = book
-      .filter((c) => c.norm.length >= 3 && (c.norm.includes(n) || n.includes(c.norm)))
-      .sort((a, b) => b.norm.length - a.norm.length || a.name.localeCompare(b.name))[0];
-    return near ? { id: near.id, name: near.name, kind: 'fuzzy' } : null;
+    const norms = clientNameVariants(name).map(normalizeClientName).filter((n) => n !== '');
+    for (const n of norms) {
+      const exact = book.find((c) => c.norm === n);
+      if (exact) return { id: exact.id, name: exact.name, kind: 'exact' };
+    }
+    for (const n of norms) {
+      if (n.length < 3) continue;
+      // "Gustav Paulig Ltd (NEW) Jan 23" ⊃ "Paulig". The longest candidate wins: it is the most specific.
+      const near = book
+        .filter((c) => c.norm.length >= 3 && (c.norm.includes(n) || n.includes(c.norm)))
+        .sort((a, b) => b.norm.length - a.norm.length || a.name.localeCompare(b.name))[0];
+      if (near) return { id: near.id, name: near.name, kind: 'fuzzy' };
+    }
+    return null;
   };
 
   const previewRows: PreviewRow[] = groups.map((group) => {
@@ -289,8 +313,11 @@ export async function buildPreview(
     // container is how the SOL export is written, and pss_expected mirrors the containers.
     const containersCell = parseIntCell(cell(first, 'containers'));
     const containers = containersCell !== null && containersCell > 0 ? containersCell : group.lines.length;
+    // The options: the PSS column, else "quantity per sample" ("3x600grams" = 3 options), else one per line.
+    const qty = group.lines.map((l) => parseQtyPerSample(cell(l, 'qty_per_sample'))).find((q) => q !== null) ?? null;
     const pssCell = parseIntCell(cell(first, 'pss_expected'));
-    const pss_expected = pssCell !== null && pssCell > 0 ? pssCell : containers;
+    const pss_expected = pssCell !== null && pssCell > 0 ? pssCell : qty?.options ?? containers;
+    const pss_qty_grams = qty?.grams ?? null;
     const listed = [...new Set(
       group.lines.map((l) => parseIntCell(cell(l, 'container_no'))).filter((n): n is number => n != null && n >= 1),
     )].sort((a, b) => a - b);
@@ -323,6 +350,8 @@ export async function buildPreview(
       pss_due_date: dueDateFrom(parsed.date),
       containers,
       pss_expected,
+      pss_qty_grams,
+      po_ref: firstWith('po_ref'),
       container_nos,
       notes: firstWith('notes'),
       existing_contract: existing,
@@ -447,6 +476,9 @@ export async function commitImport(
         clientId, clientName, row.quality, row.destination, row.shipment_date, row.shipment_month,
         row.containers, row.pss_expected, row.contract_number.trim(),
       ];
+      // Older stored previews (before 021) carry neither field.
+      const poRef = row.po_ref ?? null;
+      const qtyGrams = row.pss_qty_grams ?? null;
       let contractId: string;
       if (found[0]) {
         contractId = String(found[0].id);
@@ -464,9 +496,11 @@ export async function commitImport(
              pss_expected   = GREATEST(pss_expected, $9::int),
              notes          = COALESCE($10, notes),
              import_id      = $11::uuid,
+             po_ref         = COALESCE($12, po_ref),
+             pss_qty_grams  = COALESCE($13::int, pss_qty_grams),
              updated_at     = now()
            WHERE id = $1`,
-          [contractId, ...args.slice(0, 8), row.notes ?? null, importId]);
+          [contractId, ...args.slice(0, 8), row.notes ?? null, importId, poRef, qtyGrams]);
         await client.query(
           `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('contract', $1, 'edited', $2, $3)`,
           [contractId, `updated from SOL import ${imp.file_name ?? ''}`.trim(), o.actor]);
@@ -475,9 +509,9 @@ export async function commitImport(
         const { rows: made } = await client.query(
           `INSERT INTO contracts (contract_number, client_id, client_name, quality, destination,
                                   shipment_date, shipment_month, containers, pss_expected, notes,
-                                  source, import_id)
-           VALUES ($9, $1::uuid, $2, $3, $4, $5::date, $6, $7, $8, $10, 'sol_import', $11::uuid) RETURNING id`,
-          [...args, row.notes ?? null, importId]);
+                                  source, import_id, po_ref, pss_qty_grams)
+           VALUES ($9, $1::uuid, $2, $3, $4, $5::date, $6, $7, $8, $10, 'sol_import', $11::uuid, $12, $13::int) RETURNING id`,
+          [...args, row.notes ?? null, importId, poRef, qtyGrams]);
         contractId = String(made[0].id);
         await client.query(
           `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('contract', $1, 'created', $2, $3)`,

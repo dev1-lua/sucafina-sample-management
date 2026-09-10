@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
-import { issueRef } from '../lib/refs.js';
+import { issueRef, releaseRefIfLatest } from '../lib/refs.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
@@ -19,7 +19,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at','container_no','pss_due_date'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at','container_no','option_letter','pss_due_date'] as const;
 
 // Contracts + PSS (migration 020): the 45-day deadline lives on the contract, so the book borrows it as
 // a SELECT alias — legal in ORDER BY (hence the SORTABLE entry), never in WHERE (hence the EXISTS filters).
@@ -195,18 +195,23 @@ bulkSamples.post('/', h(async (req, res) => {
   // Auto-issue a Commercial ref when the trader didn't supply one, mirroring specialty-samples.
   // Prefix is chosen from the sample type (pss→SSKE, type→TYPE, else→SL). Feedback ⑱: without this
   // the chaser rendered these rows as "(no ref)" and Chat couldn't resolve them.
-  const sampleRef = body.sample_ref ?? (await issueRef(body.sample_type));
-  // Auto-link (migration 020): a PSS logged with just its contract number finds the contract and the
-  // first container still without one, so nobody has to know contract ids. Non-PSS rows are left alone.
+  // Auto-link (migration 020/021): a PSS logged with just its contract number finds the contract, the
+  // first option slot still free, its option letter and its contract-derived ref (SSKE-<digits><letter>),
+  // so nobody has to know contract ids. Non-PSS rows are left alone and take the counter ref.
   let contractId = body.contract_id ?? null;
   let containerNo = body.container_no ?? null;
+  let optionLetter: string | null = null;
+  let linkedRef: string | null = null;
   if (!contractId) {
     const link = await resolveContractLink(pool, {
       contract_number: body.contract_number, sample_type_norm: body.sample_type, container_no: containerNo,
     });
     contractId = link.contract_id;
     containerNo = link.container_no;
+    optionLetter = link.option_letter;
+    linkedRef = link.ref;
   }
+  const sampleRef = body.sample_ref ?? linkedRef ?? (await issueRef(body.sample_type));
   const row = await runWithEvent(
     // date + date_on default to today in Nairobi time when no explicit date is given; $21 overrides.
     `INSERT INTO bulk_samples
@@ -214,10 +219,10 @@ bulkSamples.post('/', h(async (req, res) => {
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
         comments, crop_year, client_id, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, priority, logged_by, contract_id, container_no, date, date_on, status)
+        requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
              COALESCE($20, (SELECT default_phyto_cert FROM clients WHERE id = $19::uuid)),
-             $21,$22,$23,$24,$25,$26,$27,$29,$30,COALESCE($31,'normal'),$32,$33::uuid,$34,
+             $21,$22,$23,$24,$25,$26,$27,$29,$30,COALESCE($31,'normal'),$32,$33::uuid,$34,$35,
              COALESCE($28, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($28::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -230,7 +235,7 @@ bulkSamples.post('/', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null, contractId, containerNo],
+     body.logged_by ?? null, contractId, containerNo, optionLetter],
     { entityType: 'bulk', type: 'created', note: `${body.quality} for ${body.client}`, actor },
     // Feedback #29: Quality is pinged for every request added in full (create implies the intake gates passed).
     async (client, row) => {
@@ -339,7 +344,9 @@ bulkSamples.delete('/:id', h(async (req, res) => {
     // Harriet (round 6): every deletion is announced to QC; the row's other pending pings are closed.
     async (client, row) => {
       await enqueueDeleted(client, 'bulk', String(row.id), actor);
-      // A deleted PSS leaves its container empty again.
+      // Harriet (2026-09-10): the ref is reusable when it was the latest number for its prefix.
+      await releaseRefIfLatest(client, row.sample_ref as string | null);
+      // A deleted PSS leaves its option slot (and letter) free again.
       if (row.contract_id) await recomputeContractStatus(client, String(row.contract_id), actor);
     },
   );

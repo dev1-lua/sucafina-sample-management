@@ -9,8 +9,8 @@ import { enqueueOutbox } from '../lib/notify-outbox.js';
 import { enqueueDeleted } from '../lib/change-alerts.js';
 import { parseId, assertIn, clampInt } from '../lib/validate.js';
 import {
-  containerStates, drawPss, firstFreeContainer, loadContractPss, recomputeContractStatus,
-  type ContractStatus,
+  containerStates, drawPss, firstFreeContainer, loadContractPss, nextOptionLetters, pssStageLabel,
+  recomputeContractStatus, usedOptionLetters, type ContractStatus, type PssRow,
 } from '../lib/contracts.js';
 
 export const contracts = Router();
@@ -20,7 +20,7 @@ export const contracts = Router();
 // samples drive the contract's status through api/src/lib/contracts.ts; nothing here decides it by hand
 // except the two manual states below.
 
-const STATUSES = ['open','pss_pending','pss_partial','pss_rejected','pss_approved','shipped','cancelled'] as const;
+const STATUSES = ['open','pss_pending','pss_partial','pss_replacement_rejected','pss_approved','shipped','cancelled'] as const;
 // A contract in one of these is done with PSS: no reminders, no recompute.
 const SETTLED = `('pss_approved','shipped','cancelled')`;
 
@@ -65,7 +65,11 @@ const createSchema = z.object({
   // Capped: create_pss draws one PSS per container inside a single transaction, so an absurd count
   // would hold that transaction (and a block of SSKE refs) open. No real contract is near 50.
   containers: z.number().int().min(1).max(50).default(1),
+  // Harriet (2026-09-10): the number of lettered PSS options — free of the container count.
   pss_expected: z.number().int().min(1).max(50).nullish(),
+  // The client's PO reference (JDE: "a PSS per PO") and the grams per option (CK 500 g, Zoegas 600 g…).
+  po_ref: z.string().trim().max(120).nullish(),
+  pss_qty_grams: z.number().int().min(1).max(50000).nullish(),
   notes: z.string().nullish(),
   // Draw the whole set of PSS requests up front (the dashboard's "create + draw" path).
   create_pss: z.boolean().nullish(),
@@ -81,6 +85,8 @@ const patchSchema = z.object({
   shipment_month: z.string().nullish(),
   containers: z.number().int().min(1).max(50).nullish(),
   pss_expected: z.number().int().min(1).max(50).nullish(),
+  po_ref: z.string().trim().max(120).nullish(),
+  pss_qty_grams: z.number().int().min(1).max(50000).nullish(),
   notes: z.string().nullish(),
   // Only the states a human owns: the PSS ones are derived. 'open' hands the contract back to the machine.
   status: z.enum(['shipped', 'cancelled', 'open']).nullish(),
@@ -202,14 +208,16 @@ contracts.get('/:id', h(async (req, res) => {
   const row = rows[0];
   if (!row) throw new HttpError(404, 'contract not found');
   const pssRows = await loadContractPss(pool, id);
-  const containers = containerStates(pssRows, row.pss_expected);
-  // Anything the containers did not claim (no container_no, or one past pss_expected) is still shown.
+  // Every row carries Harriet's stage wording ("Pending PSS dispatch", "Pending replacement results"…).
+  const staged = (r: PssRow) => ({ ...r, stage: pssStageLabel(r) });
+  const containers = containerStates(pssRows, row.pss_expected).map((c) => ({ ...c, samples: c.samples.map(staged) }));
+  // Anything the slots did not claim (no container_no, or one past pss_expected) is still shown.
   const claimed = new Set(containers.flatMap((c) => c.samples.map((s) => s.id)));
   res.json({
     ...row,
     client: row.client ?? null,
     containers,
-    unassigned: pssRows.filter((r) => !claimed.has(r.id)),
+    unassigned: pssRows.filter((r) => !claimed.has(r.id)).map(staged),
     events: await entityEvents('contract', id),
   });
 }));
@@ -232,10 +240,11 @@ contracts.post('/', h(async (req, res) => {
   const out: { status: ContractStatus | null } = { status: null };
   const row = await runWithEvent<Record<string, unknown>>(
     `INSERT INTO contracts (contract_number, client_id, client_name, quality, destination,
-                            shipment_date, shipment_month, containers, pss_expected, notes, source)
-     VALUES ($1,$2::uuid,$3,$4,$5,$6::date,$7,$8,$9,$10,'manual') RETURNING *`,
+                            shipment_date, shipment_month, containers, pss_expected, notes, source, po_ref, pss_qty_grams)
+     VALUES ($1,$2::uuid,$3,$4,$5,$6::date,$7,$8,$9,$10,'manual',$11,$12) RETURNING *`,
     [number, body.client_id ?? null, clientName, body.quality ?? null, body.destination ?? null,
-     body.shipment_date ?? null, body.shipment_month ?? null, body.containers, pssExpected, body.notes ?? null],
+     body.shipment_date ?? null, body.shipment_month ?? null, body.containers, pssExpected, body.notes ?? null,
+     body.po_ref || null, body.pss_qty_grams ?? null],
     { entityType: 'contract', type: 'created', note: `contract ${number}${clientName ? ` for ${clientName}` : ''}`, actor },
     async (client, created) => {
       if (body.create_pss) {
@@ -282,11 +291,14 @@ contracts.patch('/:id', h(async (req, res) => {
        pss_expected    = COALESCE($10, pss_expected),
        notes           = COALESCE($11, notes),
        status          = COALESCE($12, status),
+       po_ref          = COALESCE($13, po_ref),
+       pss_qty_grams   = COALESCE($14, pss_qty_grams),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, body.contract_number?.trim() ?? null, body.client_id ?? null, body.client_name ?? null,
      body.quality ?? null, body.destination ?? null, body.shipment_date ?? null, body.shipment_month ?? null,
-     body.containers ?? null, body.pss_expected ?? null, body.notes ?? null, body.status ?? null],
+     body.containers ?? null, body.pss_expected ?? null, body.notes ?? null, body.status ?? null,
+     body.po_ref || null, body.pss_qty_grams ?? null],
     {
       entityType: 'contract',
       type: statusChange ? 'status_change' : 'edited',
@@ -329,10 +341,11 @@ contracts.post('/:id/draw-pss', h(async (req, res) => {
     await client.query('BEGIN');
     const cur = await client.query(`SELECT id FROM contracts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [id]);
     if (!cur.rows[0]) throw new HttpError(404, 'contract not found');
-    // Only a container with nothing live — or whose samples were all rejected — may be drawn.
+    // Only a slot with nothing live — or whose options were all rejected — may be drawn by hand
+    // (a rejection draws its own replacement, so this is the "the auto-draw was deleted" path).
     const live = (await loadContractPss(client, id)).filter((r) => r.container_no === container_no);
     if (live.some((r) => r.result_norm !== 'rejected')) {
-      throw new HttpError(409, `container ${container_no} already has a live PSS`);
+      throw new HttpError(409, `option slot ${container_no} already has a live PSS`);
     }
     drawn = await drawPss(client, { contractId: id, containerNo: container_no, actor });
     await recomputeContractStatus(client, id, actor);
@@ -364,14 +377,16 @@ contracts.post('/:id/link', h(async (req, res) => {
     const contract = cur.rows[0];
     if (!contract) throw new HttpError(404, 'contract not found');
     containerNo = body.container_no ?? await firstFreeContainer(client, id, contract.pss_expected);
+    // The linked sample keeps its own ref (it exists) but takes the next option letter.
+    const letter = nextOptionLetters(await usedOptionLetters(client, id), 1)[0];
     const { rows } = await client.query(
-      `UPDATE ${table} SET contract_id = $2, contract_number = $3, container_no = $4, updated_at = now()
+      `UPDATE ${table} SET contract_id = $2, contract_number = $3, container_no = $4, option_letter = $5, updated_at = now()
         WHERE id = $1 AND deleted_at IS NULL RETURNING id, ${refColumn} AS ref`,
-      [body.sample_id, id, contract.contract_number, containerNo],
+      [body.sample_id, id, contract.contract_number, containerNo, letter],
     );
     const sample = rows[0];
     if (!sample) throw new HttpError(404, `${body.tab} sample not found`);
-    const where = containerNo ? ` container ${containerNo}` : ' (no free container)';
+    const where = containerNo ? ` option ${letter} (slot ${containerNo})` : ` option ${letter} (no free slot)`;
     await client.query(
       `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ($1, $2, 'edited', $3, $4)`,
       [body.tab, body.sample_id, `linked to contract ${contract.contract_number}${where}`, actor],

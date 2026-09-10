@@ -9,6 +9,9 @@ import XLSX from 'xlsx';
 export const CANONICAL_FIELDS = [
   'contract_number', 'client_name', 'quality', 'destination', 'shipment_date',
   'containers', 'pss_expected', 'container_no', 'notes',
+  // Harriet's pending-dispatch sheet (2026-09-10): "Quantity PER SAMPLE" ("3x600grams" = three lettered
+  // options of 600 g) and the client's PO reference.
+  'qty_per_sample', 'po_ref',
 ] as const;
 export type CanonicalField = (typeof CANONICAL_FIELDS)[number];
 
@@ -23,6 +26,8 @@ export const DEFAULT_SYNONYMS: Record<CanonicalField, string[]> = {
   pss_expected: ['pss', 'pss qty', 'no of pss', 'samples'],
   container_no: ['container no', 'container #', 'ctr no'],
   notes: ['notes', 'remarks', 'comments'],
+  qty_per_sample: ['quantity per sample', 'qty per sample', 'quantity', 'sample quantity', 'sample size', 'qty', 'grams per sample', 'weight per sample'],
+  po_ref: ['po ref', 'po', 'po number', 'po no', 'purchase order', 'client po', 'client ref'],
 };
 
 /** Lower-case, underscores and punctuation to spaces, whitespace collapsed. "  PSS_qty " → "pss qty". */
@@ -204,6 +209,23 @@ export function parseIntCell(v: unknown): number | null {
   if (s === '') return null;
   const m = s.match(/-?\d+(?:\.\d+)?/);
   return m ? Math.trunc(Number(m[0])) : null;
+}
+
+/**
+ * "4x1kg", "3x600grams", "2x500 grams", "2 × 300 g" → { options, grams }; a bare "600 g" / "1.5kg" / 600 →
+ * grams with options null (the sheet's other columns say how many). Anything else → null.
+ */
+export function parseQtyPerSample(v: unknown): { options: number | null; grams: number } | null {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? { options: null, grams: Math.round(v) } : null;
+  const s = String(v).trim().toLowerCase().replace(/,/g, '.');
+  if (s === '') return null;
+  const m = s.match(/^(?:(\d+)\s*[x×*]\s*)?(\d+(?:\.\d+)?)\s*(kgs?|kilos?|kilograms?|g|gr|gms?|grams?)?$/);
+  if (!m) return null;
+  const n = Number(m[2]);
+  const grams = /^k/.test(m[3] ?? 'g') ? Math.round(n * 1000) : Math.round(n);
+  if (!(grams > 0)) return null;
+  return { options: m[1] ? Number(m[1]) : null, grams };
 }
 
 /** "October 2026" — what the sample books print in their shipment_month column. */

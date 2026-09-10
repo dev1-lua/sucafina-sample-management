@@ -7,9 +7,9 @@ import { pool } from '../src/db.js';
 import { resetDb, API_KEY } from './helpers.js';
 import {
   CANONICAL_FIELDS, DEFAULT_SYNONYMS, normHeader, matchHeaders, detectHeaderRow,
-  parseShipmentDate, parseIntCell,
+  parseShipmentDate, parseIntCell, parseQtyPerSample,
 } from '../src/lib/pss-mapping.js';
-import { downloadImportFile, readRows } from '../src/lib/pss-import.js';
+import { clientNameVariants, downloadImportFile, readRows } from '../src/lib/pss-import.js';
 
 // Phase 5, task 5.4 — the SOL PSS schedule import. Harriet mails a spreadsheet of contracts; the agent
 // (or the dashboard) hands us its URL, we map the headers, show a preview, and on commit create the
@@ -66,6 +66,15 @@ const ZEROES_CSV = csvText([
   'CT-2026-30,Paulig,AB FAQ,Finland,20/10/2026,0,0',
 ]);
 
+// The desk's own "SAMPLES pending dispatch" sheet (Harriet, 2026-09-10): a quantity PER SAMPLE column
+// ("3x600grams" = three lettered options of 600 g), a PO ref, and client names as they are written.
+const PER_SAMPLE_CSV = csvText([
+  'Contract,Client,PO ref,Quantity PER SAMPLE,Quality,Shipment,Destination',
+  'SSKE-103503,Zoegas / Nestlé Sverige,PO-88,3x600grams,AB FAQ,20/11/2026,Sweden',
+  'SSKE-109646,Nestlé España (Japan destination),,4x1kg,PB,05/12/2026,Japan',
+  'SSKE-104929,Marc Bang on behalf of CK CORPORATION,,2x500 grams,AA,10/12/2026,Korea',
+]);
+
 const HOST = 'https://cdn.heylua.ai/uploads';
 const FILES: Record<string, { body: Buffer | string; status?: number; headers?: Record<string, string> }> = {
   [`${HOST}/sol-pss.csv`]: { body: csvBytes },
@@ -75,6 +84,7 @@ const FILES: Record<string, { body: Buffer | string; status?: number; headers?: 
   [`${HOST}/sol-noheader.csv`]: { body: NO_HEADER_CSV },
   [`${HOST}/sol-zeroes.csv`]: { body: ZEROES_CSV },
   [`${HOST}/sol-ddmm.csv`]: { body: DDMM_CSV },
+  [`${HOST}/sol-per-sample.csv`]: { body: PER_SAMPLE_CSV },
   [`${HOST}/sol-datecell.xlsx`]: { body: DATE_CELL_XLSX },
   [`${HOST}/sol.pdf`]: { body: Buffer.from('%PDF-1.4 not a spreadsheet') },
   [`${HOST}/gone.csv`]: { body: 'nope', status: 404 },
@@ -165,6 +175,34 @@ describe('pss-mapping', () => {
     expect(parseShipmentDate(null)).toEqual({ date: null, precision: null });
     expect(parseShipmentDate('   ')).toEqual({ date: null, precision: null });
     expect(parseShipmentDate('not a date')).toMatchObject({ date: null, precision: null, error: 'unparseable shipment date' });
+  });
+
+  it('maps the pending-dispatch sheet: quantity per sample and PO ref', () => {
+    const { mapping, unmapped } = matchHeaders(['Contract', 'Client', 'PO ref', 'Quantity PER SAMPLE', 'Quality', 'Shipment', 'Destination']);
+    expect(mapping).toEqual({ contract_number: 0, client_name: 1, po_ref: 2, qty_per_sample: 3, quality: 4, shipment_date: 5, destination: 6 });
+    expect(unmapped).toEqual([]);
+    // "PSS qty" still means the number of PSS, not the grams.
+    expect(matchHeaders(['Contract', 'PSS qty']).mapping).toEqual({ contract_number: 0, pss_expected: 1 });
+  });
+
+  it('parses "quantity per sample" as options × grams', () => {
+    expect(parseQtyPerSample('4x1kg')).toEqual({ options: 4, grams: 1000 });
+    expect(parseQtyPerSample('3x600grams')).toEqual({ options: 3, grams: 600 });
+    expect(parseQtyPerSample('2x500 grams')).toEqual({ options: 2, grams: 500 });
+    expect(parseQtyPerSample('2 × 300 g')).toEqual({ options: 2, grams: 300 });
+    expect(parseQtyPerSample('1.5kg')).toEqual({ options: null, grams: 1500 });
+    expect(parseQtyPerSample('600 g')).toEqual({ options: null, grams: 600 });
+    expect(parseQtyPerSample(600)).toEqual({ options: null, grams: 600 });
+    expect(parseQtyPerSample('')).toBeNull();
+    expect(parseQtyPerSample(null)).toBeNull();
+    expect(parseQtyPerSample('two bags')).toBeNull();
+  });
+
+  it('client names as the desk writes them: "X / Y", "(… destination)", "on behalf of"', () => {
+    expect(clientNameVariants('Zoegas / Nestlé Sverige')).toEqual(['Zoegas / Nestlé Sverige', 'Zoegas', 'Nestlé Sverige']);
+    expect(clientNameVariants('Nestlé España (Japan destination)')).toEqual(['Nestlé España (Japan destination)', 'Nestlé España']);
+    expect(clientNameVariants('Marc Bang on behalf of CK CORPORATION')).toEqual(['Marc Bang on behalf of CK CORPORATION', 'CK CORPORATION', 'Marc Bang']);
+    expect(clientNameVariants('Paulig')).toEqual(['Paulig']);
   });
 
   it('parses integer cells', () => {
@@ -435,15 +473,19 @@ describe('/imports/pss-schedule', () => {
       `SELECT b.*, c.contract_number FROM bulk_samples b JOIN contracts c ON c.id = b.contract_id
         WHERE b.deleted_at IS NULL ORDER BY c.contract_number, b.container_no`);
     expect(pss).toHaveLength(5);
-    expect(pss.map((r) => r.sample_ref)).toEqual(['SSKE-108000', 'SSKE-108001', 'SSKE-108002', 'SSKE-108003', 'SSKE-108004']);
-    expect(pss.map((r) => `${r.contract_number}/${r.container_no}`)).toEqual([
-      'CT-2026-14/1', 'CT-2026-14/2', 'CT-2026-15/1', 'CT-2026-16/1', 'CT-2026-16/2',
+    // Contract-derived refs + option letters, never the SSKE counter.
+    expect(pss.map((r) => r.sample_ref)).toEqual(['SSKE-202614A', 'SSKE-202614B', 'SSKE-202615A', 'SSKE-202616A', 'SSKE-202616B']);
+    expect(pss.map((r) => `${r.contract_number}/${r.container_no}${r.option_letter}`)).toEqual([
+      'CT-2026-14/1A', 'CT-2026-14/2B', 'CT-2026-15/1A', 'CT-2026-16/1A', 'CT-2026-16/2B',
     ]);
     const stamp = await today();
     for (const r of pss) {
       expect(r.sample_type_norm).toBe('pss');
       expect(r.status).toBe('requested');
-      expect(r.comments).toBe(`PSS scheduled from SOL import ${stamp}`);
+      // The fixture has no "quantity per sample" and these clients have no PSS history: 1 kg is assumed
+      // and the row says so (Harriet: never a silent fixed 1 kg).
+      expect(r.comments).toBe(`PSS scheduled from SOL import ${stamp} — 1 kg assumed — no PSS size on the contract or in ${r.client}'s history`);
+      expect(r.qty_grams).toBe(1000);
       expect(r.requested_by).toBe('Ivo');
       expect(r.logged_by).toBe('Ivo');
     }
@@ -564,6 +606,39 @@ describe('/imports/pss-schedule', () => {
     const xlsx = await preview('sol-datecell.xlsx');
     expect(xlsx.status).toBe(200);
     expect(xlsx.body.rows[0]).toMatchObject({ contract_number: 'CT-2026-42', shipment_date: '2026-12-01', date_precision: 'day' });
+  });
+
+  it('15. the pending-dispatch sheet: options × grams, PO ref, and the desk\'s client spellings', async () => {
+    const zoegas = await auth(request(app).post('/clients')).send({ name: 'Zoegas', country: 'Sweden' });
+    const ck = await auth(request(app).post('/clients')).send({ name: 'CK Corporation', country: 'Korea' });
+    const res = await preview('sol-per-sample.csv');
+    expect(res.status).toBe(200);
+    expect(res.body.detected_mapping).toMatchObject({ po_ref: 'PO ref', qty_per_sample: 'Quantity PER SAMPLE' });
+    const [z, n, c] = res.body.rows as Row[];
+    expect(z).toMatchObject({
+      contract_number: 'SSKE-103503', po_ref: 'PO-88', pss_expected: 3, pss_qty_grams: 600, container_nos: [1, 2, 3],
+      client_match: { id: zoegas.body.id, name: 'Zoegas', kind: 'exact' }, shipment_date: '2026-11-20', problems: [],
+    });
+    expect(n).toMatchObject({ contract_number: 'SSKE-109646', pss_expected: 4, pss_qty_grams: 1000, problems: [] });
+    expect(n.client_match).toMatchObject({ name: 'Nestlé España', kind: 'exact' });
+    expect(c).toMatchObject({
+      contract_number: 'SSKE-104929', pss_expected: 2, pss_qty_grams: 500,
+      client_match: { id: ck.body.id, name: 'CK Corporation', kind: 'exact' },
+    });
+    expect(res.body.summary.pss_to_create).toBe(9);
+
+    const done = await commit(res.body.import_id);
+    expect(done.status).toBe(200);
+    expect(done.body).toMatchObject({ contracts_created: 3, pss_created: 9 });
+    const contract = await contractByNumber('SSKE-103503');
+    expect(contract).toMatchObject({ po_ref: 'PO-88', pss_qty_grams: 600, pss_expected: 3, client_id: zoegas.body.id });
+    const { rows } = await pool.query(
+      `SELECT sample_ref, option_letter, container_no, qty, qty_grams FROM bulk_samples WHERE contract_id = $1 ORDER BY container_no`, [contract.id]);
+    expect(rows).toEqual([
+      { sample_ref: 'SSKE-103503A', option_letter: 'A', container_no: 1, qty: '600g', qty_grams: 600 },
+      { sample_ref: 'SSKE-103503B', option_letter: 'B', container_no: 2, qty: '600g', qty_grams: 600 },
+      { sample_ref: 'SSKE-103503C', option_letter: 'C', container_no: 3, qty: '600g', qty_grams: 600 },
+    ]);
   });
 
   it('13. a zero in the count columns reads as "not given", never as a contract of no containers', async () => {
