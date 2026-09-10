@@ -14,7 +14,7 @@ import ImportPssScheduleTool from '../src/skills/tools/ImportPssScheduleTool';
 import ConfirmPssImportTool from '../src/skills/tools/ConfirmPssImportTool';
 import ListPssDueTool from '../src/skills/tools/ListPssDueTool';
 import GetContractTool from '../src/skills/tools/GetContractTool';
-import { pssMessage } from '../src/jobs/status-notifier.job';
+import { pssMessage, QC_EVENTS, QC_AND_LOOP_EVENTS } from '../src/jobs/status-notifier.job';
 import type { OutboxItem } from '../src/lib/change-alerts';
 
 if (!/localhost|127\.0\.0\.1/.test(process.env.API_BASE_URL ?? '')) {
@@ -74,7 +74,7 @@ try {
   console.log(`mapping: ${JSON.stringify(preview.detected_mapping)}`);
   for (const r of preview.rows) {
     console.log(`  row ${r.row_no}: ${r.contract_number ?? '(no number)'} · ${r.client_name ?? '—'} [${r.client_match ?? 'no match'}]` +
-      ` ship ${r.shipment_date ?? '—'} (${r.date_precision ?? '—'}) due ${r.pss_due_date ?? '—'} × ${r.pss_expected} → ${r.action}` +
+      ` ship ${r.shipment_date ?? '—'} (${r.date_precision ?? '—'}) due ${r.pss_due_date ?? '—'} × ${r.pss_options} option(s)${r.grams_per_option ? ` of ${r.grams_per_option} g` : ''} → ${r.action}` +
       `${r.problems.length ? ` PROBLEMS: ${r.problems.join('; ')}` : ''}${r.warnings.length ? ` warn: ${r.warnings.join('; ')}` : ''}`);
   }
   ok('preview returns an import_id', Boolean(preview.import_id), String(preview.import_id));
@@ -111,11 +111,12 @@ try {
 
   // ───────────── 4. one contract
   const contract = await new GetContractTool().execute({ contract_number: num(14) });
-  console.log(`\nget_contract ${num(14)}: ${JSON.stringify({ status: contract.status, pss: contract.pss, containers: (contract.containers ?? []).length, url: contract.url })}`);
-  const cards: any[] = contract.containers ?? [];
+  console.log(`\nget_contract ${num(14)}: ${JSON.stringify({ status: contract.status, pss: contract.pss, options: (contract.options ?? []).length, url: contract.url })}`);
+  const cards: any[] = contract.options ?? [];
   ok('get_contract resolves the number exactly', contract.found === true && contract.contract_number === num(14), String(contract.contract_number));
-  ok('get_contract returns one card per container', cards.length === 2, JSON.stringify(cards.map((c) => c.state)));
-  ok('each container holds its drawn PSS', cards.every((c) => c.state === 'pending' && c.samples.length === 1 && /^SSKE-/.test(c.samples[0].ref)), JSON.stringify(cards.map((c) => c.samples.map((s: any) => s.ref))));
+  ok('get_contract returns one card per option slot', cards.length === 2, JSON.stringify(cards.map((c) => c.state)));
+  ok('each slot holds its lettered PSS with a contract-derived ref and a stage', cards.every((c) => c.state === 'pending' && c.samples.length === 1 && /^SSKE-\d+[A-Z]+$/.test(c.samples[0].ref) && /^[A-Z]+$/.test(c.samples[0].option) && c.samples[0].stage === 'Pending PSS dispatch'), JSON.stringify(cards.map((c) => c.samples.map((s: any) => [s.ref, s.option, s.stage]))));
+  ok('option letters run A, B across the slots', cards.map((c) => c.samples[0].option).join('') === 'AB', cards.map((c) => c.samples[0].option).join(''));
   ok('get_contract links to the dashboard', /\/contracts\//.test(contract.url ?? ''), contract.url);
   const missing = await new GetContractTool().execute({ contract_number: `CT-${stamp}-NOPE` });
   ok('an unknown number is reported, not invented', missing.found === false, String(missing.message));
@@ -133,7 +134,7 @@ try {
     { ...base, tab: 'contract', event: 'pss_overdue', ref: num(14), client_name: `Paulig ${TAG}`,
       payload: { contract_number: num(14), shipment_date: '2026-10-20', pss_due_date: '2026-09-05', days_left: -4, overdue_days: 4, missing_pss: 2, approved: 0, expected: 2 } },
     { ...base, tab: 'contract', event: 'pss_rejected', ref: num(14), client_name: `Paulig ${TAG}`,
-      payload: { contract_number: num(14), failed_containers: [2] } },
+      payload: { contract_number: num(14), failed_containers: [2], failed_options: ['C'], replacements: ['SSKE-202614D'] } },
     { ...base, tab: 'import', event: 'pss_schedule_imported', ref: 'sol-pss.csv', client_name: null,
       payload: { file_name: 'sol-pss.csv', contracts_created: 3, contracts_updated: 0, pss_created: 5, first_due: '2026-07-18', actor: 'Harriet' } },
   ];
@@ -143,10 +144,11 @@ try {
     console.log(`--- ${i.event} ---\nsubject: ${m.subject}\ntext:    ${m.text}`);
   }
   const [soon, over, rej, imp] = items.map(pssMessage);
-  ok('due-soon names the countdown, the ship date and what is left', /PSS due in 7 days/.test(soon.text) && /0 of 2 approved/.test(soon.text) && /2 PSS still to send/.test(soon.text), soon.text);
+  ok('due-soon names the countdown, the ship date and what is left', /PSS due in 7 days/.test(soon.text) && /0 of 2 options approved/.test(soon.text) && /2 options still to send/.test(soon.text), soon.text);
   ok('overdue leads with how late it is', /PSS OVERDUE 4d/.test(over.text) && over.subject.startsWith('PSS OVERDUE 4d'), over.text);
-  ok('a twice-rejected container asks for a decision', /container 2 rejected twice/.test(rej.text) && /decide with the trader/.test(rej.text), rej.text);
-  ok('the import summary counts contracts and PSS', /5 PSS scheduled across 3 contracts \(3 new\)/.test(imp.text), imp.text);
+  ok("a twice-rejected option is Harriet's 'PSS replacement rejected', names the letter and the next draw", /PSS replacement rejected — option C; SSKE-202614D drawn as the next option/.test(rej.text) && /settle with the trader/.test(rej.text), rej.text);
+  ok('the import summary counts contracts and options', /5 options scheduled across 3 contracts \(3 new\)/.test(imp.text), imp.text);
+  ok('reminders are routed to QC only; the flag still reaches the account manager', QC_EVENTS.has('pss_due_soon') && QC_EVENTS.has('pss_overdue') && !QC_AND_LOOP_EVENTS.has('pss_due_soon') && !QC_AND_LOOP_EVENTS.has('pss_overdue') && QC_AND_LOOP_EVENTS.has('pss_rejected'));
 } catch (e: any) {
   failures += 1;
   console.error('❌ harness crashed:', e.stack ?? e.message ?? e);

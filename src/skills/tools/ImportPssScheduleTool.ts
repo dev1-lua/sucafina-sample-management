@@ -15,6 +15,8 @@ type PreviewRow = {
   pss_due_date: string | null;
   containers: number;
   pss_expected: number;
+  pss_qty_grams: number | null;
+  po_ref: string | null;
   action: string;
   problems: string[];
   warnings: string[];
@@ -23,7 +25,7 @@ type PreviewRow = {
 export default class ImportPssScheduleTool implements LuaTool {
   name = 'import_pss_schedule';
   description =
-    'Parse an SOL PSS schedule (xlsx/csv URL) into a preview. NEVER commits — show the preview and wait for an explicit go. Returns the import_id, the summary, the detected column mapping and the first rows, each with what it would do (create/update/skip) and any problems or warnings. A PDF is refused: ask for the Excel/CSV export.';
+    'Parse an SOL PSS schedule (xlsx/csv URL) into a preview. NEVER commits — show the preview and wait for an explicit go. Returns the import_id, the summary, the detected column mapping and the first rows, each with the contract, client match, shipment/due dates, PSS options × grams (from "quantity per sample"), PO ref, what it would do (create/update/skip) and any problems or warnings. A PDF is refused: ask for the Excel/CSV export.';
 
   inputSchema = z.object({
     file_url: z
@@ -70,7 +72,9 @@ export default class ImportPssScheduleTool implements LuaTool {
         date_precision: r.date_precision,
         pss_due_date: r.pss_due_date,
         containers: r.containers,
-        pss_expected: r.pss_expected,
+        pss_options: r.pss_expected,
+        grams_per_option: r.pss_qty_grams ?? null,
+        po_ref: r.po_ref ?? null,
         action: r.action,
         problems: r.problems,
         warnings: r.warnings,

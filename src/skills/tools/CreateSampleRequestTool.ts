@@ -6,12 +6,12 @@ const item = z.object({
   quality: z.string().describe('Coffee quality/description, e.g. "AB FAQ", "AA SANGALAI"'),
   sample_type: z.enum(['offer', 'type', 'pss', 'woc', 'retention', 'flavor_mapping', 'marketing', 'calibration', 'other'])
     .describe('Kind of sample'),
-  qty_grams: z.number().int().optional().describe('Quantity in grams; defaults: offer 200, type 300, pss 1000'),
+  qty_grams: z.number().int().optional().describe('Quantity in grams; defaults: offer 200, type 300. A PSS has no fixed default — give the client\'s usual size.'),
   grade: z.string().optional().describe('Grade if stated, e.g. AA, AB, PB'),
   roast_instructions: z.string().optional(),
 });
 
-const DEFAULT_QTY: Record<string, number> = { offer: 200, type: 300, pss: 1000 };
+const DEFAULT_QTY: Record<string, number> = { offer: 200, type: 300 };
 
 export default class CreateSampleRequestTool implements LuaTool {
   name = 'create_sample_request';

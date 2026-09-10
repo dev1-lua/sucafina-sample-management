@@ -46,7 +46,7 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       .number()
       .int()
       .optional()
-      .describe('Quantity in grams; defaults by sample type if omitted (offer 200, type 300, pss 1000).'),
+      .describe('Quantity in grams; defaults by sample type if omitted (offer 200, type 300). A PSS has no fixed default — pass the client\'s usual size.'),
     comments: z.string().optional(),
     crop_year: z.string().optional().describe('Harvest year, e.g. "2025/2026".'),
     client_id: z.string().optional().describe('Client id from find_client, when resolved.'),

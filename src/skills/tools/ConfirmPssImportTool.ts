@@ -6,7 +6,7 @@ import { contractsUrl } from '../../lib/links';
 export default class ConfirmPssImportTool implements LuaTool {
   name = 'confirm_pss_import';
   description =
-    'Commit a PSS schedule preview from import_pss_schedule: creates/updates the contracts and draws one PSS request per container. Call ONLY after the user has explicitly said yes to the preview. Use overrides to point a row at a specific client, or to skip a row. An import can be committed once.';
+    'Commit a PSS schedule preview from import_pss_schedule: creates/updates the contracts and draws the lettered PSS options (A, B, C… with contract-derived SSKE refs) that are still missing. Call ONLY after the user has explicitly said yes to the preview. Use overrides to point a row at a specific client, or to skip a row. An import can be committed once.';
 
   inputSchema = z.object({
     import_id: z.string().min(1).describe('import_id returned by import_pss_schedule.'),

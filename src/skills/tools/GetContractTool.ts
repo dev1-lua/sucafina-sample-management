@@ -10,10 +10,10 @@ const norm = (s: unknown) => String(s ?? '').trim().toUpperCase();
 export default class GetContractTool implements LuaTool {
   name = 'get_contract';
   description =
-    'Get one contract by its number: client, quality, destination, shipment + PSS due date, status, and every container with the pre-shipment samples drawn for it (ref, status, result, dispatch, replacements). Use for "where are we on CT-2026-14", "has Paulig approved their PSS".';
+    'Get one contract by its number: client, PO ref, quality, destination, shipment + PSS due date, status, grams per option, and every option slot with the lettered pre-shipment samples drawn in it (ref, option letter, stage in the team\'s words, status, result, dispatch, replacements). Use for "where are we on SSKE-104929", "has Paulig approved their PSS".';
 
   inputSchema = z.object({
-    contract_number: z.string().min(1).describe('Contract number as written, e.g. "CT-2026-14".'),
+    contract_number: z.string().min(1).describe('Contract number as written, e.g. "SSKE-104929" or "CT-2026-14".'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -37,6 +37,8 @@ export default class GetContractTool implements LuaTool {
       found: true,
       id: String(c.id),
       contract_number: c.contract_number,
+      po_ref: c.po_ref ?? null,
+      pss_qty_grams: c.pss_qty_grams ?? null,
       client: c.client ? { id: c.client.id, name: c.client.name, account_owner: c.client.account_owner?.name ?? null } : null,
       client_name: c.client_name,
       quality: c.quality,
@@ -46,13 +48,16 @@ export default class GetContractTool implements LuaTool {
       pss_due_date: c.pss_due_date,
       status: c.status,
       containers_total: hit.containers,
-      pss: { expected: counts.expected, approved: counts.approved, rejected: counts.rejected, pending: counts.pending },
-      containers: containers.map((ct: any) => ({
-        container_no: ct.container_no,
-        state: ct.state,
+      // expected = the number of lettered options; rejected = slots whose replacement was rejected too.
+      pss: { expected: counts.expected, approved: counts.approved, replacement_rejected: counts.rejected, pending: counts.pending },
+      options: containers.map((ct: any) => ({
+        slot: ct.container_no,
+        state: ct.state === 'failed' ? 'replacement_rejected' : ct.state,
         samples: (ct.samples ?? []).map((s: any) => ({
           tab: s.tab,
           ref: s.ref,
+          option: s.option_letter ?? null,
+          stage: s.stage ?? null,
           status: s.status,
           result: s.result_norm,
           awb: s.awb,
@@ -61,7 +66,7 @@ export default class GetContractTool implements LuaTool {
           replaces_sample_id: s.replaces_sample_id,
         })),
       })),
-      unassigned: (c.unassigned ?? []).map((s: any) => ({ tab: s.tab, ref: s.ref, status: s.status, result: s.result_norm })),
+      unassigned: (c.unassigned ?? []).map((s: any) => ({ tab: s.tab, ref: s.ref, option: s.option_letter ?? null, stage: s.stage ?? null, status: s.status, result: s.result_norm })),
       notes: c.notes,
       url: contractsUrl(String(c.id)),
     };

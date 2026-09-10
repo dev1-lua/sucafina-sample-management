@@ -57,6 +57,9 @@ export type OutboxItem = {
     approved?: number;
     expected?: number;
     failed_containers?: number[];
+    /** Migration 021: the rejected option letters per flagged slot, and the refs drawn to replace them. */
+    failed_options?: string[];
+    replacements?: string[];
     file_name?: string | null;
     contracts_created?: number;
     contracts_updated?: number;

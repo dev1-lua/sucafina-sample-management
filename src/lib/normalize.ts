@@ -42,11 +42,14 @@ export const TAB_ENDPOINT: Record<Tab, string> = {
   forwarding: 'forwarding-samples',
 };
 
-/** Sensible qty defaults by sample type (data-dictionary §5.6 + spec §6.2/6.3). */
+/**
+ * Sensible qty defaults by sample type (data-dictionary §5.6 + spec §6.2/6.3). A PSS has NO fixed default
+ * (Harriet, 2026-09-10): the size is the client's usual — Nespresso 1 kg, Zoegas 600 g, JDE 300 g, CK 500 g —
+ * so the create tools look at the client's last PSS and otherwise ask.
+ */
 export const DEFAULT_QTY_GRAMS: Partial<Record<SampleType, number>> = {
   offer: 200,
   type: 300,
-  pss: 1000,
 };
 
 // ---- Courier (data-dictionary §5.1) --------------------------------------

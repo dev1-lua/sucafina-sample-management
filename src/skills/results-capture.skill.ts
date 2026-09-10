@@ -16,8 +16,10 @@ Use when someone shares cupping notes or a client verdict, e.g. "PSS3 cupped 83,
 - Scores/tasting notes go in comments verbatim; result is approved/rejected/pending_feedback.
 - On a REJECTION, capture the reason in \`rejection_reason\` (e.g. "moldy, inconsistent cup", "quakers")
   in addition to the verbatim notes in \`comments\` — it drives the dashboard's rejection tracking.
-- If the rejected sample is a contract PSS, the replacement is drawn automatically (record_result returns
-  \`replacement_ref\`) — tell the user the new ref and that QC was pinged.
+- If the rejected sample is a contract PSS, the replacement is drawn automatically with the next option
+  letter (record_result returns \`replacement_ref\`, e.g. SSKE-104929D) — tell the user the new ref and that
+  QC was pinged. A second rejection in the same slot also flags the contract "PSS replacement rejected";
+  the next option is still drawn — say both.
 - "what's awaiting feedback?" -> list_awaiting_results. Its \`total\` is the TRUE count of everything
   awaiting a result; \`samples\` is just the first page. Answer "how many" with \`total\`, and when
   \`has_more\` is true, offer oldest-first or a client filter rather than implying the examples are all.`,

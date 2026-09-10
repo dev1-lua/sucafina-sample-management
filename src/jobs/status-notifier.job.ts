@@ -19,10 +19,11 @@ const BOOK: Record<string, string> = { specialty: 'Specialty', bulk: 'Commercial
 
 // Routing sets (courier tracking, this job — Phase 5 reuses for the pss_* events, wired here so the
 // routing never needs to move again). QC_AND_LOOP_EVENTS gets BOTH: the Quality team plus whoever is
-// kept in the loop on the sample.
-export const QC_EVENTS = new Set(['created', 'deleted', 'request_edited', 'pss_schedule_imported']);
+// kept in the loop on the sample. Harriet (2026-09-10): the PSS reminders (14/7/0 days + weekly while
+// overdue) go to QC ONLY; a twice-rejected option still reaches the account manager as well.
+export const QC_EVENTS = new Set(['created', 'deleted', 'request_edited', 'pss_schedule_imported', 'pss_due_soon', 'pss_overdue']);
 export const LOOP_EVENTS = new Set(['preparing', 'dispatched', 'awb_added', 'delivered']);
-export const QC_AND_LOOP_EVENTS = new Set(['tracking_exception', 'pss_rejected', 'pss_due_soon', 'pss_overdue']);
+export const QC_AND_LOOP_EVENTS = new Set(['tracking_exception', 'pss_rejected']);
 
 /** First occurrence per lowercased email wins; entries with no email pass through untouched (they're
  * filtered out as unreachable later) so a QC member and a loop-in sharing one inbox get pinged once. */
@@ -113,30 +114,33 @@ export function pssMessage(i: OutboxItem): { text: string; subject: string } {
   const p = i.payload ?? {};
   const ref = i.ref ?? '';
   const who = i.client_name ?? p.client_name ?? '—';
+  const options = (n: number | undefined) => `${n ?? '?'} option${n === 1 ? '' : 's'}`;
   if (i.event === 'pss_due_soon') {
     const when = p.days_left === 0 ? 'TODAY' : `in ${p.days_left} days`;
     return {
-      text: `PSS due ${when}: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${p.approved} of ${p.expected} approved • ${p.missing_pss} PSS still to send`,
+      text: `PSS due ${when}: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${p.approved} of ${p.expected} options approved • ${options(p.missing_pss)} still to send`,
       subject: `PSS due ${when}: ${ref}`,
     };
   }
   if (i.event === 'pss_overdue') {
     return {
-      text: `⚠️ PSS OVERDUE ${p.overdue_days}d: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${p.missing_pss} PSS still to send`,
+      text: `⚠️ PSS OVERDUE ${p.overdue_days}d: **${ref} · ${who}** ship ${shortDate(p.shipment_date)} • ${options(p.missing_pss)} still to send`,
       subject: `PSS OVERDUE ${p.overdue_days}d: ${ref}`,
     };
   }
   if (i.event === 'pss_rejected') {
-    const containers = (p.failed_containers ?? []).join(', ');
+    // Harriet's words: "PSS replacement rejected" — the contract is flagged AND the next letter is drawn.
+    const letters = (p.failed_options ?? []).length ? `option ${p.failed_options!.join(', ')}` : `slot ${(p.failed_containers ?? []).join(', ')}`;
+    const drawn = (p.replacements ?? []).length ? `; ${p.replacements!.join(', ')} drawn as the next option` : '';
     return {
-      text: `❌ ${ref} · ${who}: PSS for container ${containers} rejected twice — contract flagged; decide with the trader`,
-      subject: `PSS rejected twice: ${ref}`,
+      text: `❌ ${ref} · ${who}: PSS replacement rejected — ${letters}${drawn} — contract flagged until an option is approved; settle with the trader`,
+      subject: `PSS replacement rejected: ${ref}`,
     };
   }
   // pss_schedule_imported
   return {
-    text: `SOL schedule imported (${p.file_name ?? ref}) by ${p.actor ?? 'the desk'}: ${p.pss_created} PSS scheduled across ${(p.contracts_created ?? 0) + (p.contracts_updated ?? 0)} contracts (${p.contracts_created} new) • first due ${shortDate(p.first_due)}`,
-    subject: `SOL PSS schedule imported: ${p.pss_created} PSS`,
+    text: `SOL schedule imported (${p.file_name ?? ref}) by ${p.actor ?? 'the desk'}: ${options(p.pss_created)} scheduled across ${(p.contracts_created ?? 0) + (p.contracts_updated ?? 0)} contracts (${p.contracts_created} new) • first due ${shortDate(p.first_due)}`,
+    subject: `SOL PSS schedule imported: ${options(p.pss_created)}`,
   };
 }
 

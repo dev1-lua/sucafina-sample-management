@@ -45,7 +45,7 @@ export default class CreateBulkSampleTool implements LuaTool {
       .number()
       .int()
       .optional()
-      .describe('Quantity in grams; defaults by sample type if omitted (offer 200, type 300, pss 1000).'),
+      .describe('Quantity in grams; defaults by sample type if omitted (offer 200, type 300). A PSS defaults to the client\'s last PSS size; when there is none the result says qty_to_confirm and you ask once.'),
     moisture_pct: z.number().optional().describe('Green moisture %, if given by the lab.'),
     water_activity_num: z.number().optional().describe('Water activity (aw), if given by the lab.'),
     comments: z.string().optional(),
@@ -74,7 +74,7 @@ export default class CreateBulkSampleTool implements LuaTool {
     const courier = normalizeCourier(input.courier);
     const awb = normalizeAwb(input.awb);
     const country = normalizeCountry(input.country);
-    const qtyGrams = input.qty_grams ?? DEFAULT_QTY_GRAMS[sampleType];
+    let qtyGrams = input.qty_grams ?? DEFAULT_QTY_GRAMS[sampleType];
     const pssNote = sampleType === 'pss' ? extractPssNote(input.sample_type) : undefined;
     const comments = [input.comments, pssNote].filter(Boolean).join(' — ') || undefined;
     // For a PSS, derive the shipment month from the type string ("PSS June Shipment") if not given.
@@ -88,6 +88,13 @@ export default class CreateBulkSampleTool implements LuaTool {
     const deliverable = await checkDeliverable({ client_id: input.client_id, name: input.client, country, requireCountry: true });
     void touchRoster();
     const clientId = input.client_id ?? deliverable.client_id;
+    // A PSS with no size given takes the client's usual (their last PSS in the Commercial book) — never a
+    // fixed 1 kg. With no history either, the row is written without a qty and the model asks once.
+    let qtySource: 'given' | 'default' | 'client_usual' | 'none' = input.qty_grams != null ? 'given' : qtyGrams != null ? 'default' : 'none';
+    if (qtyGrams == null && sampleType === 'pss') {
+      const usual = await lastPssQty(clientId);
+      if (usual != null) { qtyGrams = usual; qtySource = 'client_usual'; }
+    }
     // Backfill the client's country from the destination when the book had none (never overwrites).
     if (deliverable.client && !deliverable.client.country && country) {
       await apiFetch('/clients', { method: 'POST', body: JSON.stringify({ name: deliverable.client.name, country }) }).catch(() => undefined);
@@ -138,6 +145,8 @@ export default class CreateBulkSampleTool implements LuaTool {
       client_id: clientId ?? null,
       client_created: deliverable.client_created,
       client_details_missing: deliverable.details_missing,
+      qty_source: qtySource,
+      ...(sampleType === 'pss' && qtySource === 'none' ? { qty_to_confirm: true, qty_hint: 'Ask once how many grams per PSS option this client takes (e.g. Nespresso 1 kg, Zoegas 600 g, JDE 300 g, CK 500 g), then update_sample_status with qty_grams.' } : {}),
       client_details_optional: deliverable.details_optional,
       client_url: clientId ? dashboardUrl('clients', clientId, deliverable.client_created ? 'created' : 'updated') : null,
       tab: 'bulk',
@@ -161,5 +170,17 @@ export default class CreateBulkSampleTool implements LuaTool {
       priority: row.priority,
       url: dashboardUrl('bulk', row.id, 'created'),
     };
+  }
+}
+
+/** The client's usual PSS size: the last PSS in the Commercial book that was not itself an assumption. */
+async function lastPssQty(clientId: string | null | undefined): Promise<number | null> {
+  if (!clientId) return null;
+  try {
+    const res = await apiFetch(`/bulk-samples?client_id=${encodeURIComponent(clientId)}&sample_type_norm=pss&sort=created_at&order=desc&pageSize=10`);
+    const hit = (res.data ?? []).find((r: any) => Number(r.qty_grams) > 0 && !/1 kg assumed/.test(String(r.comments ?? '')));
+    return hit ? Number(hit.qty_grams) : null;
+  } catch {
+    return null;
   }
 }
