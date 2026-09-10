@@ -119,6 +119,10 @@ export async function downloadImportFile(
 /**
  * Sheet → array of arrays. A CSV must be decoded as UTF-8 TEXT first: handing SheetJS the raw bytes
  * reads them as CP1252 and "Nestlé" arrives as "NestlÃ©", which then fails to match the client book.
+ * And its cells must stay TEXT (`raw: true`): left to itself SheetJS guesses at "01/12/2026" and, being
+ * US-minded, makes it the 12th of January — Kenya writes day first, and parseShipmentDate knows that.
+ * An xlsx keeps its typed cells: a real Excel date arrives as a serial number, which parseShipmentDate
+ * reads as the day it is; only typed text goes through the day-first rules.
  */
 export function readRows(
   buffer: Buffer,
@@ -127,7 +131,7 @@ export function readRows(
 ): { sheet: string | null; sheets: string[]; rows: unknown[][] } {
   const wb = format === 'xlsx'
     ? XLSX.read(buffer, { type: 'buffer', cellDates: false })
-    : XLSX.read(buffer.toString('utf8'), { type: 'string' });
+    : XLSX.read(buffer.toString('utf8'), { type: 'string', raw: true });
   const sheets = wb.SheetNames;
   if (sheets.length === 0) return { sheet: null, sheets, rows: [] };
   if (sheet && !sheets.includes(sheet)) throw new HttpError(400, `no sheet named ${sheet}`, { sheets });

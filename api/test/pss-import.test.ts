@@ -22,8 +22,10 @@ const auth = (r: request.Test) => r.set('x-api-key', API_KEY).set('x-actor', 'da
 // The fixture, and the xlsx built from the very same rows (no binary in a public repo).
 // ---------------------------------------------------------------------------------------------------
 const csvBytes = readFileSync(new URL('./fixtures/sol-pss.csv', import.meta.url));
+// `raw: true` keeps the cells as typed, the way readRows reads a CSV — otherwise this fixture would carry
+// SheetJS's US-first guess at "01/12/2026" and the "identical preview" scenario would compare two bugs.
 const csvRows = XLSX.utils.sheet_to_json<unknown[]>(
-  XLSX.read(csvBytes.toString('utf8'), { type: 'string' }).Sheets.Sheet1,
+  XLSX.read(csvBytes.toString('utf8'), { type: 'string', raw: true }).Sheets.Sheet1,
   { header: 1, raw: true, defval: null },
 );
 const xlsxBytes = (() => {
@@ -43,6 +45,22 @@ const ALL_BAD_CSV = csvText([
   ',No Contract Here,AB,Kenya,15/10/2026',
 ]);
 const NO_HEADER_CSV = csvText(['alpha,beta,gamma', '1,2,3']);
+// Day <= 12: ambiguous to a US-first reader. Kenya writes dd/mm — 01/12/2026 is the 1st of December.
+const DDMM_CSV = csvText([
+  'Contract No,Buyer,Quality,Destination,Shipment,Ctrs,PSS',
+  'CT-2026-40,Paulig,AB FAQ,Finland,01/12/2026,1,1',
+  'CT-2026-41,Paulig,AB FAQ,Finland,3/4/2027,1,1',
+]);
+// The same dates as REAL Excel date cells (what a saved .xlsx from SOL actually holds).
+const DATE_CELL_XLSX = (() => {
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['Contract No', 'Buyer', 'Quality', 'Destination', 'Shipment', 'Ctrs', 'PSS'],
+    ['CT-2026-42', 'Paulig', 'AB FAQ', 'Finland', new Date(2026, 11, 1), 1, 1],
+  ], { cellDates: true });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'SOL');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellDates: true }) as Buffer;
+})();
 const ZEROES_CSV = csvText([
   'Contract No,Buyer,Quality,Destination,Shipment,Ctrs,PSS',
   'CT-2026-30,Paulig,AB FAQ,Finland,20/10/2026,0,0',
@@ -56,6 +74,8 @@ const FILES: Record<string, { body: Buffer | string; status?: number; headers?: 
   [`${HOST}/sol-bad.csv`]: { body: ALL_BAD_CSV },
   [`${HOST}/sol-noheader.csv`]: { body: NO_HEADER_CSV },
   [`${HOST}/sol-zeroes.csv`]: { body: ZEROES_CSV },
+  [`${HOST}/sol-ddmm.csv`]: { body: DDMM_CSV },
+  [`${HOST}/sol-datecell.xlsx`]: { body: DATE_CELL_XLSX },
   [`${HOST}/sol.pdf`]: { body: Buffer.from('%PDF-1.4 not a spreadsheet') },
   [`${HOST}/gone.csv`]: { body: 'nope', status: 404 },
   [`${HOST}/huge.csv`]: { body: 'small body, big claim', headers: { 'content-length': '20000000' } },
@@ -253,6 +273,19 @@ describe('downloadImportFile', () => {
     expect(book.sheet).toBe('SOL');
     expect(book.rows[5][1]).toBe('Nestlé España');
     expect(book.rows[2]).toEqual(csv.rows[2]);
+  });
+
+  it('keeps CSV cells as the text that was typed — never a US-first date guess', () => {
+    const rows = readRows(Buffer.from(DDMM_CSV, 'utf8'), 'csv').rows;
+    expect(rows[1][4]).toBe('01/12/2026');
+    expect(rows[2][4]).toBe('3/4/2027');
+    expect(parseShipmentDate(rows[1][4])).toEqual({ date: '2026-12-01', precision: 'day' });
+    expect(parseShipmentDate(rows[2][4])).toEqual({ date: '2027-04-03', precision: 'day' });
+  });
+
+  it('reads a real Excel date cell as that day', () => {
+    const rows = readRows(DATE_CELL_XLSX, 'xlsx').rows;
+    expect(parseShipmentDate(rows[1][4])).toEqual({ date: '2026-12-01', precision: 'day' });
   });
 });
 
@@ -519,6 +552,18 @@ describe('/imports/pss-schedule', () => {
     expect((res.body.rows as Row[])[0]).toMatchObject({ notes: 'AB FAQ', quality: null });
     const bad = await preview('sol-pss.csv', { mapping: { nonsense: 'Quality' } });
     expect(bad.status).toBe(400);
+  });
+
+  it('14. an ambiguous dd/mm date in a CSV previews day-first (01/12/2026 → 2026-12-01), and an Excel date cell too', async () => {
+    const csv = await preview('sol-ddmm.csv');
+    expect(csv.status).toBe(200);
+    expect(csv.body.rows.map((r: Row) => [r.contract_number, r.shipment_date, r.pss_due_date])).toEqual([
+      ['CT-2026-40', '2026-12-01', '2026-10-17'],
+      ['CT-2026-41', '2027-04-03', '2027-02-17'],
+    ]);
+    const xlsx = await preview('sol-datecell.xlsx');
+    expect(xlsx.status).toBe(200);
+    expect(xlsx.body.rows[0]).toMatchObject({ contract_number: 'CT-2026-42', shipment_date: '2026-12-01', date_precision: 'day' });
   });
 
   it('13. a zero in the count columns reads as "not given", never as a contract of no containers', async () => {
