@@ -308,6 +308,10 @@ specialtySamples.patch('/:id', h(async (req, res) => {
       await enqueueRequestEdited(client, 'specialty', prev, row, actor);
       // Contracts + PSS: a first rejection draws its replacement, then the contract re-derives its status.
       out.drawn = (await maybeDrawReplacement(client, 'specialty', row, prev, actor)).drawn;
+      // A sample re-pointed to another contract leaves a hole behind: the contract it LEFT re-derives too.
+      if (prev.contract_id && String(prev.contract_id) !== String(row.contract_id ?? '')) {
+        await recomputeContractStatus(client, String(prev.contract_id), actor);
+      }
     },
   );
   if (!row) throw new HttpError(404, 'specialty sample not found');

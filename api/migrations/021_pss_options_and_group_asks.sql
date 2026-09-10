@@ -26,3 +26,13 @@ ALTER TABLE contracts ADD CONSTRAINT contracts_status_check
   CHECK (status IN ('open','pss_pending','pss_partial','pss_replacement_rejected','pss_approved','shipped','cancelled'));
 COMMENT ON COLUMN contracts.pss_qty_grams IS 'grams per PSS option; NULL = default from the client''s last PSS, else 1 kg';
 COMMENT ON COLUMN bulk_samples.option_letter IS 'PSS option letter (A, B, C…); container_no is the option slot it fills';
+
+-- 4. One live option letter per contract per book: the auto-link picks the next letter OUTSIDE the
+--    write transaction (POST /bulk-samples, POST /specialty-samples), so two PSS logged at the same
+--    instant could both take "C". The partial index turns that race into a 409 (the error handler maps
+--    23505) instead of two rows with one ref. The index is partial: a deleted option never blocks a letter
+--    (letters themselves follow the ref rule — reused only when they were the highest in play).
+CREATE UNIQUE INDEX IF NOT EXISTS bulk_samples_contract_option_idx
+  ON bulk_samples (contract_id, option_letter) WHERE deleted_at IS NULL AND option_letter IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS specialty_samples_contract_option_idx
+  ON specialty_samples (contract_id, option_letter) WHERE deleted_at IS NULL AND option_letter IS NOT NULL;

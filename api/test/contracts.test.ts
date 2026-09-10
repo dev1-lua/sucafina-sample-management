@@ -595,6 +595,37 @@ describe('/contracts', () => {
     expect(patched.body).toMatchObject({ po_ref: 'PO-1', pss_qty_grams: 600 });
   });
 
+  it('16. re-pointing a PSS to another contract recomputes BOTH contracts', async () => {
+    const a = await mkContract({ contract_number: 'CT-2026-16A', containers: 1, create_pss: true });
+    const b = await mkContract({ contract_number: 'CT-2026-16B', containers: 1 });
+    expect(a.status).toBe('pss_pending');
+    expect(b.status).toBe('open');
+    const row = (await pssRows(a.id))[0];
+    const moved = await auth(request(app).patch(`/bulk-samples/${row.id}`)).send({ contract_id: b.id, container_no: 1 });
+    expect(moved.status).toBe(200);
+    expect((await getContract(b.id)).status).toBe('pss_pending');
+    // The contract the sample LEFT must not keep saying pss_pending for a row it no longer has.
+    expect((await getContract(a.id)).status).toBe('open');
+  });
+
+  it('17. two live options on one contract cannot share a letter (race guard behind the auto-link)', async () => {
+    const c = await mkContract({ contract_number: 'CT-2026-17', containers: 2, create_pss: true });
+    await expect(pool.query(
+      `INSERT INTO bulk_samples (sample_ref, quality, client, sample_type_norm, contract_id, container_no, option_letter, status)
+       VALUES ('SSKE-202617A', 'AB', 'Container Roasters', 'pss', $1, 1, 'A', 'requested')`, [c.id]))
+      .rejects.toThrow(/bulk_samples_contract_option_idx/);
+    // …and letters follow the ref rule: a deleted letter comes back only when it was the highest in play
+    // (the index is partial on deleted_at, so the row itself never blocks it).
+    const rows = await pssRows(c.id);                       // A (slot 1), B (slot 2)
+    await auth(request(app).delete(`/bulk-samples/${rows[1].id}`));
+    const redoB = await auth(request(app).post(`/contracts/${c.id}/draw-pss`)).send({ container_no: 2 });
+    expect(redoB.status).toBe(201);
+    expect(redoB.body.option_letter).toBe('B');
+    await auth(request(app).delete(`/bulk-samples/${rows[0].id}`));
+    const redoA = await auth(request(app).post(`/contracts/${c.id}/draw-pss`)).send({ container_no: 1 });
+    expect(redoA.body.option_letter).toBe('C');             // A was not the highest — C, not A
+  });
+
   it('15. a soft-deleted ref is reused when it was the latest number for its prefix (Harriet A)', async () => {
     const mk = (type: string) => auth(request(app).post('/bulk-samples'))
       .send({ quality: 'AB FAQ', client: 'Container Roasters', client_id: clientId, sample_type: type });

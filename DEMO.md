@@ -81,8 +81,8 @@ the dashboard.
 ### 4. Chat — courier tracking
 > `Where is DHL 9620551651?`
 
-Expect: a tracking status + ETA. (Tracking is simulated in this prototype — say so if
-asked; the number maps deterministically to a status.)
+Expect: the courier's latest scan, location and the time it was checked — or, with no
+DHL/FedEx key configured, the log's courier + AWB and a plain "no live tracking yet".
 
 ### 5. Chaser page → **Run now**
 Click **Run now**. Three buckets appear, **PSS first** (pre-shipment samples are
@@ -121,7 +121,8 @@ Back to the Samples page. Refresh.
 
 ## What to say it *is* vs *isn't*
 
-- **Is:** a working prototype on real data — intake, dispatch logging, status/tracking,
+- **Is:** a working system on real data — intake, dispatch logging, status/tracking,
   results capture, a client book, and an automated chaser, driven from chat or a CRM.
-- **Isn't (yet):** live courier APIs (tracking is simulated), auth/SSO, and it doesn't
+- **Isn't (yet):** auth/SSO (a single site password), live tracking before the DHL/FedEx
+  keys are in, and it doesn't
   negotiate prices or approve shipments — it logs and reports, and escalates the rest.

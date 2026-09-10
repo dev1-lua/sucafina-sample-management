@@ -1,6 +1,6 @@
 # Sucafina Sample Management Agent
 
-A working prototype for coffee-sample tracking: a **CRM dashboard** and an **AI chat
+A working system for coffee-sample tracking: a **CRM dashboard** and an **AI chat
 agent** ("Kenyacof Sample Desk") over one Postgres database, seeded with real data from
 the *Sample Chaser 2025–2026* workbook (~2,300 samples, ~270 clients).
 
@@ -39,5 +39,5 @@ the chat widget), see the tunnel + `lua env` steps in [DEMO.md](./DEMO.md).
 ## Notes
 
 - `api/`, `scripts/`, `dashboard/` are independent packages (not a workspace).
-- Courier tracking is simulated; the agent logs and reports (it doesn't price or approve).
+- Courier tracking is live for DHL and FedEx once their developer keys are in `.env.prod` (`GET /tracking/:awb`, a two-hourly sweep); without keys the agent answers from the log and never invents a scan. The agent logs and reports (it doesn't price or approve).
 - Reset demo data to pristine any time: `cd scripts && npm run seed`.

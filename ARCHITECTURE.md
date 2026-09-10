@@ -1,6 +1,6 @@
 # Sucafina Sample Management Agent — How It All Works
 
-A working prototype that turns coffee-sample tracking from a spreadsheet + Teams thread
+A working system that turns coffee-sample tracking from a spreadsheet + Teams thread
 into a live system with two front doors: a **CRM dashboard** and an **AI chat agent**.
 Both sit on the same database, seeded with **real data** from the *Sample Chaser
 2025–2026* workbook (~2,300 samples, ~270 clients, ~4,600 timeline events).
@@ -125,7 +125,7 @@ the local dashboard (`x-api-key`, `x-actor` allowed).
 | `POST /samples` | Create; issues a ref via `ref_counters`; writes a `requested` event |
 | `PATCH /samples/:id` | Update; writes `status_change`/`dispatched`/`result_logged`/`edited` events; auto-derives `results_in` when a result is set |
 | `GET /stats` | Dashboard tiles: by_status, overdue, in_transit, awaiting_results, dispatched_this_week |
-| `GET /tracking/:awb` | Deterministic **simulated** courier status + ETA (hash of the AWB; no real courier API) |
+| `GET /tracking/:awb` | Live courier status from DHL / FedEx (`api/src/lib/tracking/`), courier guessed from the AWB; `POST /tracking/sweep` re-checks open AWBs two-hourly and queues delivered / exception pings |
 | `GET /chaser/digest` · `POST /chaser/run` | Latest persisted digest; recompute + persist (writes `chased` events, PSS-first) |
 
 **Conventions baked in across routes**
@@ -248,14 +248,17 @@ automation — promotion is deliberate.
 - **`{ data, total }`** on all lists, `total` = true windowed count.
 - **UUID validation up front** → clean 400s, never Postgres 500s.
 - **Server-issued refs** via `ref_counters` (not client-generated), so refs never collide.
-- **Tracking is simulated** — deterministic from the AWB hash; swappable for a real
-  courier provider (the `TrackingProvider` interface exists for exactly that).
+- **Tracking is a provider registry** — `TrackingProvider` implementations for DHL and
+  FedEx (fixture-tested), keyed by `DHL_API_KEY` / `FEDEX_CLIENT_ID` + secret; a missing key
+  reads as "not configured", never as invented data (the deterministic stub exists only
+  outside production, gated by `NODE_ENV`).
 
 ---
 
-## 11. Prototype limitations (be honest in the demo)
+## 11. Known limits (be honest in the demo)
 
-- Courier tracking is **simulated**, not a live carrier API.
+- Courier tracking needs Sucafina's DHL and FedEx developer keys in `.env.prod`; until they
+  land, tracking answers come from the log (courier + AWB) with no live scans.
 - No auth/SSO on the dashboard (single API key).
 - The agent **logs and reports**; it doesn't price, allocate, or approve — it escalates
   those.
