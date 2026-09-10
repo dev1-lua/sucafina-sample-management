@@ -21,3 +21,5 @@ sucafina-deploy.tar.gz
 .env*
 Plugin-test/
 .playwright-mcp/ 
+# never committed: Teams connect codes (public repo)
+docs/teams-agent-connect-instructions.md

@@ -1,5 +1,9 @@
 # Handover — 2026-09-09 (evening): Phases 3–5 built on `main`, NOT deployed, final review NOT done
 
+> **Superseded on 2026-09-10** by `docs/HANDOVER-2026-09-10-deploy.md` (§11's work is done: group-chat asks,
+> importer date fix, Harriet's answers as migration 021, the final review + fix wave, and the deploy
+> sequence incl. v56). §§0–8 below remain the record of how Phases 3–5 were built.
+
 Start the next session by pasting §9. Everything below is the state at commit `c6df43e` on `main`.
 
 ## 0. One paragraph
