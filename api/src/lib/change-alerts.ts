@@ -13,8 +13,10 @@ import { isQcActor } from './actor.js';
 type SampleTab = 'specialty' | 'bulk' | 'forwarding';
 
 export const REQUEST_FIELDS: Record<SampleTab, readonly string[]> = {
+  // outturn / stocklot / name say WHICH lot the lab pulls — editable since migration 022, so a change is news.
   specialty: ['description', 'grade', 'qty_grams', 'client_id', 'receiver_company', 'country', 'priority',
-              'shipment_month', 'contract_number', 'blend', 'phyto_cert', 'sample_type_norm'],
+              'shipment_month', 'contract_number', 'blend', 'phyto_cert', 'sample_type_norm',
+              'outturn', 'stocklot', 'name'],
   bulk:      ['quality', 'qty_grams', 'client_id', 'country', 'priority',
               'shipment_month', 'contract_number', 'blend', 'phyto_cert', 'sample_type_norm'],
   forwarding: ['coffee_quality', 'receiver_company', 'origin', 'id_number', 'qty_grams', 'client_id', 'priority'],

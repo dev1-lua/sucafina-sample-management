@@ -19,7 +19,7 @@ const STATUSES = ['requested','preparing','dispatched','delivered','results_in',
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
 const RESULTS = ['approved','rejected','pending_feedback'] as const;
 
-const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at','option_letter'] as const;
+const SORTABLE = ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country','feedback_requested','feedback_received','order_placed','new_sample_requested','new_sample','phyto_cert','blend','rejection_reason','shipment_month','contract_number','location','strategy','highlights','result_on','requested_by','completed_by','stock_grams','dispatched_on','priority','logged_by','tracking_status','tracking_last_event_at','tracking_checked_at','option_letter','outturn','stocklot','crop_year'] as const;
 
 // `sample_type_norm`/`courier_norm` are free text (migration 004) so operators can
 // enter values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -65,6 +65,8 @@ const createSchema = z.object({
   // contract_number, both are resolved below.
   contract_id: z.string().uuid().nullish(),
   container_no: z.number().int().min(1).nullish(),
+  // Migration 022 (Gloria's slips): the stock lot printed on the label, e.g. "15/5670" or "DS".
+  stocklot: z.string().nullish(),
 });
 
 const patchSchema = z.object({
@@ -110,6 +112,11 @@ const patchSchema = z.object({
   // Migration 020: contract + container this PSS belongs to.
   contract_id: z.string().uuid().nullish(),
   container_no: z.number().int().min(1).nullish(),
+  // Gloria's slips (migration 022): the lot the label names — fixable after intake.
+  outturn: z.string().nullish(),
+  name: z.string().nullish(),
+  crop_year: z.string().nullish(),
+  stocklot: z.string().nullish(),
 });
 
 specialtySamples.get('/', h(async (req, res) => {
@@ -156,7 +163,7 @@ specialtySamples.get('/', h(async (req, res) => {
   // Log-first (migration 016): rows whose client has no street address on file yet.
   if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
   const result = await buildList(
-    { table: 'specialty_samples', extraSelect: gapColumns('specialty_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb','requested_by','logged_by'] },
+    { table: 'specialty_samples', extraSelect: gapColumns('specialty_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb','requested_by','logged_by','outturn','stocklot'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -198,10 +205,10 @@ specialtySamples.post('/', h(async (req, res) => {
        (ref, description, receiver_company, sample_type_norm, outturn, name, grade, bags,
         awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, date, date_on, status)
+        requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, stocklot, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
              COALESCE($17, (SELECT default_phyto_cert FROM clients WHERE id = $15::uuid)),
-             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,$30::uuid,$31,$32,
+             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,$30::uuid,$31,$32,$33,
              COALESCE($25, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($25::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -213,7 +220,7 @@ specialtySamples.post('/', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null, contractId, containerNo, optionLetter],
+     body.logged_by ?? null, contractId, containerNo, optionLetter, body.stocklot ?? null],
     { entityType: 'specialty', type: 'created', note: `${body.description} for ${body.receiver_company}`, actor },
     // Feedback #29: Quality is pinged for every request added in full (create implies the intake gates passed).
     async (client, row) => {
@@ -288,6 +295,10 @@ specialtySamples.patch('/:id', h(async (req, res) => {
        notify_trader_ids = COALESCE($32::uuid[], notify_trader_ids),
        contract_id = COALESCE($33::uuid, contract_id),
        container_no = COALESCE($34, container_no),
+       outturn = COALESCE($35, outturn),
+       name = COALESCE($36, name),
+       crop_year = COALESCE($37, crop_year),
+       stocklot = COALESCE($38, stocklot),
        updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id, nextStatus, body.courier_norm ?? null, body.awb ?? null, body.result_norm ?? null,
@@ -299,7 +310,8 @@ specialtySamples.patch('/:id', h(async (req, res) => {
      body.strategy ?? null, body.highlights ?? null,
      body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null,
      body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null,
-     body.contract_id ?? null, body.container_no ?? null],
+     body.contract_id ?? null, body.container_no ?? null,
+     body.outturn ?? null, body.name ?? null, body.crop_year ?? null, body.stocklot ?? null],
     { entityType: 'specialty', type: eventType, note, actor },
     // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
     async (client, row) => {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
-import { resetDb, API_KEY } from './helpers.js';
+import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
 
 beforeAll(resetDb);
 const auth = (r: request.Test) => r.set('x-api-key', API_KEY).set('x-actor', 'test');
@@ -180,5 +180,34 @@ describe('specialty-samples', () => {
     expect(created.body.phyto_cert).toBe('Yes');
     const patched = await auth(request(app).patch(`/specialty-samples/${created.body.id}`)).send({ phyto_cert: 'No' });
     expect(patched.body.phyto_cert).toBe('No');
+  });
+
+  it('migration 022 (stocklot) is re-runnable', async () => {
+    expect(await reapplyMigrationsFrom('022')).toContain('022_label_slip_fields.sql');
+    const { rows } = await pool.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_name = 'specialty_samples' AND column_name = 'stocklot'`);
+    expect(rows).toHaveLength(1);
+  });
+
+  // Gloria's slips (2026-09-11): Stocklot · Outturn · Grower · Screen · Crop. The lot fields must be
+  // settable on create AND fixable afterwards, or a label can only ever print what intake typed.
+  it('slip fields: stocklot on create; stocklot, outturn, grower name and crop year editable; ?q= finds a lot', async () => {
+    const created = await auth(request(app).post('/specialty-samples')).send({
+      description: 'Slip fixture', receiver_company: 'Beyers', outturn: '08KN0021', name: 'KII/KIRINYAGA',
+      grade: 'AB', crop_year: '2025/2026', stocklot: 'DS',
+    });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ stocklot: 'DS', outturn: '08KN0021', name: 'KII/KIRINYAGA', crop_year: '2025/2026' });
+
+    const patched = await auth(request(app).patch(`/specialty-samples/${created.body.id}`)).send({
+      stocklot: '15/5670', outturn: '13KP0215', name: 'CHERIWET', crop_year: '2026/2027',
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body).toMatchObject({ stocklot: '15/5670', outturn: '13KP0215', name: 'CHERIWET', crop_year: '2026/2027' });
+
+    for (const q of ['13KP0215', '15/5670']) {
+      const found = await auth(request(app).get('/specialty-samples').query({ q }));
+      expect(found.body.data.map((r: { id: string }) => r.id)).toEqual([created.body.id]);
+    }
   });
 });

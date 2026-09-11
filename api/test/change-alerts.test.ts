@@ -144,6 +144,21 @@ describe('edits → QC alert', () => {
     expect((await outboxFor(f.body.id)).find((r) => r.event === 'request_edited').payload.changes).toEqual({ receiver_company: { from: 'Itochu', to: 'Itochu Japan' } });
   });
 
+  it('a non-QC change to WHICH lot (outturn / stocklot / grower) alerts QC; the crop year stays quiet', async () => {
+    const s = await ivo(request(app).post('/specialty-samples')).send({
+      description: 'Kii AB', receiver_company: 'Someone', outturn: '08KN0021', name: 'KII/KIRINYAGA', stocklot: 'DS',
+    });
+    await ivo(request(app).patch(`/specialty-samples/${s.body.id}`)).send({ outturn: '08KN0022', stocklot: '15/5670', name: 'KII' });
+    await ivo(request(app).patch(`/specialty-samples/${s.body.id}`)).send({ crop_year: '2025/2026' });
+    const edits = (await outboxFor(s.body.id)).filter((r) => r.event === 'request_edited');
+    expect(edits).toHaveLength(1);
+    expect(edits[0].payload.changes).toEqual({
+      outturn: { from: '08KN0021', to: '08KN0022' },
+      stocklot: { from: 'DS', to: '15/5670' },
+      name: { from: 'KII/KIRINYAGA', to: 'KII' },
+    });
+  });
+
   it('outbox-pending carries payload + actor for request_edited rows', async () => {
     const id = await makeBulk('Pending edit');
     await ivo(request(app).patch(`/bulk-samples/${id}`)).send({ qty_grams: 1000 });
