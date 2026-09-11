@@ -48,8 +48,8 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       .optional()
       .describe('Quantity in grams; defaults by sample type if omitted (offer 200, type 300). A PSS has no fixed default — pass the client\'s usual size.'),
     comments: z.string().optional(),
-    crop_year: z.string().optional().describe('Harvest year, e.g. "2025/2026".'),
-    stocklot: z.string().optional().describe('Stock lot as the desk writes it on the sample slip, e.g. "15/5670" or "DS" — only when stated.'),
+    crop_year: z.string().optional().describe('Harvest year, e.g. "2025/2026" — only when stated. Omitted, the desk fills it from the latest sample of the same outturn.'),
+    stocklot: z.string().optional().describe('Stock lot as the desk writes it on the sample slip, e.g. "15/5670" or "DS" — only when stated. Omitted, the desk fills it from the latest sample of the same outturn.'),
     client_id: z.string().optional().describe('Client id from find_client, when resolved.'),
     phyto_cert: z
       .string()
@@ -138,6 +138,10 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       ref: row.ref,
       date: row.date,
       name: row.name,
+      // The slip's lot lines — crop year / stocklot may have come from an earlier sample of this outturn.
+      outturn: row.outturn,
+      stocklot: row.stocklot,
+      crop_year: row.crop_year,
       description: row.description,
       receiver_company: row.receiver_company,
       sample_type: row.sample_type_norm,

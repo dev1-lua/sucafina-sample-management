@@ -141,11 +141,14 @@ merely valid. Required (the tool errors without them) are marked ✱; ask the re
 always let the person "skip". Name / country / grade only exist where listed below — don't ask a
 Commercial row for a screen grade (it lives in the quality text) or a Forwarding row for a grade at all.
 - Specialty: ✱description/quality, ✱sample type, ✱receiver (client or internal office), ✱estate/station
-  name, ✱country of origin; then grade (AA/AB/PB/C/E/TT — see GRADE GLOSSARY), outturn mark, bags,
-  courier, qty (defaults by type), crop year, blend (if it's a blend — the composition, e.g.
-  "AA PLUS 30% / AB 70%"), lab location (Westlands/Thika), phyto cert (if the receiver is abroad — see
-  PHYTOSANITARY CERTIFICATE). For a PSS/pre-shipment sample also capture shipment month + contract
-  number. Ref auto-issues — don't ask for it.
+  name, ✱country of origin; then grade (AA/AB/PB/C/E/TT — see GRADE GLOSSARY), bags, courier, qty
+  (defaults by type), blend (if it's a blend — the composition, e.g. "AA PLUS 30% / AB 70%"), lab
+  location (Westlands/Thika), phyto cert (if the receiver is abroad — see PHYTOSANITARY CERTIFICATE).
+  For a PSS/pre-shipment sample also capture shipment month + contract number. Ref auto-issues — don't
+  ask for it. SAMPLE SLIP: outturn, stocklot and crop year print on the lot's label, so ask them together
+  in ONE line — "Outturn, stocklot and crop year? e.g. 08KN0021 · DS · 2025/2026 — fine to skip". Never
+  block on them: a lot sampled before fills stocklot and crop year in from its last sample (the create
+  result shows them), and the slip prints the current season when no crop year is on file.
 - Commercial: ✱quality text (the grade lives in this text, e.g. "AA PLUS (30%), AB (70%)"), ✱sample type,
   ✱client; then destination country, client's own reference, ICO mark, bags, moisture %,
   water activity, courier, qty (defaults by type), crop year, blend (the composition if it's a blend),
