@@ -16,8 +16,10 @@ const FIELDS_013 = ['logged_by'];
 // Migration 019 (courier tracking) + 020/021 (contracts/PSS): the Commercial book carries the contract's
 // option slot + letter and its 45-day PSS deadline.
 const FIELDS_020 = ['container_no','option_letter','pss_due_date'];
+// Migration 022 (Gloria's slips): the specialty lot fields the label prints are sortable.
+const FIELDS_022 = ['outturn','stocklot','crop_year'];
 const WL = {
-  specialty: ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country',...FOLLOWUP,...FIELDS_007,...FIELDS_009,...FIELDS_010,...FIELDS_011,...FIELDS_013],
+  specialty: ['date_on','delivery_on','qty_grams','ref','description','receiver_company','status','created_at','name','grade','awb','courier_norm','result_norm','country',...FOLLOWUP,...FIELDS_007,...FIELDS_009,...FIELDS_010,...FIELDS_011,...FIELDS_013,...FIELDS_022],
   bulk: ['date_on','delivery_on','qty_grams','moisture_pct','water_activity_num','sample_ref','quality','client','country','status','created_at','sample_type_norm','awb','courier_norm','result_norm',...FOLLOWUP,...FIELDS_007,...FIELDS_009,...FIELDS_010,...FIELDS_011,...FIELDS_013,...FIELDS_020],
   forwarding: ['date_on','qty_grams','sample_ref','sender','origin','receiver_company','id_number','status','created_at','coffee_quality','awb','courier_norm',...FOLLOWUP,'location',...FIELDS_010,...FIELDS_011,...FIELDS_013],
   clients: ['name','country','latest_order_date'],

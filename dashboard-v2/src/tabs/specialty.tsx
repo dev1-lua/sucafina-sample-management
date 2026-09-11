@@ -39,7 +39,9 @@ export const specialtyConfig: TabConfig = {
   columns: [
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     { key: 'ref', header: 'Ref', sortKey: 'ref' },
-    { key: 'outturn', header: 'Outturn', defaultHidden: true },
+    { key: 'outturn', header: 'Outturn', sortKey: 'outturn', defaultHidden: true },
+    // Gloria's slips (migration 022): the stock lot the label prints, e.g. "15/5670" or "DS".
+    { key: 'stocklot', header: 'Stocklot', sortKey: 'stocklot', defaultHidden: true },
     { key: 'name', header: 'Name', sortKey: 'name' },
     { key: 'country', header: 'Country', sortKey: 'country' },
     { key: 'grade', header: 'Grade', sortKey: 'grade' },
@@ -75,7 +77,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'rejection_reason', header: 'Rejection Reason', sortKey: 'rejection_reason', defaultHidden: true, render: (r) => <CellValue value={r.result_norm === 'rejected' ? r.rejection_reason : null} /> },
     { key: 'phyto_cert', header: 'Phyto Cert', sortKey: 'phyto_cert', defaultHidden: true },
     { key: 'comments', header: 'Comments', defaultHidden: true },
-    { key: 'crop_year', header: 'Crop Year', defaultHidden: true },
+    { key: 'crop_year', header: 'Crop Year', sortKey: 'crop_year', defaultHidden: true },
     { key: 'crop_area_details', header: 'Crop Area Details', defaultHidden: true },
     ...followupColumns,
     ...round3Columns,
@@ -112,7 +114,13 @@ export const specialtyConfig: TabConfig = {
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },
     addressGapDetailField,
     { key: 'country', label: 'Country', edit: { field: 'country', type: 'text' } },
+    // The lot the printed slip names (Gloria): Stocklot · Outturn · Grower (the name before the "/") ·
+    // Screen (grade) · Crop — fixable here, since the label prints whatever the row says.
+    { key: 'stocklot', label: 'Stocklot', edit: { field: 'stocklot', type: 'text' } },
+    { key: 'outturn', label: 'Outturn', edit: { field: 'outturn', type: 'text' } },
+    { key: 'name', label: 'Name (grower)', edit: { field: 'name', type: 'text' } },
     { key: 'grade', label: 'Grade', edit: { field: 'grade', type: 'text' } },
+    { key: 'crop_year', label: 'Crop Year', edit: { field: 'crop_year', type: 'text' } },
     { key: 'blend', label: 'Blend', edit: { field: 'blend', type: 'text' } },
     { key: 'strategy', label: 'Strategy', edit: { field: 'strategy', type: 'text' } },
     { key: 'highlights', label: 'Highlights', edit: { field: 'highlights', type: 'text' } },
@@ -135,6 +143,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'country', label: 'Country', type: 'text' },
     { key: 'grade', label: 'Grade', type: 'text' },
     { key: 'outturn', label: 'Outturn', type: 'text' },
+    { key: 'stocklot', label: 'Stocklot', type: 'text' },
     { key: 'bags', label: 'Bags', type: 'number' },
     { key: 'awb', label: 'AWB', type: 'text' },
     { key: 'courier_norm', label: 'Courier', type: 'select', options: COURIERS, allowCustom: true },
