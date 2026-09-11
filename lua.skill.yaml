@@ -21,7 +21,7 @@ skills:
     skillId: 1718a42a-7015-4a3b-9e49-717f3f796b71
     version: 1.0.15
   - name: pss-schedule
-    skillId: ''
+    skillId: 6b95f431-c337-42d9-a85f-f4f3df967a1f
     version: 1.0.0
 webhooks: []
 jobs:
@@ -31,10 +31,10 @@ jobs:
   - jobId: d26decd9-bd71-4d16-8aef-89c228dc0166
     name: status-notifier
     version: 1.0.9
-  - jobId: ''
+  - jobId: b91546cf-ae63-4c5b-9c69-9ebce29d1d9b
     name: details-chaser
     version: 1.0.0
-  - jobId: ''
+  - jobId: 199def6f-44c9-42d9-a794-8f9f7757da60
     name: tracking-sweep
     version: 1.0.0
 preprocessors:
