@@ -210,4 +210,30 @@ describe('specialty-samples', () => {
       expect(found.body.data.map((r: { id: string }) => r.id)).toEqual([created.body.id]);
     }
   });
+
+  // Decision 2026-09-11: crop year and stocklot belong to the LOT — typed once per outturn, then every new
+  // sample of that outturn carries them. Only blanks are filled; what the new sample says wins.
+  it('a new sample of a known outturn inherits its crop year and stocklot from the latest live sample', async () => {
+    const make = (extra: Record<string, unknown>) =>
+      auth(request(app).post('/specialty-samples')).send({ description: 'Lot memory', receiver_company: 'Beyers', ...extra });
+
+    await make({ outturn: '09KN0033', crop_year: '2024/2025', stocklot: '11/2020' });
+    const latest = await make({ outturn: '09KN0033', crop_year: '2025/2026', stocklot: 'DS' });
+    const gone = await make({ outturn: '09KN0033', crop_year: '1999/2000', stocklot: 'OLD' });
+    await auth(request(app).delete(`/specialty-samples/${gone.body.id}`));
+
+    // Same lot written differently: case and stray spaces don't matter. Deleted rows teach nothing.
+    const inherited = await make({ outturn: ' 09kn0033 ' });
+    expect(inherited.status).toBe(201);
+    expect(inherited.body).toMatchObject({ crop_year: '2025/2026', stocklot: 'DS' });
+    expect(latest.body.crop_year).toBe('2025/2026');
+
+    const own = await make({ outturn: '09KN0033', crop_year: '2023/2024' });
+    expect(own.body).toMatchObject({ crop_year: '2023/2024', stocklot: 'DS' });
+
+    const other = await make({ outturn: '10KN0001' });
+    expect(other.body).toMatchObject({ crop_year: null, stocklot: null });
+    const none = await make({});
+    expect(none.body).toMatchObject({ crop_year: null, stocklot: null });
+  });
 });

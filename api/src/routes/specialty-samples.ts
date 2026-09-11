@@ -179,6 +179,13 @@ specialtySamples.get('/:id', h(async (req, res) => {
   res.json({ ...rows[0], events: await entityEvents('specialty', id) });
 }));
 
+// Decision 2026-09-11: crop year and stocklot belong to the LOT, so they are typed once per outturn — a new
+// sample that doesn't state them takes them from the latest live sample of the same outturn ($5).
+const fromLot = (col: 'crop_year' | 'stocklot') =>
+  `(SELECT ${col} FROM specialty_samples
+     WHERE upper(trim(outturn)) = upper(trim($5::text)) AND ${col} IS NOT NULL AND deleted_at IS NULL
+     ORDER BY created_at DESC LIMIT 1)`;
+
 specialtySamples.post('/', h(async (req, res) => {
   const body = parseBody(createSchema, req.body);
   const actor = actorFrom(req);
@@ -206,9 +213,10 @@ specialtySamples.post('/', h(async (req, res) => {
         awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
         requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, stocklot, date, date_on, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14, ${fromLot('crop_year')}),$15,$16,
              COALESCE($17, (SELECT default_phyto_cert FROM clients WHERE id = $15::uuid)),
-             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,$30::uuid,$31,$32,$33,
+             $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,$30::uuid,$31,$32,
+             COALESCE($33, ${fromLot('stocklot')}),
              COALESCE($25, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($25::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
