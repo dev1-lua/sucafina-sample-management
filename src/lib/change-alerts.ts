@@ -81,6 +81,7 @@ const FIELD_LABEL: Record<string, string> = {
   receiver_company: 'receiver', country: 'country', priority: 'priority', shipment_month: 'shipment month',
   contract_number: 'contract', blend: 'blend', phyto_cert: 'phyto', sample_type_norm: 'type', status: 'status',
   coffee_quality: 'quality', origin: 'origin', id_number: 'ID number',
+  outturn: 'outturn', stocklot: 'stocklot', name: 'grower',
 };
 
 /** "Ivo (dashboard)", "Ivo Jr. (chat)", "dashboard (name not set)", "status-notifier (job)". */
