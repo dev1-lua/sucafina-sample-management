@@ -18,6 +18,9 @@ type Q = Pick<PoolClient, 'query'> | typeof pool;
 export type ContainerState = 'none' | 'pending' | 'approved' | 'replacement_pending' | 'failed';
 export type ContractStatus =
   'open' | 'pss_pending' | 'pss_partial' | 'pss_replacement_rejected' | 'pss_approved' | 'shipped' | 'cancelled';
+/** Done with PSS: no reminders, no recompute — and (Ivo, 2026-09-10) nothing a later SOL export reopens. */
+export const SETTLED_STATUSES: readonly ContractStatus[] = ['pss_approved', 'shipped', 'cancelled'];
+export const isSettled = (status: string): boolean => (SETTLED_STATUSES as readonly string[]).includes(status);
 
 export type PssRow = {
   tab: 'specialty' | 'bulk';

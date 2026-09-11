@@ -2,7 +2,7 @@ import type { Pool, PoolClient } from 'pg';
 import XLSX from 'xlsx';
 import { HttpError } from '../errors.js';
 import { normalizeClientName } from './client-merge.js';
-import { drawPss, loadContractPss, recomputeContractStatus } from './contracts.js';
+import { drawPss, isSettled, loadContractPss, recomputeContractStatus } from './contracts.js';
 import { enqueueOutbox } from './notify-outbox.js';
 import {
   CANONICAL_FIELDS, detectHeaderRow, dueDateFrom, matchHeaders, monthLabel,
@@ -190,8 +190,13 @@ export type PreviewSummary = {
   pss_to_create: number; problems: number; warnings: number; unmatched_clients: string[];
 };
 
-export const MONTH_WARNING = 'shipment date given as a month — using the 1st';
 export const NEW_CLIENT_WARNING = 'client not in the book — will be created on commit';
+/** Why a known contract is left alone (Ivo, 2026-09-10: once the PSS is accepted, no more action). */
+const SETTLED_WARNING: Record<string, string> = {
+  pss_approved: 'PSS already accepted — nothing more to do on this contract',
+  shipped: 'contract already shipped — nothing more to do on it',
+  cancelled: 'contract cancelled — the import leaves it as it is',
+};
 
 /**
  * Rows → what the import WOULD do, with every doubt written down. Nothing is created here.
@@ -307,7 +312,6 @@ export async function buildPreview(
     const rawDate = group.lines.map((l) => cell(l, 'shipment_date')).find((v) => v != null && String(v).trim() !== '') ?? null;
     const parsed = parseShipmentDate(rawDate);
     if (parsed.error) problems.push(parsed.error);
-    if (parsed.precision === 'month') warnings.push(MONTH_WARNING);
 
     // A blank — or a nonsense 0 — in either count means "read it off the sheet": one contract line per
     // container is how the SOL export is written, and pss_expected mirrors the containers.
@@ -327,17 +331,22 @@ export async function buildPreview(
     const pss_qty_grams = qty?.grams ?? null;
     const container_nos = listed.length > 0 ? listed : Array.from({ length: Math.max(pss_expected, 0) }, (_, i) => i + 1);
 
+    const existing = group.key ? existingByKey.get(group.key) ?? null : null;
+    // A settled contract is shown and skipped: a later export never grows it or draws for it.
+    const settled = existing !== null && isSettled(existing.status);
+    if (settled) warnings.push(SETTLED_WARNING[existing.status] ?? SETTLED_WARNING.pss_approved);
+
     const client_name = firstWith('client_name');
     const client_match = matchClient(client_name);
     // Only a row that can actually be imported talks about its client: a line with no contract number
-    // is going nowhere, and "will be created on commit" would be a lie on it.
-    if (contract_number && client_name && client_match?.kind === 'fuzzy') {
+    // (or a settled contract) is going nowhere, and "will be created on commit" would be a lie on it.
+    const importable = contract_number !== null && !settled;
+    if (importable && client_name && client_match?.kind === 'fuzzy') {
       warnings.push(`client matched loosely to "${client_match.name}" — check before committing`);
     }
-    if (contract_number && client_name && !client_match) warnings.push(NEW_CLIENT_WARNING);
+    if (importable && client_name && !client_match) warnings.push(NEW_CLIENT_WARNING);
 
-    const existing = group.key ? existingByKey.get(group.key) ?? null : null;
-    if (existing && pss_expected < existing.pss_expected) {
+    if (existing && !settled && pss_expected < existing.pss_expected) {
       warnings.push(`contract already expects ${existing.pss_expected} PSS — the sheet's ${pss_expected} is not applied`);
     }
 
@@ -359,8 +368,8 @@ export async function buildPreview(
       container_nos,
       notes: firstWith('notes'),
       existing_contract: existing,
-      // A row with no contract number cannot be created or updated — only shown and skipped.
-      action: contract_number ? (existing ? 'update' : 'create') : 'skip',
+      // A row with no contract number, or for a settled contract, is only shown and skipped.
+      action: importable ? (existing ? 'update' : 'create') : 'skip',
       problems,
       warnings,
     };
@@ -441,6 +450,16 @@ export async function commitImport(
         continue;
       }
 
+      // --- the contract, locked before anything is written for it: SELECT-then-write (the unique index is
+      // partial, so ON CONFLICT cannot see it). One that settled after the preview was taken is left alone.
+      const { rows: found } = await client.query(
+        `SELECT * FROM contracts WHERE upper(trim(contract_number)) = upper(trim($1)) AND deleted_at IS NULL FOR UPDATE`,
+        [row.contract_number]);
+      if (found[0] && isSettled(String(found[0].status))) {
+        skipped++;
+        continue;
+      }
+
       // --- the client: the one the reviewer picked, the one the preview matched, or a new shell -------
       let clientId: string | null = null;
       let clientName: string | null = row.client_name;
@@ -472,10 +491,6 @@ export async function commitImport(
         }
       }
 
-      // --- the contract: SELECT-then-write (the unique index is partial, so ON CONFLICT cannot see it)
-      const { rows: found } = await client.query(
-        `SELECT * FROM contracts WHERE upper(trim(contract_number)) = upper(trim($1)) AND deleted_at IS NULL FOR UPDATE`,
-        [row.contract_number]);
       const args = [
         clientId, clientName, row.quality, row.destination, row.shipment_date, row.shipment_month,
         row.containers, row.pss_expected, row.contract_number.trim(),
@@ -486,8 +501,8 @@ export async function commitImport(
       let contractId: string;
       if (found[0]) {
         contractId = String(found[0].id);
-        // A later export only ever adds: it never shrinks a contract, and it never touches its status —
-        // a shipped or cancelled contract stays that way (recomputeContractStatus honours both).
+        // A later export only ever adds: it never shrinks a contract and never sets its status by hand
+        // (a settled contract was skipped above, so nothing here can reopen it).
         await client.query(
           `UPDATE contracts SET
              client_id      = COALESCE($2::uuid, client_id),

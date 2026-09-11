@@ -88,6 +88,21 @@ const HIGH_SLOTS_CSV = csvText([
   'CT-2026-51,Paulig,AB FAQ,Finland,20/11/2026,2,5',
 ]);
 
+// What the SOL export writes in its shipment column (Ivo, 2026-09-10): a month window as plain text.
+const SOL_PERIOD_CSV = csvText([
+  'Contract No,Buyer,Quality,Destination,Shipment Period,Ctrs,PSS',
+  'CT-2026-70,Paulig,AB FAQ,Finland,2026/10 All - 2026/10 All,1,1',
+]);
+// One contract, then a later export that grows it — by which time its PSS has been accepted.
+const SETTLE_FIRST_CSV = csvText([
+  'Contract No,Buyer,Quality,Destination,Shipment,Ctrs,PSS',
+  'CT-2026-60,Paulig,AB FAQ,Finland,20/11/2026,1,1',
+]);
+const SETTLE_GROWN_CSV = csvText([
+  'Contract No,Buyer,Quality,Destination,Shipment,Ctrs,PSS',
+  'CT-2026-60,Paulig,AB FAQ,Finland,20/12/2026,2,2',
+]);
+
 const HOST = 'https://cdn.heylua.ai/uploads';
 const FILES: Record<string, { body: Buffer | string; status?: number; headers?: Record<string, string> }> = {
   [`${HOST}/sol-pss.csv`]: { body: csvBytes },
@@ -101,6 +116,9 @@ const FILES: Record<string, { body: Buffer | string; status?: number; headers?: 
   [`${HOST}/sol-count-qty.csv`]: { body: COUNT_QTY_CSV },
   [`${HOST}/sol-high-slots.csv`]: { body: HIGH_SLOTS_CSV },
   [`${HOST}/sol-datecell.xlsx`]: { body: DATE_CELL_XLSX },
+  [`${HOST}/sol-period.csv`]: { body: SOL_PERIOD_CSV },
+  [`${HOST}/sol-settle-first.csv`]: { body: SETTLE_FIRST_CSV },
+  [`${HOST}/sol-settle-grown.csv`]: { body: SETTLE_GROWN_CSV },
   [`${HOST}/sol.pdf`]: { body: Buffer.from('%PDF-1.4 not a spreadsheet') },
   [`${HOST}/gone.csv`]: { body: 'nope', status: 404 },
   [`${HOST}/huge.csv`]: { body: 'small body, big claim', headers: { 'content-length': '20000000' } },
@@ -190,6 +208,18 @@ describe('pss-mapping', () => {
     expect(parseShipmentDate(null)).toEqual({ date: null, precision: null });
     expect(parseShipmentDate('   ')).toEqual({ date: null, precision: null });
     expect(parseShipmentDate('not a date')).toMatchObject({ date: null, precision: null, error: 'unparseable shipment date' });
+  });
+
+  it("reads SOL's own period text as the first day of the shipment window (Ivo, 2026-09-10)", () => {
+    // What the SOL export really writes: "2026/08 All - 2026/08 All" — ship any time in August.
+    expect(parseShipmentDate('2026/08 All - 2026/08 All')).toEqual({ date: '2026-08-01', precision: 'month' });
+    expect(parseShipmentDate('2026/10 All')).toEqual({ date: '2026-10-01', precision: 'month' });
+    expect(parseShipmentDate('2026/10 all - 2026/11 all')).toEqual({ date: '2026-10-01', precision: 'month' });
+    expect(parseShipmentDate('2026/10 - 2026/11')).toEqual({ date: '2026-10-01', precision: 'month' });
+    // A window written back to front still opens on its earlier month.
+    expect(parseShipmentDate('2026/11 All - 2026/10 All')).toEqual({ date: '2026-10-01', precision: 'month' });
+    expect(parseShipmentDate('10/2026')).toEqual({ date: '2026-10-01', precision: 'month' });
+    expect(parseShipmentDate('2026/13 All - 2026/13 All')).toMatchObject({ date: null, error: 'unparseable shipment date' });
   });
 
   it('maps the pending-dispatch sheet: quantity per sample and PO ref', () => {
@@ -426,8 +456,9 @@ describe('/imports/pss-schedule', () => {
       shipment_date: '2026-09-01', date_precision: 'month', shipment_month: 'September 2026',
       containers: 1, pss_expected: 1, container_nos: [1], action: 'create', problems: [],
     });
-    expect(ct15.warnings).toContain('shipment date given as a month — using the 1st');
-    expect(ct15.warnings.some((w: string) => w.includes('Paulig'))).toBe(true);
+    // A month is how SOL states every shipment (Ivo): the 1st is the rule, not a doubt — only the loose
+    // client match is worth a warning here.
+    expect(ct15.warnings).toEqual([expect.stringContaining('Paulig')]);
 
     // Two rows for the same number are one contract of two containers.
     expect(ct16).toMatchObject({
@@ -706,6 +737,52 @@ describe('/imports/pss-schedule', () => {
     const detail = await auth(request(app).get(`/contracts/${c51.id}`));
     expect(detail.body.unassigned).toEqual([]);
     expect(detail.body.pss_counts).toEqual({ expected: 5, approved: 0, rejected: 0, pending: 5 });
+  });
+
+  it("17. SOL's month window (\"2026/10 All - 2026/10 All\") previews as the 1st, due 45 days before, no warning", async () => {
+    const res = await preview('sol-period.csv');
+    expect(res.status).toBe(200);
+    expect(res.body.detected_mapping.shipment_date).toBe('Shipment Period');
+    expect(res.body.rows[0]).toMatchObject({
+      contract_number: 'CT-2026-70', shipment_date: '2026-10-01', date_precision: 'month',
+      shipment_month: 'October 2026', pss_due_date: '2026-08-17', action: 'create', problems: [], warnings: [],
+    });
+  });
+
+  it('18. once the PSS is accepted a later export leaves the contract alone (Ivo, 2026-09-10)', async () => {
+    const first = await preview('sol-settle-first.csv');
+    expect((await commit(first.body.import_id)).status).toBe(200);
+    const contract = await contractByNumber('CT-2026-60');
+
+    // A preview taken while the PSS is still out wants one more option for the second container…
+    const stale = await preview('sol-settle-grown.csv');
+    expect(stale.body.rows[0]).toMatchObject({ action: 'update' });
+    expect(stale.body.summary.pss_to_create).toBe(1);
+
+    // …then the client accepts it.
+    const { rows: [pss] } = await pool.query(`SELECT id FROM bulk_samples WHERE contract_id = $1`, [contract.id]);
+    const approve = await auth(request(app).patch(`/bulk-samples/${pss.id}`)).send({ result_norm: 'approved' });
+    expect(approve.status).toBe(200);
+    const accepted = await contractByNumber('CT-2026-60');
+    expect(accepted.status).toBe('pss_approved');
+
+    // A fresh preview says there is nothing to do…
+    const fresh = await preview('sol-settle-grown.csv');
+    expect(fresh.body.rows[0]).toMatchObject({
+      action: 'skip', problems: [], warnings: ['PSS already accepted — nothing more to do on this contract'],
+    });
+    expect(fresh.body.summary).toMatchObject({ update: 0, skip: 1, pss_to_create: 0 });
+
+    // …and the stale one, committed anyway, changes nothing: no new option, no reopened contract.
+    const done = await commit(stale.body.import_id);
+    expect(done.status).toBe(200);
+    expect(done.body).toMatchObject({ contracts_updated: 0, pss_created: 0, skipped: 1 });
+    const after = await contractByNumber('CT-2026-60');
+    expect(after).toMatchObject({ status: 'pss_approved', containers: 1, pss_expected: 1 });
+    expect(after.shipment_date).toBe(accepted.shipment_date);
+    expect(after.updated_at).toEqual(accepted.updated_at);
+    const { rows: count } = await pool.query(`SELECT count(*)::int AS n FROM bulk_samples WHERE contract_id = $1`, [contract.id]);
+    expect(count[0].n).toBe(1);
   });
 
   it('13. a zero in the count columns reads as "not given", never as a contract of no containers', async () => {

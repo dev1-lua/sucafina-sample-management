@@ -10,7 +10,7 @@ import { enqueueDeleted } from '../lib/change-alerts.js';
 import { parseId, assertIn, clampInt } from '../lib/validate.js';
 import {
   containerStates, drawPss, firstFreeContainer, loadContractPss, nextOptionLetters, pssStageLabel,
-  recomputeContractStatus, usedOptionLetters, type ContractStatus, type PssRow,
+  recomputeContractStatus, usedOptionLetters, SETTLED_STATUSES, type ContractStatus, type PssRow,
 } from '../lib/contracts.js';
 
 export const contracts = Router();
@@ -22,7 +22,7 @@ export const contracts = Router();
 
 const STATUSES = ['open','pss_pending','pss_partial','pss_replacement_rejected','pss_approved','shipped','cancelled'] as const;
 // A contract in one of these is done with PSS: no reminders, no recompute.
-const SETTLED = `('pss_approved','shipped','cancelled')`;
+const SETTLED = `(${SETTLED_STATUSES.map((s) => `'${s}'`).join(',')})`;
 
 /**
  * Per-container roll-up for one contract row, as JSON: expected / approved / rejected / pending.

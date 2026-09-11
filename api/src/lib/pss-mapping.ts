@@ -161,8 +161,9 @@ const unparseable = (): ParsedDate => ({ date: null, precision: null, error: 'un
 /**
  * Every shape the shipment column arrives in: an Excel serial (what a real .xlsx holds), a JS Date, the
  * three typed forms (20/10/2026, 5.11.2026, 2026-11-05 — day first, as Kenya and Europe write them),
- * and the month-only ones the traders use when the vessel is not fixed yet ("Sep-26"), which become the
- * 1st of that month and are flagged in the preview so nobody mistakes the day for a promise.
+ * and the month-only ones — which is how SOL states every shipment: "10/2026", or in its export the
+ * window "2026/08 All - 2026/08 All" (Ivo, 2026-09-10: ship any time that month). A month becomes its
+ * 1st, and a window its earlier month's 1st: the PSS is due 45 days before the window opens.
  */
 export function parseShipmentDate(v: unknown): ParsedDate {
   if (v == null) return { date: null, precision: null };
@@ -192,16 +193,19 @@ export function parseShipmentDate(v: unknown): ParsedDate {
     const [d, mo, y] = [Number(m[1]), Number(m[2]), fullYear(Number(m[3]))];
     return valid(y, mo, d) ? { date: isoDate(y, mo, d), precision: 'day' } : unparseable();
   }
-  // Month only, in the three ways it is written: 09/2026, 2026-09, Sep-26 / September 2026.
+  // Month only, in the ways it is written: 09/2026, 2026-09, SOL's "2026/08 All - 2026/08 All", Sep-26.
   m = s.match(/^(\d{1,2})[/.-](\d{4})$/);
   if (m) {
     const [mo, y] = [Number(m[1]), Number(m[2])];
     return valid(y, mo, 1) ? { date: isoDate(y, mo, 1), precision: 'month' } : unparseable();
   }
-  m = s.match(/^(\d{4})[/.-](\d{1,2})$/);
+  m = s.match(/^(\d{4})[/.-](\d{1,2})(?:\s+all)?(?:\s*[-–]\s*(\d{4})[/.-](\d{1,2})(?:\s+all)?)?$/i);
   if (m) {
-    const [y, mo] = [Number(m[1]), Number(m[2])];
-    return valid(y, mo, 1) ? { date: isoDate(y, mo, 1), precision: 'month' } : unparseable();
+    const from = [Number(m[1]), Number(m[2])];
+    const to = m[3] ? [Number(m[3]), Number(m[4])] : from;
+    if (!valid(from[0], from[1], 1) || !valid(to[0], to[1], 1)) return unparseable();
+    const [y, mo] = from[0] * 12 + from[1] <= to[0] * 12 + to[1] ? from : to;
+    return { date: isoDate(y, mo, 1), precision: 'month' };
   }
   m = s.match(/^([A-Za-z]{3,9})[\s./-]*'?(\d{2,4})$/);
   if (m) {

@@ -35,9 +35,13 @@ IMPORTING THE SCHEDULE
   { field: "the header it lives under" } rather than editing rows by hand.
 - Never invent contract numbers, shipment dates, option counts or grams. A row the sheet leaves blank
   stays blank, and a row with a problem is reported as it is.
+- Once a contract's PSS is accepted there is nothing more to do on it (Ivo): a later export leaves it as it
+  is and the preview lists it as skipped with the reason — say that, never offer to reopen it. A contract
+  that a newer export no longer lists is left alone too: nothing is cancelled, the history stays.
 
 THE RULE (explain it ONCE per conversation, not on every reply)
-"PSS must reach the client 45 days before shipment; due dates are computed from the shipment date."
+"PSS must reach the client 45 days before shipment. SOL gives the shipment as a month ("2026/10 All" = any
+time in October), so the PSS is due 45 days before the 1st of that month."
 Reminders go out to QC at 14, 7 and 0 days before the due date, then once a week while a contract is overdue.
 
 CONTRACTS
