@@ -96,9 +96,23 @@ function growerOf(name: string | null, grade: string | null): string | null {
   return grower || null;
 }
 
+/** Kenya's coffee season runs October → September: 11 Sep 2026 is in 2025/2026, 1 Oct 2026 opens 2026/2027. */
+function coffeeSeason(year: number, month: number): string {
+  return month >= 10 ? `${year}/${year + 1}` : `${year - 1}/${year}`;
+}
+
+/** The crop to print: the one on file, else (decision 2026-09-11) the season the sample was logged in —
+ * or, for a row with no readable date, the season of the day it is printed. */
+function cropOf(row: Record<string, unknown>, now: Date): string {
+  const saved = str(row, 'crop_year');
+  if (saved) return saved;
+  const logged = /^(\d{4})-(\d{2})/.exec(str(row, 'date_on') ?? str(row, 'date') ?? '');
+  return logged ? coffeeSeason(Number(logged[1]), Number(logged[2])) : coffeeSeason(now.getFullYear(), now.getMonth() + 1);
+}
+
 /** Build label data from any of the three books' detail rows. A specialty lot prints Gloria's slip;
  * a commercial sample or forwarding parcel prints the same way, led by its ref (the name it goes by). */
-export function sampleLabelData(row: Record<string, unknown>): LabelData {
+export function sampleLabelData(row: Record<string, unknown>, now: Date = new Date()): LabelData {
   const code = str(row, 'ref') ?? str(row, 'sample_ref') ?? String(row.id ?? '');
   const book = bookOf(row);
   const isPss = (str(row, 'sample_type_norm') ?? str(row, 'sample_type'))?.toLowerCase() === 'pss';
@@ -122,7 +136,7 @@ export function sampleLabelData(row: Record<string, unknown>): LabelData {
     return {
       code,
       kind: `Specialty sample${pss}`,
-      lines: [...what, ...present([{ label: 'Screen', value: grade }, { label: 'Crop', value: str(row, 'crop_year') }, ...contract])],
+      lines: [...what, ...present([{ label: 'Screen', value: grade }, { label: 'Crop', value: cropOf(row, now) }, ...contract])],
     };
   }
   if (book === 'forwarding') {
@@ -141,7 +155,7 @@ export function sampleLabelData(row: Record<string, unknown>): LabelData {
       { label: 'Quality', value: str(row, 'quality') },
       { label: 'Shipment', value: str(row, 'shipment_month') },
       { label: 'Client', value: client },
-      { label: 'Crop', value: str(row, 'crop_year') },
+      { label: 'Crop', value: cropOf(row, now) },
     ]),
   };
 }

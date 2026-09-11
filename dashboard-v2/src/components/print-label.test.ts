@@ -34,6 +34,9 @@ describe('code39', () => {
   });
 });
 
+// A fixed print day for rows that carry no date: 11 Sep 2026, inside the 2025/2026 season.
+const NOW = new Date(2026, 8, 11);
+
 describe('sampleLabelData', () => {
   // Gloria's slips (2026-09-11): the mark, then Stocklot · Outturn · Grower · Screen · Crop, one per line.
   it('a specialty lot prints as the slip: Stocklot, Outturn, Grower, Screen, Crop — in that order', () => {
@@ -60,25 +63,42 @@ describe('sampleLabelData', () => {
     expect(grower({ name: 'AB SWARA', grade: 'AA' })).toBe('AB SWARA');
   });
 
-  it('skips the slip lines a row does not have; a row with none of them names its description', () => {
-    expect(sampleLabelData({ ref: 'SL-7266', outturn: '08KN0022', name: 'KII/KIRINYAGA', grade: 'AA' }).lines).toEqual([
+  it('skips the lot lines a row does not have; a row with none of them names its description', () => {
+    expect(sampleLabelData({ ref: 'SL-7266', outturn: '08KN0022', name: 'KII/KIRINYAGA', grade: 'AA' }, NOW).lines).toEqual([
       { label: 'Outturn', value: '08KN0022' },
       { label: 'Grower', value: 'KII' },
       { label: 'Screen', value: 'AA' },
+      { label: 'Crop', value: '2025/2026' },
     ]);
-    expect(sampleLabelData({ ref: 'SL-7459', description: 'Walk-in AA' }).lines).toEqual([
+    expect(sampleLabelData({ ref: 'SL-7459', description: 'Walk-in AA' }, NOW).lines).toEqual([
       { label: 'Description', value: 'Walk-in AA' },
+      { label: 'Crop', value: '2025/2026' },
     ]);
+  });
+
+  // Decision 2026-09-11: no crop year on file → the season the sample was logged in (Kenya: Oct → Sep).
+  it("no crop year saved: Crop prints the coffee season of the sample's date; a saved one wins", () => {
+    const crop = (row: Record<string, unknown>, now = NOW) =>
+      sampleLabelData({ ref: 'SL-1', outturn: '08KN0021', ...row }, now).lines.find((l) => l.label === 'Crop')?.value;
+    expect(crop({ date_on: '2026-09-11' })).toBe('2025/2026');
+    expect(crop({ date_on: '2026-09-30' })).toBe('2025/2026');
+    expect(crop({ date_on: '2026-10-01' })).toBe('2026/2027');
+    expect(crop({ date: '2026-01-15' })).toBe('2025/2026'); // the verbatim date when date_on is absent
+    expect(crop({}, new Date(2026, 9, 5))).toBe('2026/2027'); // no date on the row → the print day's season
+    expect(crop({ date_on: '2026-10-01', crop_year: '2024/2025' })).toBe('2024/2025');
+    // Commercial samples carry a crop year too; forwarding parcels don't.
+    expect(sampleLabelData({ sample_ref: 'TYPE-1', quality: 'AB', date_on: '2026-09-11' }, NOW).lines).toContainEqual({ label: 'Crop', value: '2025/2026' });
+    expect(sampleLabelData({ sample_ref: 'FW-1', coffee_quality: 'Robusta', sender: 'X' }, NOW).lines.map((l) => l.label)).not.toContain('Crop');
   });
 
   it('a specialty PSS adds its contract and option after the slip lines', () => {
     const label = sampleLabelData({
       ref: 'SSKE-4411A', outturn: '08KN0021', name: 'KII', grade: 'AB', sample_type_norm: 'pss',
       contract_number: 'P-4411', option_letter: 'A',
-    });
+    }, NOW);
     expect(label.kind).toBe('Specialty sample · PSS');
     expect(label.lines.map((l) => `${l.label}: ${l.value}`)).toEqual([
-      'Outturn: 08KN0021', 'Grower: KII', 'Screen: AB', 'Contract: P-4411', 'Option: A',
+      'Outturn: 08KN0021', 'Grower: KII', 'Screen: AB', 'Crop: 2025/2026', 'Contract: P-4411', 'Option: A',
     ]);
   });
 
@@ -101,7 +121,7 @@ describe('sampleLabelData', () => {
     const label = sampleLabelData({
       id: 'u-4', sample_ref: 'SSKE-77812C', quality: 'AB FAQ', sample_type_norm: 'pss',
       contract_number: 'P-77812', container_no: 3, option_letter: 'C', shipment_month: 'Nov', client: 'Paulig',
-    });
+    }, NOW);
     expect(label.kind).toBe('Commercial sample · PSS');
     expect(label.lines).toEqual([
       { label: 'Ref', value: 'SSKE-77812C' },
@@ -110,6 +130,7 @@ describe('sampleLabelData', () => {
       { label: 'Quality', value: 'AB FAQ' },
       { label: 'Shipment', value: 'Nov' },
       { label: 'Client', value: 'Paulig' },
+      { label: 'Crop', value: '2025/2026' },
     ]);
     expect(sampleLabelData({ sample_ref: 'SSKE-9001', sample_type_norm: 'pss', contract_number: 'P-1', container_no: 3 }).lines)
       .toContainEqual({ label: 'Option', value: '3' });
