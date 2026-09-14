@@ -1,15 +1,18 @@
 import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
-import { ccFor, EMAIL_CHANNEL_READY, loadTraders, sendToPerson, type TraderRow } from '../lib/notify';
+import { autoLoopIns, ccFor, EMAIL_CHANNEL_READY, loadTraders, sendToPerson, type TraderRow } from '../lib/notify';
 import { changeAlertMessage, isChangeAlert, type OutboxItem } from '../lib/change-alerts';
 
 // Timeline suffix when the QC desk mailbox was CC'd on an event's email (once per event).
 const CC_NOTE = ' · cc Specialty QC mailbox';
 
 // Ivo Jr. (feedback #29/#30): the Quality team hears about every sample request the
-// moment it's logged in full, and the Sales Trader hears as their sample progresses
-// (preparing / dispatched / AWB added). Drains the notifications_outbox queue the API
-// fills in-transaction on create/PATCH — a job rather than a tool hook so dashboard
+// moment it's logged in full, and the people in the loop hear as the sample progresses
+// (preparing / dispatched / AWB added / delivered). The loop = the client's account
+// manager + per-sample loop-ins (resolved by the API, migration 014) + the row's Sales
+// Trader and logger (matched against the roster here — lifecycle sketch 2026-09-14: the
+// AWB ping goes back to the person who asked). Drains the notifications_outbox queue the
+// API fills in-transaction on create/PATCH — a job rather than a tool hook so dashboard
 // edits notify too. Per person: warm Teams DM first, email fallback (lib/notify).
 // Idempotency mirrors dispatch-notifier: /notifications/outbox-mark is stamped only
 // AFTER a successful send, so a failed send self-retries next run; unresolvable
@@ -41,8 +44,12 @@ function dedupeByEmail<T extends { email: string | null }>(list: T[]): T[] {
   return out;
 }
 
-const COURIER_LABEL: Record<string, string> = { dhl: 'DHL', fedex: 'FedEx' };
-const courierLabel = (c: string | null | undefined) => (c ? COURIER_LABEL[c] ?? c.toUpperCase() : 'courier');
+// Every courier_norm value (lib/normalize COURIERS) spelled the way the desk says it — never "RIDER".
+const COURIER_LABEL: Record<string, string> = {
+  dhl: 'DHL', fedex: 'FedEx', ups: 'UPS', rider: 'rider', hand_delivery: 'hand delivery',
+  client_pickup: 'client pickup', wells_fargo: 'Wells Fargo', other: 'courier',
+};
+export const courierLabel = (c: string | null | undefined) => (c ? COURIER_LABEL[c] ?? c : 'courier');
 
 const REASON_LABEL: Record<string, string> = {
   customs_hold: 'customs hold',
@@ -100,8 +107,17 @@ function describe(i: OutboxItem): string {
   return `${i.ref ?? '(no ref)'} — ${bits}`;
 }
 
-function traderMessage(i: OutboxItem): { text: string; subject: string } {
+/**
+ * The status pings in the sketch's words (2026-09-14): "hey — your sample abc for CLIENT has an AWB,
+ * it'll be on its way soon". Exported for the unit tests.
+ */
+export function traderMessage(i: OutboxItem): { text: string; subject: string } {
   const label = describe(i);
+  const ref = i.ref ?? 'your sample';
+  const what = `${ref} (${i.title ?? '?'}) for ${i.client_name ?? i.receiver ?? '?'}`;
+  const courier = courierLabel(i.courier_norm);
+  // "On its way": the dispatch itself, or an AWB typed after the parcel already left — never "soon" then.
+  const onItsWay = `${what} is on its way — ${courier}${i.awb ? ` AWB ${i.awb}` : ', no AWB yet'}.`;
   if (i.event === 'preparing') {
     return {
       text: `Your sample ${i.ref ?? ''} (${i.title ?? '?'} → ${i.receiver ?? '?'}) is being prepared by the lab.`,
@@ -109,16 +125,14 @@ function traderMessage(i: OutboxItem): { text: string; subject: string } {
     };
   }
   if (i.event === 'awb_added') {
+    const left = i.status === 'dispatched' || i.status === 'delivered' || i.status === 'results_in';
     return {
-      text: `AWB added for ${i.ref ?? 'your sample'}: ${i.awb ?? '?'}${i.courier_norm ? ` (${i.courier_norm})` : ''}.`,
+      text: left ? onItsWay : `Your sample ${what} has a ${courier} AWB ${i.awb ?? '?'} — it'll be on its way soon.`,
       subject: `Sample ${i.ref ?? ''}: AWB added`,
     };
   }
   if (i.event === 'dispatched') {
-    return {
-      text: `${i.ref ?? 'Your sample'} is on its way — ${i.courier_norm ?? 'courier'}${i.awb ? ` AWB ${i.awb}` : ''}. (${label})`,
-      subject: `Sample ${i.ref ?? ''}: dispatched`,
-    };
+    return { text: onItsWay, subject: `Sample ${i.ref ?? ''}: dispatched` };
   }
   // Anything not covered above (a new event reaching a version that predates its wording) still gets a
   // truthful line rather than the dispatch text — never claim a sample moved when we don't know that.
@@ -277,24 +291,28 @@ export const statusNotifierJob = new LuaJob({
       try {
         const ev = item.event;
         // Recipients = QC (when the event is QC-routed or QC+loop) plus the people in the loop
-        // (the client's account manager + anyone added on the sample, resolved by the API at send
-        // time, migration 014) — when the event is loop-routed or QC+loop. Deduped by email so a QC
-        // member who is also the account manager gets one ping, not two.
+        // — when the event is loop-routed or QC+loop: the client's account manager + anyone added
+        // on the sample (resolved by the API at send time, migration 014) + the row's Sales Trader
+        // and logger (matched against the roster here). Deduped by email so a QC member who is
+        // also the account manager, or a trader who logged their own request, gets one ping.
         const wantsQc = QC_EVENTS.has(ev) || QC_AND_LOOP_EVENTS.has(ev);
         const wantsLoop = LOOP_EVENTS.has(ev) || QC_AND_LOOP_EVENTS.has(ev);
+        const auto = wantsLoop ? autoLoopIns([item.requested_by, item.logged_by], traders) : { hits: [], unresolved: [] };
         const recipients = dedupeByEmail([
           ...(wantsQc ? qc.map((t) => ({ name: t.name, email: t.email })) : []),
           ...(wantsLoop ? (item.recipients ?? []).map((r) => ({ name: r.name, email: r.email })) : []),
+          ...auto.hits.map((t) => ({ name: t.name, email: t.email })),
         ]);
         if (!recipients.length) {
+          const missed = auto.unresolved.length ? `; ${auto.unresolved.join(' / ')}` : '';
           await mark(
             item.outbox_id,
             'skipped',
             !wantsLoop
               ? 'no Quality-team members with an email on file'
               : !wantsQc
-                ? `no one in the loop for ${item.client_name ?? 'this sample'}: client has no account manager and no loop-in contacts`
-                : `no Quality-team members and no one in the loop for ${item.client_name ?? 'this sample'}`,
+                ? `no one in the loop for ${item.client_name ?? 'this sample'}: client has no account manager and no loop-in contacts${missed}`
+                : `no Quality-team members and no one in the loop for ${item.client_name ?? 'this sample'}${missed}`,
           );
           skipped += 1;
           continue;

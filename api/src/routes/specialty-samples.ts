@@ -8,7 +8,7 @@ import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
-import { gapColumns } from '../lib/detail-requests.js';
+import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
 import { maybeDrawReplacement, recomputeContractStatus, resolveContractLink } from '../lib/contracts.js';
 
@@ -162,6 +162,8 @@ specialtySamples.get('/', h(async (req, res) => {
   if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
   // Log-first (migration 016): rows whose client has no street address on file yet.
   if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
+  // AWB on file, not yet collected by the courier (lifecycle sketch 2026-09-14).
+  if (req.query.awaiting_collection === 'true') f.where.push(AWAITING_COLLECTION_WHERE);
   const result = await buildList(
     { table: 'specialty_samples', extraSelect: gapColumns('specialty_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb','requested_by','logged_by','outturn','stocklot'] },
     req.query, f.where, f.params,

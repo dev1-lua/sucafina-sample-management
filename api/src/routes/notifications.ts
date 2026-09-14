@@ -4,7 +4,7 @@ import { pool } from '../db.js';
 import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
 import { runWithEvent } from '../lib/mutate.js';
-import { openSamplesFor } from '../lib/detail-requests.js';
+import { awaitingCollectionExpr, openSamplesFor } from '../lib/detail-requests.js';
 
 export const notifications = Router();
 
@@ -122,7 +122,7 @@ const entityArm = (tab: string, table: string, ref: string) => `
            NULL::text AS status, NULL::text AS courier_norm, NULL::text AS awb, NULL::int AS qty_grams, NULL::text AS priority,
            NULL::text AS requested_by, NULL::text AS logged_by, ${tab === 'client' ? 'e.name' : 'NULL::text'} AS client_name, o.created_at,
            false AS client_address_missing, NULL::text AS details_requested_from, NULL::timestamptz AS details_requested_at,
-           NULL::text AS details_requested_via, NULL::text AS details_note,
+           NULL::text AS details_requested_via, NULL::text AS details_note, false AS awaiting_collection,
            '[]'::json AS recipients
       FROM notifications_outbox o
       JOIN ${table} e ON e.id = o.sample_id
@@ -137,7 +137,7 @@ const contractArm = `
            e.status AS status, NULL::text AS courier_norm, NULL::text AS awb, NULL::int AS qty_grams, NULL::text AS priority,
            NULL::text AS requested_by, NULL::text AS logged_by, c.name AS client_name, o.created_at,
            false AS client_address_missing, NULL::text AS details_requested_from, NULL::timestamptz AS details_requested_at,
-           NULL::text AS details_requested_via, NULL::text AS details_note,
+           NULL::text AS details_requested_via, NULL::text AS details_note, false AS awaiting_collection,
            COALESCE((
              SELECT json_agg(json_build_object('id', tr.id, 'name', tr.name, 'email', tr.email) ORDER BY tr.name)
                FROM traders tr
@@ -160,6 +160,8 @@ notifications.get('/outbox-pending', h(async (_req, res) => {
            client_address_missing(t.client_id) AS client_address_missing,
            r.asked_name AS details_requested_from, r.asked_at AS details_requested_at,
            r.via AS details_requested_via, r.note AS details_note,
+           -- AWB on file but not yet collected — lets the job phrase the AWB ping honestly.
+           ${awaitingCollectionExpr('t')} AS awaiting_collection,
            -- Who is kept in the loop (migration 014): the client's account manager plus any
            -- people added on the sample itself. Resolved here, at send time, so a manager set
            -- after the event was queued still gets it. Email may be null → job marks skipped.

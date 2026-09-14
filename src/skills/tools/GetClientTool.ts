@@ -1,11 +1,12 @@
 import { LuaTool } from 'lua-cli';
 import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
+import { hasDeliveryAddress, isInternalOffice, lastPssQty } from '../../lib/client-guard';
 
 export default class GetClientTool implements LuaTool {
   name = 'get_client';
   description =
-    "Get a client's full book entry: contacts (attention_to, full_address, phone, email), account owner, and recent order history. Use whenever asked for a client's address / contact / who owns them / what they've ordered. Pass client_id from find_client, OR a name and it resolves the single match (returns the candidate list if the name is ambiguous).";
+    "Get a client's full book entry: contacts (attention_to, full_address, phone, email), account owner, recent order history, `address_missing` (no delivery address on file — ask for it BEFORE logging) and `usual_pss_grams` (their last PSS size; null = the PSS quantity has to be asked). Use whenever asked for a client's address / contact / who owns them / what they've ordered, and before logging a sample to know what the one-line intake question must cover. Pass client_id from find_client, OR a name and it resolves the single match (returns the candidate list if the name is ambiguous).";
 
   inputSchema = z.object({
     client_id: z.string().optional().describe('Client id from find_client (preferred).'),
@@ -31,11 +32,17 @@ export default class GetClientTool implements LuaTool {
 
     const c = await apiFetch(`/clients/${encodeURIComponent(String(id))}`);
     const orders = Array.isArray(c.orders) ? c.orders : [];
+    const contacts = (c.contacts ?? []) as Array<{ full_address?: string | null }>;
     return {
       found: true,
       id: c.id,
       name: c.name,
       country: c.country,
+      // What the one-line intake question must cover (lifecycle sketch 2026-09-14): the delivery
+      // address when none is on file (internal offices never need one), and the PSS size when this
+      // client has no usual one yet.
+      address_missing: !isInternalOffice(c.name) && !hasDeliveryAddress({ contacts: contacts.map((ct) => ({ attention_to: null, full_address: ct.full_address ?? null, phone: null, email: null })) }),
+      usual_pss_grams: await lastPssQty(c.id),
       contacts: (c.contacts ?? []).map((ct: any) => ({
         attention_to: ct.attention_to,
         full_address: ct.full_address,

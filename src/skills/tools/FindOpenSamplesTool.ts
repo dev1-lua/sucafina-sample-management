@@ -50,6 +50,8 @@ export default class FindOpenSamplesTool implements LuaTool {
         date: s.date_on,
         // Log-first: the client has no delivery address on file yet (+ who was asked for it, when).
         address_missing: s.client_address_missing === true,
+        // AWB on file but not collected yet (status still requested/preparing): say "awaiting collection", never "on its way".
+        awaiting_collection: s.awaiting_collection === true,
         details_requested_from: s.details_requested_from ?? null,
         details_requested_at: s.details_requested_at ?? null,
       })),

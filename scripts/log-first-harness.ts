@@ -3,6 +3,8 @@
 // address is routed to the colleague who has it, recorded, chased, and closed when the address lands.
 // Never prod. Run: npm run harness:log-first
 import UpsertClientTool from '../src/skills/tools/UpsertClientTool';
+import FindClientTool from '../src/skills/tools/FindClientTool';
+import GetClientTool from '../src/skills/tools/GetClientTool';
 import CreateBulkSampleTool from '../src/skills/tools/CreateBulkSampleTool';
 import CreateSpecialtySampleTool from '../src/skills/tools/CreateSpecialtySampleTool';
 import FindOpenSamplesTool from '../src/skills/tools/FindOpenSamplesTool';
@@ -49,6 +51,8 @@ let mode: 'teams' | 'email' | null = 'email';
 const deliver = async (o: { email: string; text: string; subject: string; cc?: string[] }) => { sends.push(o); return mode; };
 
 const upsert = new UpsertClientTool();
+const findClient = new FindClientTool();
+const getClient = new GetClientTool();
 const bulk = new CreateBulkSampleTool();
 const spec = new CreateSpecialtySampleTool();
 const open = new FindOpenSamplesTool();
@@ -62,9 +66,19 @@ const created: Array<{ tab: string; id: string }> = [];
 const clientIds: string[] = [];
 
 try {
+  // ───────────── 0. Before writing (lifecycle sketch 2026-09-14): what the one-line question must cover
+  const unknown = await findClient.execute({ query: BEYERS });
+  ok('find_client: unknown client → total 0 (address is part of the one-line ask)', unknown.total === 0, JSON.stringify(unknown));
+
   // ───────────── 1. Beyers replay: unknown client → sample written immediately, gap reported
   const row = await bulk.execute({ quality: 'AB FAQ', sample_type: 'type', client: BEYERS, country: 'Belgium', qty_grams: 2500 } as any);
   created.push({ tab: 'bulk', id: row.id }); clientIds.push(row.client_id!);
+  const pre = await getClient.execute({ client_id: row.client_id! });
+  ok('get_client: address_missing true + usual_pss_grams null before anything is on file', pre.found === true && pre.address_missing === true && pre.usual_pss_grams === null, JSON.stringify({ a: pre.address_missing, q: pre.usual_pss_grams }));
+  const found = await findClient.execute({ query: BEYERS });
+  ok('find_client: match carries address_missing', found.matches.find((m: any) => m.id === row.client_id)?.address_missing === true);
+  const office = await findClient.execute({ query: 'Sucafina' });
+  ok('find_client: internal offices never report address_missing', office.matches.every((m: any) => m.address_missing === false), JSON.stringify(office.matches.slice(0, 3)));
   ok('sample written for an unknown client (no refusal)', !!row.id && row.status === 'requested', row.sample_ref);
   ok('client shell created + linked', row.client_created === true && !!row.client_id);
   ok('gap reported: full street address missing', JSON.stringify(row.client_details_missing) === JSON.stringify(['full street address']), JSON.stringify(row.client_details_missing));
@@ -100,8 +114,25 @@ try {
   ok('open ask resolved', (await api(`/clients/${row.client_id}`)).detail_request === null);
   const list2 = await open.execute({ query: BEYERS });
   ok('find_open_samples no longer flags it', list2.samples.find((s: any) => s.id === row.id)?.address_missing === false);
-  const d = await dispatch.execute({ items: [{ tab: 'bulk', id: row.id }], courier: 'DHL', awb: '1471098930' });
+  ok('get_client: address_missing false once saved', (await getClient.execute({ client_id: row.client_id! })).address_missing === false);
+  ok('get_client: usual_pss_grams stays null (this was a Type, not a PSS)', (await getClient.execute({ client_id: row.client_id! })).usual_pss_grams === null);
+
+  // ───────────── 1b. Awaiting collection: the AWB lands first (dashboard style), the pickup later
+  await api(`/bulk-samples/${row.id}`, { method: 'PATCH', body: JSON.stringify({ awb: '1471098930', courier_norm: 'dhl' }) });
+  const waiting = (await open.execute({ query: BEYERS })).samples.find((s: any) => s.id === row.id);
+  ok('find_open_samples: AWB on file + still requested → awaiting_collection true', waiting?.awaiting_collection === true && waiting?.status === 'requested', JSON.stringify({ s: waiting?.status, w: waiting?.awaiting_collection }));
+  ok('get_sample_status carries awaiting_collection', (await status.execute({ ref_or_id: row.sample_ref })).awaiting_collection === true);
+  // Read the outbox table directly: /outbox-pending is capped at 100 rows and the dev DB carries leftovers.
+  const outbox = async () => (await db.query(`SELECT event, sent_at, last_error FROM notifications_outbox WHERE sample_id = $1 ORDER BY created_at`, [row.id])).rows as Array<{ event: string; sent_at: string | null; last_error: string | null }>;
+  const queued = (await outbox()).filter((r) => !r.sent_at).map((r) => r.event);
+  ok('outbox: awb_added queued (created too)', queued.includes('awb_added') && queued.includes('created'), queued.join(','));
+  const d = await dispatch.execute({ items: [{ tab: 'bulk', id: row.id }] });
+  ok('record_dispatch with no courier/AWB keeps the ones on file', d.updated[0].courier === 'dhl' && d.updated[0].awb === '1471098930', JSON.stringify(d.updated[0]));
   ok('record_dispatch: address no longer missing', d.updated[0].client_address_missing === false);
+  ok('after pickup: awaiting_collection false', (await status.execute({ ref_or_id: row.sample_ref })).awaiting_collection === false);
+  const after = await outbox();
+  const awbRow = after.find((r) => r.event === 'awb_added');
+  ok('outbox: dispatch superseded the pending awb_added (one ping, not two)', after.some((r) => r.event === 'dispatched' && !r.sent_at) && !!awbRow?.sent_at && awbRow?.last_error === 'superseded: dispatched', JSON.stringify(after));
   const ev = ((await api(`/bulk-samples/${row.id}`)).events as any[]).map((e) => e.type);
   ok('timeline: details_requested → details_resolved', ev.indexOf('details_requested') >= 0 && ev.indexOf('details_resolved') > ev.indexOf('details_requested'), ev.join(','));
   await expectThrow('asking again once the address is on file is refused', () => ask.execute({ sample_ref: row.sample_ref, missing: ['x'] }), /already has|nothing to ask/i);

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { CellValue } from '@/components/CellValue';
 import { StatusBadge } from '@/components/StatusBadge';
 import { formatQty, formatShortDate } from '@/lib/format';
-import { stockTag } from '@/lib/tags';
+import { sampleStatusTag, stockTag } from '@/lib/tags';
 import type { ColumnDef, CreateFieldDef, DetailField, FilterDef } from '@/types';
 
 // Feedback round 3 (migration 010), shared by all three books like followup-fields:
@@ -112,6 +112,45 @@ export const addressGapDetailField: DetailField = {
 };
 
 export const addressGapFilter: FilterDef = { key: 'address_missing', label: 'Address needed', type: 'bool' };
+
+// --- Awaiting collection (lifecycle sketch 2026-09-14) ---------------------------------
+// "When the AWB is added it means the coffee is awaiting collection by DHL." The API derives
+// `awaiting_collection` (AWB on file, status still requested/preparing) on every read; the
+// status pill shows it in place of the stored status, the drawer explains it, and a filter
+// lists what is booked but not yet picked up. Same on all three books.
+
+/** Status pill: the derived "awaiting collection" while the AWB waits for pickup, else the stored status. */
+export function SampleStatusCell({ row }: { row: Record<string, unknown> }) {
+  const value = sampleStatusTag(row);
+  const title =
+    value === 'awaiting_collection'
+      ? `AWB ${typeof row.awb === 'string' ? row.awb : '?'} — booked, not yet collected by ${courierName(row.courier_norm)}`
+      : undefined;
+  return <StatusBadge kind="status" value={value} title={title} />;
+}
+
+const COURIER_NAMES: Record<string, string> = {
+  dhl: 'DHL', fedex: 'FedEx', ups: 'UPS', rider: 'the rider', hand_delivery: 'hand delivery',
+  client_pickup: 'the client', wells_fargo: 'Wells Fargo',
+};
+function courierName(courier: unknown): string {
+  return typeof courier === 'string' && COURIER_NAMES[courier] ? COURIER_NAMES[courier] : 'the courier';
+}
+
+export const awaitingCollectionFilter: FilterDef = { key: 'awaiting_collection', label: 'Awaiting collection', type: 'bool' };
+
+/** Detail-drawer row shown only while the parcel is booked but not collected; the Status select stays editable. */
+export const awaitingCollectionDetailField: DetailField = {
+  key: 'awaiting_collection',
+  label: 'Collection',
+  render: (r) => (
+    <span>
+      <span aria-hidden="true">⏳ </span>
+      Awaiting {courierName(r.courier_norm)} collection — AWB {typeof r.awb === 'string' ? r.awb : '?'}. Set Status to “dispatched” once picked up.
+    </span>
+  ),
+  hidden: (r) => r.awaiting_collection !== true,
+};
 
 export const round3CreateFields: CreateFieldDef[] = [
   { key: 'priority', label: 'Priority', type: 'select', options: PRIORITIES, defaultValue: 'normal' },

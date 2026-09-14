@@ -1,4 +1,4 @@
-import { tagColor, tagLabel, stockTag } from './tags';
+import { tagColor, tagLabel, stockTag, sampleStatusTag } from './tags';
 
 it('maps known statuses to distinct palette classes', () => {
   expect(tagColor('status', 'dispatched')).toContain('blue');
@@ -49,4 +49,13 @@ it('stockTag: out at 0, low below qty, null when untracked or sufficient', () =>
   expect(stockTag(100, null)).toBeNull(); // no send qty → nothing to compare against
   expect(tagColor('stock', 'low_stock')).toContain('amber');
   expect(tagColor('stock', 'out_of_stock')).toContain('rose');
+});
+
+it('sampleStatusTag: awaiting_collection replaces requested/preparing while the AWB waits for pickup', () => {
+  expect(sampleStatusTag({ status: 'preparing', awaiting_collection: true })).toBe('awaiting_collection');
+  expect(sampleStatusTag({ status: 'preparing', awaiting_collection: false })).toBe('preparing');
+  expect(sampleStatusTag({ status: 'dispatched' })).toBe('dispatched');
+  expect(sampleStatusTag({})).toBeNull();
+  expect(tagColor('status', 'awaiting_collection')).toContain('indigo');
+  expect(tagLabel('status', 'awaiting_collection')).toBe('awaiting collection');
 });

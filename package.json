@@ -10,12 +10,13 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "harness:loop-in": "LUA_LOCAL_HARNESS=1 API_BASE_URL=http://localhost:4000 API_KEY=dev-key-sucafina npx tsx scripts/loop-in-harness.ts",
     "harness:log-first": "LUA_LOCAL_HARNESS=1 API_BASE_URL=http://localhost:4000 API_KEY=dev-key-sucafina npx tsx scripts/log-first-harness.ts",
     "harness:tracking": "LUA_LOCAL_HARNESS=1 API_BASE_URL=http://localhost:4000 API_KEY=dev-key-sucafina npx tsx scripts/tracking-harness.ts",
     "harness:pss": "LUA_LOCAL_HARNESS=1 API_BASE_URL=http://localhost:4000 API_KEY=dev-key-sucafina npx tsx scripts/pss-harness.ts",
-    "harness:group-ask": "LUA_LOCAL_HARNESS=1 API_BASE_URL=http://localhost:4000 API_KEY=dev-key-sucafina npx tsx scripts/group-ask-harness.ts"
+    "harness:group-ask": "LUA_LOCAL_HARNESS=1 API_BASE_URL=http://localhost:4000 API_KEY=dev-key-sucafina npx tsx scripts/group-ask-harness.ts",
+    "qa:sketch": "zsh scripts/sandbox-qa-sketch.sh"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^6.1.2",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@types/node": "^20.10.0",
     "tsx": "^4.7.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.9"
   }
 }

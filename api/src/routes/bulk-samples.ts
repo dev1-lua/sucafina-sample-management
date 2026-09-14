@@ -8,7 +8,7 @@ import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
-import { gapColumns } from '../lib/detail-requests.js';
+import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
 import { maybeDrawReplacement, recomputeContractStatus, resolveContractLink } from '../lib/contracts.js';
 
@@ -163,6 +163,8 @@ bulkSamples.get('/', h(async (req, res) => {
   if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
   // Log-first (migration 016): rows whose client has no street address on file yet.
   if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
+  // AWB on file, not yet collected by the courier (lifecycle sketch 2026-09-14).
+  if (req.query.awaiting_collection === 'true') f.where.push(AWAITING_COLLECTION_WHERE);
   // PSS still owed on a contract whose 45-day deadline has passed (Harriet, round 6).
   if (req.query.pss_overdue === 'true') {
     f.where.push(`sample_type_norm = 'pss' AND result_norm IS DISTINCT FROM 'approved' AND EXISTS (SELECT 1 FROM contracts c WHERE c.id = bulk_samples.contract_id AND c.deleted_at IS NULL AND c.pss_due_date < current_date)`);

@@ -32,6 +32,9 @@ export type TagKind = 'status' | 'result' | 'sample_type' | 'stock' | 'priority'
 const STATUS: Record<string, Color> = {
   requested: 'gray',
   preparing: 'amber',
+  // Derived, not a stored status (lifecycle sketch 2026-09-14): the AWB is on file but the courier
+  // has not collected — shown in place of requested/preparing, see sampleStatusTag().
+  awaiting_collection: 'indigo',
   dispatched: 'blue',
   delivered: 'teal',
   results_in: 'purple',
@@ -125,6 +128,14 @@ export function tagLabel(kind: TagKind, value: string): string {
 /** 'out_of_stock' at zero grams, 'low_stock' when the lab holds less than the row
  * needs to send, null when untracked or sufficient (no badge). Values double as
  * StatusBadge labels ("low stock" / "out of stock"). */
+/** The status pill's value for a sample row: 'awaiting_collection' when the API says the AWB is on
+ * file but the parcel has not left (status still requested/preparing), otherwise the stored status.
+ * The drawer's Status select keeps showing the stored value — this only changes what is displayed. */
+export function sampleStatusTag(row: { status?: unknown; awaiting_collection?: unknown }): string | null {
+  if (row.awaiting_collection === true) return 'awaiting_collection';
+  return typeof row.status === 'string' && row.status ? row.status : null;
+}
+
 export function stockTag(stock: unknown, qty: unknown): 'low_stock' | 'out_of_stock' | null {
   if (typeof stock !== 'number') return null;
   if (stock <= 0) return 'out_of_stock';

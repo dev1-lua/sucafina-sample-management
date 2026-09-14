@@ -27,6 +27,8 @@ export type OutboxItem = {
   recipients: { id: string; name: string; email: string | null }[];
   /** Log-first (migration 016): the client has no delivery address on file (+ who was asked). */
   client_address_missing?: boolean;
+  /** AWB on file while the row is still requested/preparing — the courier has not collected it yet. */
+  awaiting_collection?: boolean;
   details_requested_from?: string | null;
   details_requested_at?: string | null;
   details_requested_via?: string | null;

@@ -74,9 +74,10 @@ export default class CreateForwardingSampleTool implements LuaTool {
       }),
     });
 
-    // Present only when the client has no account manager with an email on file — the
+    // Present only when the client has no account manager with an email on file AND the Sales Trader
+    // is not reachable on the roster either (they are always in the loop, lifecycle sketch 2026-09-14) — the
     // intake skill's KEEP IN THE LOOP step keys off this field (feedback #34).
-    const gap = await notifyContactGap(row.client_id);
+    const gap = await notifyContactGap(row.client_id, { coveredBy: [requestedBy] });
 
     return {
       ...(gap ? { notify_contact_gap: gap } : {}),

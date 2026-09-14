@@ -1,4 +1,3 @@
-import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
 import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
@@ -10,6 +9,9 @@ import {
   addressGapColumn,
   addressGapDetailField,
   addressGapFilter,
+  SampleStatusCell,
+  awaitingCollectionFilter,
+  awaitingCollectionDetailField,
 } from './round3-fields';
 
 // Lab locations Muki named (feedback ⑦); free text elsewhere, so the select allows custom entry.
@@ -53,7 +55,7 @@ export const forwardingConfig: TabConfig = {
       sortKey: 'status',
       // Feedback (Ivo): status stays visible while the wide grid pans — frozen far right.
       pinned: 'right',
-      render: (r) => <StatusBadge kind="status" value={r.status as string | null} />,
+      render: (r) => <SampleStatusCell row={r} />,
     },
   ],
   filters: [
@@ -64,6 +66,7 @@ export const forwardingConfig: TabConfig = {
     { key: 'location', label: 'Location', type: 'enum', options: LOCATIONS, multi: true },
     { key: 'date_range', label: 'Date', type: 'date' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
+    awaitingCollectionFilter,
     { key: 'has_id', label: 'Has ID', type: 'bool' },
     { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
     addressGapFilter,
@@ -71,6 +74,7 @@ export const forwardingConfig: TabConfig = {
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
     { key: 'awb', label: 'AWB', edit: { field: 'awb', type: 'text' } },
+    awaitingCollectionDetailField,
     { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'id_number', label: 'ID Number', edit: { field: 'id_number', type: 'text' } },
     { key: 'receiver_company', label: 'Receiver', edit: { field: 'receiver_company', type: 'text' } },

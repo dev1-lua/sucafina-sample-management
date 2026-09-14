@@ -10,6 +10,9 @@ import {
   addressGapColumn,
   addressGapDetailField,
   addressGapFilter,
+  SampleStatusCell,
+  awaitingCollectionFilter,
+  awaitingCollectionDetailField,
 } from './round3-fields';
 
 // Lab locations Muki named (feedback ⑦); free text elsewhere, so the select allows custom entry.
@@ -87,7 +90,7 @@ export const specialtyConfig: TabConfig = {
       sortKey: 'status',
       // Feedback (Ivo): status stays visible while the wide grid pans — frozen far right.
       pinned: 'right',
-      render: (r) => <StatusBadge kind="status" value={r.status as string | null} />,
+      render: (r) => <SampleStatusCell row={r} />,
     },
   ],
   filters: [
@@ -100,6 +103,7 @@ export const specialtyConfig: TabConfig = {
     { key: 'shipment_month', label: 'Shipment Month', type: 'text' },
     { key: 'date_range', label: 'Date', type: 'date' },
     { key: 'has_awb', label: 'Has AWB', type: 'bool' },
+    awaitingCollectionFilter,
     { key: 'low_stock', label: 'Low Stock', type: 'bool' },
     { key: 'priority', label: 'Urgent Only', type: 'bool', trueValue: 'urgent' },
     addressGapFilter,
@@ -107,6 +111,7 @@ export const specialtyConfig: TabConfig = {
   detailFields: [
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
     { key: 'awb', label: 'AWB', edit: { field: 'awb', type: 'text' } },
+    awaitingCollectionDetailField,
     { key: 'courier', label: 'Courier', edit: { field: 'courier_norm', type: 'select', options: COURIERS, allowCustom: true } },
     { key: 'result', label: 'Result', edit: { field: 'result_norm', type: 'select', options: RESULTS } },
     { key: 'rejection_reason', label: 'Rejection Reason', edit: { field: 'rejection_reason', type: 'text' } },

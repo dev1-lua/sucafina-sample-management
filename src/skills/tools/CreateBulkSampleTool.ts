@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { apiFetch } from '../../lib/api';
 import { dashboardUrl } from '../../lib/links';
 import { currentUserName } from '../../lib/current-user';
-import { checkDeliverable } from '../../lib/client-guard';
+import { checkDeliverable, lastPssQty } from '../../lib/client-guard';
 import { notifyContactGap, touchRoster } from '../../lib/notify';
 import {
   DEFAULT_QTY_GRAMS,
@@ -136,9 +136,10 @@ export default class CreateBulkSampleTool implements LuaTool {
       }),
     });
 
-    // Present only when the client has no account manager with an email on file — the
+    // Present only when the client has no account manager with an email on file AND the Sales Trader
+    // is not reachable on the roster either (they are always in the loop, lifecycle sketch 2026-09-14) — the
     // intake skill's KEEP IN THE LOOP step keys off this field (feedback #34).
-    const gap = await notifyContactGap(row.client_id);
+    const gap = await notifyContactGap(row.client_id, { coveredBy: [requestedBy] });
 
     return {
       ...(gap ? { notify_contact_gap: gap } : {}),
@@ -170,17 +171,5 @@ export default class CreateBulkSampleTool implements LuaTool {
       priority: row.priority,
       url: dashboardUrl('bulk', row.id, 'created'),
     };
-  }
-}
-
-/** The client's usual PSS size: the last PSS in the Commercial book that was not itself an assumption. */
-async function lastPssQty(clientId: string | null | undefined): Promise<number | null> {
-  if (!clientId) return null;
-  try {
-    const res = await apiFetch(`/bulk-samples?client_id=${encodeURIComponent(clientId)}&sample_type_norm=pss&sort=created_at&order=desc&pageSize=10`);
-    const hit = (res.data ?? []).find((r: any) => Number(r.qty_grams) > 0 && !/1 kg assumed/.test(String(r.comments ?? '')));
-    return hit ? Number(hit.qty_grams) : null;
-  } catch {
-    return null;
   }
 }

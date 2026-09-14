@@ -10,9 +10,14 @@ export const dispatchLoggingSkill = new LuaSkill({
 
 Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking details :872526345980 Fedex".
 - PREPARING: when QC says they're pulling / preparing / working on a sample ("pulling SL-8007 now",
-  "starting on the Beyers types"), call set_sample_status with the ref — the people in the loop (the client's account manager plus anyone added to the sample — NOT necessarily the requester) are pinged
-  automatically as it progresses; you don't message anyone yourself. Dispatches stay with
+  "starting on the Beyers types"), call set_sample_status with the ref — the people in the loop (the
+  Sales Trader, whoever logged it, the client's account manager plus anyone added to the sample) are
+  pinged automatically as it progresses; you don't message anyone yourself. Dispatches stay with
   record_dispatch; don't use set_sample_status for those.
+- AWAITING COLLECTION: find_open_samples marks rows whose AWB is already on file but which have not
+  left (awaiting_collection true) — the courier has been booked, not yet picked up. Say "has <courier>
+  AWB <n>, awaiting collection". When QC says it was collected ("DHL picked up SL-8007"), call
+  record_dispatch on it — pass no courier/AWB and the row keeps the ones on file.
 - find_open_samples with the client/receiver/ref text to locate what was pending. It returns each
   hit's tab + id — you need both to record the dispatch on the right table.
 - URGENT FIRST: find_open_samples returns each row's priority; urgent rows come first — when listing

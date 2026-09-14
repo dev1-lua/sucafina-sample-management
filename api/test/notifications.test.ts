@@ -190,6 +190,43 @@ describe('notifications outbox', () => {
     expect(events).toEqual(['awb_added', 'created', 'dispatched']);
   });
 
+  // The dashboard PATCHes one field at a time (AWB, then Status), so both events land in the queue
+  // seconds apart; the dispatch supersedes the still-pending AWB ping — one message, not two.
+  it('a dispatch supersedes a pending awb_added from an earlier PATCH', async () => {
+    const s = await auth(request(app).post('/specialty-samples'))
+      .send({ description: 'Two-step dispatch', receiver_company: 'OutboxCo', requested_by: 'Omar' });
+    await auth(request(app).patch(`/specialty-samples/${s.body.id}`)).send({ awb: '999000333' });
+    expect((await itemsFor(s.body.id)).map((i) => i.event).sort()).toEqual(['awb_added', 'created']);
+
+    await auth(request(app).patch(`/specialty-samples/${s.body.id}`)).send({ status: 'dispatched' });
+    expect((await itemsFor(s.body.id)).map((i) => i.event).sort()).toEqual(['created', 'dispatched']);
+    const { rows } = await pool.query(
+      `SELECT sent_at, last_error FROM notifications_outbox WHERE sample_id = $1 AND event = 'awb_added'`, [s.body.id]);
+    expect(rows[0].sent_at).not.toBeNull();
+    expect(rows[0].last_error).toBe('superseded: dispatched');
+  });
+
+  it('an awb_added that already went out is left alone by a later dispatch', async () => {
+    const s = await auth(request(app).post('/specialty-samples'))
+      .send({ description: 'Sent AWB then dispatch', receiver_company: 'OutboxCo', requested_by: 'Omar' });
+    await auth(request(app).patch(`/specialty-samples/${s.body.id}`)).send({ awb: '999000444' });
+    const awb = (await itemsFor(s.body.id)).find((i) => i.event === 'awb_added')!;
+    await auth(request(app).post('/notifications/outbox-mark')).send({ id: awb.outbox_id, via: 'teams', detail: 'Omar (teams)' });
+
+    await auth(request(app).patch(`/specialty-samples/${s.body.id}`)).send({ status: 'dispatched' });
+    const { rows } = await pool.query(`SELECT last_error FROM notifications_outbox WHERE id = $1`, [awb.outbox_id]);
+    expect(rows[0].last_error).toBeNull();
+    expect((await itemsFor(s.body.id)).map((i) => i.event).sort()).toEqual(['created', 'dispatched']);
+  });
+
+  it('carries awaiting_collection on the queue item (AWB on file, not yet dispatched)', async () => {
+    const s = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'Awaiting lot', client: 'OutboxCo' });
+    await auth(request(app).patch(`/bulk-samples/${s.body.id}`)).send({ awb: '999000555', courier_norm: 'dhl' });
+    const awb = (await itemsFor(s.body.id)).find((i) => i.event === 'awb_added') as { awaiting_collection?: boolean };
+    expect(awb.awaiting_collection).toBe(true);
+  });
+
   it('queues trader events even without a requesting trader — recipients resolve at send time (migration 014)', async () => {
     const s = await auth(request(app).post('/bulk-samples'))
       .send({ quality: 'No trader lot', client: 'OutboxCo' });

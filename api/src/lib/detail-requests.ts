@@ -14,8 +14,19 @@ type Db = Pick<PoolClient, 'query'> | typeof pool;
 export function gapColumns(alias: string): string {
   return `client_address_missing(${alias}.client_id) AS client_address_missing,
     (SELECT r.asked_name FROM client_detail_requests r WHERE r.client_id = ${alias}.client_id AND r.resolved_at IS NULL) AS details_requested_from,
-    (SELECT r.asked_at   FROM client_detail_requests r WHERE r.client_id = ${alias}.client_id AND r.resolved_at IS NULL) AS details_requested_at`;
+    (SELECT r.asked_at   FROM client_detail_requests r WHERE r.client_id = ${alias}.client_id AND r.resolved_at IS NULL) AS details_requested_at,
+    ${awaitingCollectionExpr(alias)} AS awaiting_collection`;
 }
+
+// "When the AWB is added it means the coffee is awaiting collection by DHL" (lifecycle sketch,
+// 2026-09-14). Derived on every read, never stored: the row has an AWB but has not been marked
+// dispatched. One rule for the three books, /search, the outbox and the dashboard/agent readers.
+export function awaitingCollectionExpr(alias: string): string {
+  return `(${alias}.awb IS NOT NULL AND ${alias}.awb <> '' AND ${alias}.status IN ('requested', 'preparing'))`;
+}
+
+/** WHERE fragment for `?awaiting_collection=true` on the per-book list routes (unaliased table scope). */
+export const AWAITING_COLLECTION_WHERE = `awb IS NOT NULL AND awb <> '' AND status IN ('requested', 'preparing')`;
 
 export type OpenSample = {
   tab: 'specialty' | 'bulk' | 'forwarding';

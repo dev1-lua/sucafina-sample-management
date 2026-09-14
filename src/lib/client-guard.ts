@@ -53,6 +53,22 @@ export function clientGaps(
   return { missing, optional };
 }
 
+/**
+ * The client's usual PSS size: the last PSS in the Commercial book that was not itself an assumption.
+ * Read by create_bulk_sample (fills the qty in) and get_client (`usual_pss_grams`, so intake knows
+ * BEFORE writing whether the quantity has to be part of its one-line ask).
+ */
+export async function lastPssQty(clientId: string | null | undefined): Promise<number | null> {
+  if (!clientId) return null;
+  try {
+    const res = await apiFetch(`/bulk-samples?client_id=${encodeURIComponent(clientId)}&sample_type_norm=pss&sort=created_at&order=desc&pageSize=10`);
+    const hit = (res.data ?? []).find((r: any) => Number(r.qty_grams) > 0 && !/1 kg assumed/.test(String(r.comments ?? '')));
+    return hit ? Number(hit.qty_grams) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Exact (case-insensitive) client lookup by name. Returns the single match, or the candidate list. */
 export async function findClientByName(name: string): Promise<{ client: BookClient | null; candidates: BookClient[] }> {
   const q = name.trim();

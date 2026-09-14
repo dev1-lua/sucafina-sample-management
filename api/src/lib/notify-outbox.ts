@@ -49,11 +49,13 @@ export async function enqueueOutbox(
 
 /**
  * Shared PATCH-side enqueue for the three sample routers: queues the transitions Ivo
- * asked for. awb_added is suppressed when the same call is the dispatch itself — that
- * ping already carries the AWB. Since migration 014 the RECIPIENTS are resolved at send
- * time (client's account manager + the row's notify_trader_ids — see outbox-pending),
- * so every transition is queued; `recipient` keeps the requesting trader's name for the
- * audit note only.
+ * asked for. The dispatched ping carries the AWB, so an awb_added is never sent alongside
+ * it: suppressed when the same call is the dispatch, and SUPERSEDED (closed with a reason,
+ * like enqueueDeleted) when it is still pending from an earlier PATCH — the dashboard saves
+ * AWB and Status as two one-field PATCHes seconds apart. Since migration 014 the RECIPIENTS
+ * are resolved at send time (client's account manager + the row's notify_trader_ids — see
+ * outbox-pending — plus the Sales Trader / logger, matched by the job), so every transition
+ * is queued; `recipient` keeps the requesting trader's name for the audit note only.
  */
 export async function enqueueStatusEvents(
   client: PoolClient,
@@ -69,6 +71,12 @@ export async function enqueueStatusEvents(
     await enqueueOutbox(client, { tab, sampleId, event: 'preparing', recipient: trader });
   }
   if (nextStatus === 'dispatched' && prev.status !== 'dispatched') {
+    await client.query(
+      `UPDATE notifications_outbox
+          SET sent_at = now(), attempts = attempts + 1, last_error = 'superseded: dispatched'
+        WHERE tab = $1 AND sample_id = $2 AND event = 'awb_added' AND sent_at IS NULL`,
+      [tab, sampleId],
+    );
     await enqueueOutbox(client, { tab, sampleId, event: 'dispatched', recipient: trader });
   } else if (patch.awb && !prev.awb) {
     await enqueueOutbox(client, { tab, sampleId, event: 'awb_added', recipient: trader });

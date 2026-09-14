@@ -49,6 +49,40 @@ export function matchTraderCandidates(name: string | null | undefined, traders: 
   return traders.filter((t) => tokens(t.name).some((tok) => nToks.includes(tok)));
 }
 
+/**
+ * The people a sample's status pings always reach, on top of the client's account manager and any
+ * per-sample loop-ins: its Sales Trader (requested_by) and whoever logged it (logged_by) — the
+ * lifecycle sketch (2026-09-14) sends "your sample for CLIENT has an AWB" back to the person who
+ * asked. Both are free-text names on the row, so they are matched against the roster here, at send
+ * time, with the same rule as matchTrader. An ambiguous or unknown name is never guessed: it lands in
+ * `unresolved` with the reason, which the job writes into the skip note so the miss is visible.
+ */
+export function autoLoopIns(
+  names: Array<string | null | undefined>,
+  traders: TraderRow[],
+): { hits: TraderRow[]; unresolved: string[] } {
+  const hits: TraderRow[] = [];
+  const unresolved: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of names) {
+    const name = (raw ?? '').trim();
+    if (!name) continue;
+    const cands = matchTraderCandidates(name, traders);
+    if (cands.length === 1) {
+      const t = cands[0]!;
+      if (!seen.has(t.id)) {
+        seen.add(t.id);
+        hits.push(t);
+      }
+    } else if (cands.length === 0) {
+      unresolved.push(`${name} (not on the roster)`);
+    } else {
+      unresolved.push(`${name} (matches several: ${cands.map((c) => c.name).join(', ')})`);
+    }
+  }
+  return { hits, unresolved };
+}
+
 /** The roster row with this email (case-insensitive), if any — one inbox is one person. */
 export function matchTraderByEmail(email: string | null | undefined, traders: TraderRow[]): TraderRow | null {
   const e = (email ?? '').trim().toLowerCase();
@@ -141,12 +175,30 @@ export async function touchRoster(): Promise<void> {
  */
 export async function notifyContactGap(
   clientId: string | null | undefined,
+  opts: {
+    /**
+     * Names already guaranteed to hear about this sample (the Sales Trader — see autoLoopIns). When
+     * one of them resolves to a roster row WITH an email, the sample is covered and the loop-in
+     * question is not raised: the sketch's "hey, your sample has an AWB" already reaches the person
+     * who asked. The account-manager concept (Ivo, #34) stays for clients whose trader is someone else.
+     */
+    coveredBy?: Array<string | null | undefined>;
+  } = {},
 ): Promise<{ client: string; client_id: string; account_manager: string | null; email_on_file: false } | null> {
   if (!clientId) return null;
   try {
     const c = await apiFetch(`/clients/${encodeURIComponent(clientId)}`);
     const owner = c?.account_owner as { name?: string; email?: string | null } | null;
     if (owner?.email) return null;
+    const covered = (opts.coveredBy ?? []).filter((n) => (n ?? '').trim());
+    if (covered.length) {
+      const traders = await loadTraders();
+      const reachable = autoLoopIns(covered, traders).hits.find((t) => t.email);
+      if (reachable) {
+        console.log(`notify: client "${c?.name}" has no account manager, but "${reachable.name}" (Sales Trader) is on the roster with an email — loop-in question skipped`);
+        return null;
+      }
+    }
     console.log(
       `notify: client "${c?.name}" has ${owner ? `account manager "${owner.name}" without an email` : 'no account manager'} — intake will ask who to keep in the loop`,
     );

@@ -7,7 +7,7 @@ import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
-import { gapColumns } from '../lib/detail-requests.js';
+import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
 
 export const forwardingSamples = Router();
@@ -103,6 +103,8 @@ forwardingSamples.get('/', h(async (req, res) => {
   if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
   // Log-first (migration 016): rows whose client has no street address on file yet.
   if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
+  // AWB on file, not yet collected by the courier (lifecycle sketch 2026-09-14).
+  if (req.query.awaiting_collection === 'true') f.where.push(AWAITING_COLLECTION_WHERE);
   const result = await buildList(
     { table: 'forwarding_samples', extraSelect: gapColumns('forwarding_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb','requested_by','logged_by'] },
     req.query, f.where, f.params,

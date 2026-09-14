@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { h } from '../errors.js';
+import { AWAITING_COLLECTION_WHERE } from '../lib/detail-requests.js';
 import { makeFilters } from '../lib/list.js';
 import { assertIn, clampInt } from '../lib/validate.js';
 
@@ -38,6 +39,8 @@ search.get('/', h(async (req, res) => {
   if (req.query.priority) f.add(`priority = ?`, String(req.query.priority));
   // Log-first (migration 016): rows whose client has no street address on file yet.
   if (req.query.address_missing === 'true') f.where.push('client_address_missing');
+  // AWB on file, not yet collected by the courier (lifecycle sketch 2026-09-14).
+  if (req.query.awaiting_collection === 'true') f.where.push(AWAITING_COLLECTION_WHERE);
   // Cup-profile search (feedback ⑬): match the highlights tag text, e.g. "hibiscus", "clean cup".
   if (req.query.highlights) f.add(`highlights ILIKE '%'||?||'%'`, String(req.query.highlights));
   // sample_type_norm and country are free text in the unified view, so match by CSV membership
@@ -64,6 +67,7 @@ search.get('/', h(async (req, res) => {
        blend, strategy, highlights, result_on,
        location, requested_by, completed_by, stock_grams, dispatched_on, priority,
        client_address_missing, details_requested_from, details_requested_at,
+       (${AWAITING_COLLECTION_WHERE}) AS awaiting_collection,
        count(*) OVER ()::int AS full_count
      FROM all_samples_v ${whereSql}
      ORDER BY date_on DESC NULLS LAST, id ASC
