@@ -1,6 +1,8 @@
 # Handover 2026-09-14 — the lifecycle sketch, applied
 
-Everything below is committed-ready on the working tree (nothing pushed, nothing deployed). Tests: API 376 + 8 new, dashboard 97 + 1, agent 15 (new root vitest), `lua compile --ci` clean (45 primitives), log-first harness extended.
+**DEPLOYED 2026-09-15:** agent v61 (promoted 14 Sep late, `lua version diff v55 v61`: model unchanged, persona v18), dashboard on Vercel at `e45f6c2`, API on the VPS via `scripts/deploy-api-round9.sh` (health ok, `/search` rows carry `awaiting_collection`). Ivo can run `docs/happy-path-2026-09-14-ivo.md` end to end.
+
+Everything below was verified before deploy. Tests: API 376 + 8 new, dashboard 97 + 1, agent 15 (new root vitest), `lua compile --ci` clean (45 primitives), log-first harness extended.
 
 ## 1. The sketch (whiteboard, 14 Sep)
 
