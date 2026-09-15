@@ -16,34 +16,34 @@ skills:
     version: 1.0.26
   - name: results-capture
     skillId: efcd6fde-e46a-462a-a0ce-b02aaae0567f
-    version: 1.0.25
+    version: 1.0.26
   - name: consignments
     skillId: 1718a42a-7015-4a3b-9e49-717f3f796b71
-    version: 1.0.15
+    version: 1.0.16
   - name: pss-schedule
     skillId: 6b95f431-c337-42d9-a85f-f4f3df967a1f
-    version: 1.0.0
+    version: 1.0.1
 webhooks: []
 jobs:
   - jobId: d1a9b23b-3748-4eb7-a9c8-dc8c11e1cb15
     name: dispatch-notifier
-    version: 1.0.13
+    version: 1.0.14
   - jobId: d26decd9-bd71-4d16-8aef-89c228dc0166
     name: status-notifier
     version: 1.0.10
   - jobId: b91546cf-ae63-4c5b-9c69-9ebce29d1d9b
     name: details-chaser
-    version: 1.0.0
+    version: 1.0.1
   - jobId: 199def6f-44c9-42d9-a794-8f9f7757da60
     name: tracking-sweep
-    version: 1.0.0
+    version: 1.0.1
 preprocessors:
   - name: current-datetime
     preprocessorId: preprocessor_4f12f92f-446b-4d8b-b13d-3bd61248a664
-    version: 1.0.16
+    version: 1.0.17
 postprocessors: []
 mcpServers: []
 backup:
-  activeVersion: 23
-  lastHash: 6213c451b3be549f5a859c3335dd6be4764792ba9a3a59d42b28ffae3a30893b
-  lastPushedAt: '2026-09-10T11:57:55.720Z'
+  activeVersion: 24
+  lastHash: 64df19c57975844f537d2ca0bc706ac8311cf36ada90f4e46e7628f236c9399b
+  lastPushedAt: '2026-09-15T12:50:35.016Z'
