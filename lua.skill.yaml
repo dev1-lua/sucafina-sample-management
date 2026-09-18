@@ -23,6 +23,9 @@ skills:
   - name: pss-schedule
     skillId: 6b95f431-c337-42d9-a85f-f4f3df967a1f
     version: 1.0.1
+  - name: assistant-feedback
+    skillId: ''
+    version: 1.0.0
 webhooks: []
 jobs:
   - jobId: d1a9b23b-3748-4eb7-a9c8-dc8c11e1cb15
@@ -41,7 +44,13 @@ preprocessors:
   - name: current-datetime
     preprocessorId: preprocessor_4f12f92f-446b-4d8b-b13d-3bd61248a664
     version: 1.0.17
-postprocessors: []
+  - name: feedback-gate
+    preprocessorId: ''
+    version: 1.0.0
+postprocessors:
+  - name: tag-guard
+    postprocessorId: ''
+    version: 1.0.0
 mcpServers: []
 backup:
   activeVersion: 24

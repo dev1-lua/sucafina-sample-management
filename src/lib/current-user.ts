@@ -12,17 +12,22 @@ export async function currentUser(): Promise<{ name: string | null; email: strin
   // no chatting user, and since lua-cli 3.32 User.get() spends ~6 s asking the platform before saying so.
   if (process.env.LUA_LOCAL_HARNESS === '1') return { name: null, email: null };
   try {
-    const user = await User.get();
-    const p: any = user?._luaProfile ?? {};
-    const emails: unknown = p.emailAddresses;
-    const first = Array.isArray(emails) ? emails[0] : null;
-    const email = (typeof first === 'string' ? first : first?.address ?? first?.email ?? null) as string | null;
-    const cleanEmail = email ? email.trim().toLowerCase() : null;
-    const name = (p.fullName as string | undefined)?.trim() || (cleanEmail ? nameFromEmail(cleanEmail) : null);
-    return { name: name || null, email: cleanEmail };
+    return identityFromUser(await User.get());
   } catch {
     return { name: null, email: null };
   }
+}
+
+/** Name + email off an already-loaded user record (a preprocessor is handed one). Pure; never throws. */
+export function identityFromUser(user: unknown): { name: string | null; email: string | null } {
+  const p: any = (user as any)?._luaProfile ?? {};
+  const emails: unknown = p.emailAddresses;
+  const first: any = Array.isArray(emails) ? emails[0] : null;
+  const email = (typeof first === 'string' ? first : first?.address ?? first?.email ?? null) as string | null;
+  const cleanEmail = typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null;
+  const fullName = typeof p.fullName === 'string' ? p.fullName.trim() : '';
+  const name = fullName || (cleanEmail ? nameFromEmail(cleanEmail) : null);
+  return { name: name || null, email: cleanEmail };
 }
 
 /** Name of the human chatting with the agent — used to default requested_by / completed_by / logged_by. */

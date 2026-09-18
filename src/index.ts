@@ -33,6 +33,18 @@ import { statusNotifierJob } from './jobs/status-notifier.job';
 import { detailsChaserJob } from './jobs/details-chaser.job';
 import { trackingSweepJob } from './jobs/tracking-sweep.job';
 import { pssScheduleSkill } from './skills/pss-schedule.skill';
+// 2026-09-18: assistant-feedback — what colleagues say ABOUT THE BOT, captured verbatim and mirrored to a
+// Google Sheet (docs/assistant-feedback-sheet.md). Ships DARK: nothing is written or shown until the
+// `assistant_feedback_enabled` row in the `config` Data collection is true (or an email allowlist) —
+// scripts/assistant-feedback.mts flips it, no redeploy. Two versions, per the one-job-per-version protocol:
+//   A — the skill (ONE tool, bounded server-side), the feedback-gate preprocessor (never blocks) and the
+//       tag-guard postprocessor (this agent's first);
+//   B — after A soaks: un-comment assistantFeedbackFlushJob below and add it to `jobs`. Until then a
+//       session closes when its sender next writes (30-min expiry); abandoned ones wait for B.
+import { assistantFeedbackSkill } from './skills/assistant-feedback.skill';
+import feedbackGate from './preprocessors/feedback-gate.preprocessor';
+import tagGuard from './postprocessors/tag-guard.postprocessor';
+// import { assistantFeedbackFlushJob } from './jobs/assistant-feedback-flush.job';
 
 // v56 (after v55 soaks) — the Beyers incident, round 6: the model reached for a platform share card
 // (`prepare_share`, renders nothing on Teams) and the stale Unified.to Teams MCP (bound to Lua's own
@@ -83,13 +95,17 @@ const agent = new LuaAgent({
     clientBookSkill,
     consignmentsSkill,
     pssScheduleSkill,
+    assistantFeedbackSkill,
   ],
   // Legacy reminder jobs stay parked — see note above. client-feedback-chaser is the one still held back
   // deliberately: it emails CLIENTS, so it waits until the desk has watched the internal pings for a while.
   jobs: [dispatchNotifierJob, statusNotifierJob, detailsChaserJob, trackingSweepJob],
   // The model has no clock — this stamps every message with the real current date/time
   // so "today", relative dates, and recorded dates are never guessed.
-  preProcessors: [currentDatetime],
+  // feedback-gate runs after it (priority 2 vs 1), never blocks, and is dark until the config flag is on.
+  preProcessors: [currentDatetime, feedbackGate],
+  // Machine-authored tags ([feedback_nudge_due], the date stamp) never reach the team.
+  postProcessors: [tagGuard],
   // v56: governance: { mode: 'sdk', rules: { blockTools: BLOCKED_PLATFORM_TOOLS } },
 });
 
