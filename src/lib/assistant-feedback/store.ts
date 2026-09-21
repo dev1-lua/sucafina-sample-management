@@ -89,13 +89,15 @@ export async function openSession(
     started_at: new Date(now).toISOString(),
     closed_at: null,
   };
-  const created = await Data.create(SESSIONS, session, { index: ['status'] });
+  // Third argument is a plain searchText STRING: the production runtime answers 400 "searchText must be a
+  // string" to the { index } options object that lua-cli 3.32's types advertise (found live, 2026-09-21).
+  const created = await Data.create(SESSIONS, session, `assistant feedback session ${identity.email || 'unknown'}`);
   return { rowId: created.id, session };
 }
 
 /** One verbatim entry per captured message, already categorized. */
 export async function appendEntry(entry: FeedbackEntryData): Promise<string> {
-  const created = await Data.create(ENTRIES, entry, { index: ['session_id'] });
+  const created = await Data.create(ENTRIES, entry, `assistant feedback ${entry.category} ${entry.email}`);
   return created.id;
 }
 
