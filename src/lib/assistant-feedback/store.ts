@@ -41,6 +41,8 @@ export interface FeedbackSessionData extends SessionIdentity {
 }
 
 export interface FeedbackEntryData {
+  /** Data row id — filled in by collectEntries, never stored in the row itself. */
+  id?: string;
   session_id: string;
   text: string;
   category: FeedbackCategory;
@@ -120,7 +122,7 @@ export async function collectEntries(sessionId: string): Promise<FeedbackEntryDa
   const out: FeedbackEntryData[] = [];
   for (let page = 1; page <= 5; page++) {
     const res = await Data.get(ENTRIES, { session_id: sessionId }, page, 100);
-    for (const row of res.data) out.push(row.data as FeedbackEntryData);
+    for (const row of res.data) out.push({ ...(row.data as FeedbackEntryData), id: row.id });
     if (res.data.length < 100) break;
   }
   out.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));

@@ -76,7 +76,7 @@ if (cmd === 'status' || cmd === 'on' || cmd === 'off' || cmd === 'allow') {
     await Data.update(SESSIONS, row.id, { ...row.data, sheet_pushed: false, sheet_push_error: null });
     console.log('marked sheet_pushed:false — the nightly sweeper will retry. No POST sent.');
   } else {
-    const entries = (await all(ENTRIES, { session_id: sessionId })).map((r) => r.data).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    const entries = (await all(ENTRIES, { session_id: sessionId })).map((r) => ({ ...r.data, id: r.id })).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     if (entries.length === 0) throw new Error('session has zero entries — nothing to push');
     const payload = buildSheetPayload(row.data, entries);
     console.log('payload (no secret):', JSON.stringify(payload, null, 2));

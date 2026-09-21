@@ -10,7 +10,8 @@ import {
   normalizeCount,
   type FeedbackCategory,
 } from '../../lib/assistant-feedback/state';
-import { appendEntry, lookupIdentity, openSession, readFeedbackAccess, readSessionRow } from '../../lib/assistant-feedback/store';
+import { appendEntry, lookupIdentity, openSession, readFeedbackAccess, readSessionRow, type FeedbackSessionData } from '../../lib/assistant-feedback/store';
+import { buildSheetPayload, pushSessionToSheet } from '../../lib/assistant-feedback/sheet-push';
 
 // The ONE LLM-facing write in the assistant-feedback module. A registered write tool WILL fire
 // conversationally in ways the persona did not intend, so the blast radius is bounded here, not there:
@@ -20,6 +21,9 @@ import { appendEntry, lookupIdentity, openSession, readFeedbackAccess, readSessi
 //   - identity comes from the caller's Teams profile, never from message text;
 //   - 1:1 chats only: in a Teams group the bot cannot tell who is speaking;
 //   - any failure degrades to a quiet {status:'error'} and the conversation continues undisturbed.
+
+/** The sender is waiting on a reply — a slow Sheet must not hold it up. A miss is repaired at close. */
+const LIVE_PUSH_TIMEOUT_MS = 4_000;
 
 /** Whatever happens, the model is told to keep the conversation normal and never surface the machinery. */
 const NOTE_SILENT = 'Continue the conversation normally. Never mention feedback capture or this tool.';
@@ -109,12 +113,14 @@ export default class CaptureAssistantFeedbackTool implements LuaTool {
       let rowId: string;
       let sessionId: string;
       let entryCount: number;
+      let sessionData: FeedbackSessionData;
 
       const existing = decision.kind === 'append' ? await readSessionRow(sessionRowId) : null;
       if (existing && existing.session.status === 'open') {
         firstCapture = false;
         rowId = existing.rowId;
         sessionId = existing.session.session_id;
+        sessionData = existing.session;
         entryCount = normalizeCount(self.feedback_entry_count) + 1;
       } else {
         // open_new — or an 'append' whose session row vanished or was already swept (self-heal by
@@ -123,6 +129,7 @@ export default class CaptureAssistantFeedbackTool implements LuaTool {
         const opened = await openSession(await lookupIdentity(me), conversation.channel ?? 'chat', now);
         rowId = opened.rowId;
         sessionId = opened.session.session_id;
+        sessionData = opened.session;
         entryCount = 1;
       }
 
@@ -133,6 +140,13 @@ export default class CaptureAssistantFeedbackTool implements LuaTool {
         email: me.email ?? '',
         created_at: nowIso,
       });
+
+      // Mirror this entry to the Sheet NOW (never throws). A failure costs nothing: the session row stays
+      // sheet_pushed:false and the close push (gate / sweeper) appends whatever is missing.
+      const live = await pushSessionToSheet(
+        buildSheetPayload(sessionData, [{ id: entryId, text: input.feedback_text, category: input.category, created_at: nowIso }]),
+        { timeoutMs: LIVE_PUSH_TIMEOUT_MS },
+      );
 
       // Latch stamps are fail-open: the entry is saved; a failed stamp only costs burst-grouping
       // precision (the next capture opens a new session).
@@ -147,12 +161,12 @@ export default class CaptureAssistantFeedbackTool implements LuaTool {
         // cosmetic
       }
 
-      diag({ action: firstCapture ? 'open_capture' : 'append_capture', session_id: sessionId, entry_id: entryId, category: input.category });
+      diag({ action: firstCapture ? 'open_capture' : 'append_capture', session_id: sessionId, entry_id: entryId, category: input.category, sheet: live.ok ? 'pushed' : (live.error ?? 'failed') });
       return {
         status: 'captured',
         first_capture: firstCapture,
         note: firstCapture
-          ? `Answer any real question in the message first, then close with ONE short open follow-up, in the user's language, about what would make this assistant more useful. No promises of fixes or timelines. ${NOTE_SILENT}`
+          ? `Answer any real question in the message first, then close with ONE short open follow-up, in the user's language, about what would make this assistant more useful. Acknowledge in a few words at most — never promise a fix, a timeline, or that you will behave differently ("I'll be more careful"). ${NOTE_SILENT}`
           : `One brief line of thanks, no second follow-up question. ${NOTE_SILENT}`,
       };
     } catch (err) {

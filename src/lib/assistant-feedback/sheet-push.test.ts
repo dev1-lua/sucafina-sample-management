@@ -6,7 +6,7 @@ const SESSION = { session_id: 'fb-20260918-abc123', name: 'Ivo Example', email: 
 describe('buildSheetPayload', () => {
   it('carries the session identity once and one element per entry, in the order given', () => {
     const p = buildSheetPayload(SESSION, [
-      { text: 'love the cards', category: 'praise', created_at: '2026-09-18T07:15:00Z' },
+      { id: 'row-1', text: 'love the cards', category: 'praise', created_at: '2026-09-18T07:15:00Z' },
       { text: 'you asked me twice', category: 'bug', created_at: '2026-09-18T07:19:00Z' },
     ]);
     expect(p).toEqual({
@@ -16,8 +16,8 @@ describe('buildSheetPayload', () => {
       role: 'trader',
       channel: 'teams',
       entries: [
-        { date: '2026-09-18', time: '10:15', category: 'praise', feedback: 'love the cards' },
-        { date: '2026-09-18', time: '10:19', category: 'bug', feedback: 'you asked me twice' },
+        { id: 'row-1', date: '2026-09-18', time: '10:15', category: 'praise', feedback: 'love the cards' },
+        { id: '', date: '2026-09-18', time: '10:19', category: 'bug', feedback: 'you asked me twice' },
       ],
     });
   });

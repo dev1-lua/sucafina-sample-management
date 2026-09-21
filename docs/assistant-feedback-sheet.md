@@ -3,7 +3,8 @@
 What colleagues say **about the bot** (not a client's feedback on a sample) is captured verbatim by
 `capture_assistant_feedback`, kept in the agent's Lua Data collections
 (`assistant_feedback_sessions`, `assistant_feedback_entries`), and mirrored to a Google Sheet — one row
-per entry — when a capture session closes. The Sheet is a **mirror, never the record**: a failed push
+per entry — **the moment it is captured**. The whole session is pushed again when it closes (30 min idle,
+or the nightly job) as a repair for any live push that failed. The Sheet is a **mirror, never the record**: a failed push
 leaves `sheet_pushed:false` and the nightly `assistant-feedback-flush` job retries it.
 
 Code: `src/lib/assistant-feedback/`, `src/preprocessors/feedback-gate.preprocessor.ts`,
@@ -41,19 +42,25 @@ didn't.
 
 Tab named exactly `Feedback`. Never type the headers — `op:'setupV2'` writes them:
 
-`date | time | name | email | role | channel | category | feedback | session_id`
+`date | time | name | email | role | channel | category | feedback | session_id | entry_id`
 
-`session_id` is last (machine plumbing) and is the dedupe key, found by header name.
+The last two are machine plumbing. `entry_id` is the dedupe key (found by header name): every push is
+idempotent and appends only entries not already in the Sheet.
 
 ## The Apps Script (Extensions → Apps Script, bound to the Sheet)
 
 ```javascript
 /**
- * Assistant-feedback webhook — one sheet row per feedback entry.
+ * Assistant-feedback webhook — one sheet row per feedback entry, deduped PER ENTRY.
  *
  * POST JSON { secret, session_id, name, email, role, channel,
- *             entries: [ { date, time, category, feedback }, ... ] }
- * Replies   { ok:true, appended:N } | { ok:true, dedup:true } | { ok:false, error:"..." }
+ *             entries: [ { id, date, time, category, feedback }, ... ] }
+ * Replies   { ok:true, appended:N, dedup:bool } | { ok:false, error:"..." }
+ *
+ * Every push is idempotent: entries whose id is already in the entry_id column are skipped and only
+ * the missing ones are appended. So the agent pushes each entry the moment it is captured, and pushes
+ * the whole session again at close as a repair — both are safe. An entry without an id gets
+ * "<session_id>#<index>".
  *
  * Maintenance ops (secret-gated, curl-able — the editor's Run UI is never needed):
  *   { secret, op:'setupV2' }      → (re)write headers + formatting. DESTRUCTIVE: clears the rows.
@@ -61,7 +68,7 @@ Tab named exactly `Feedback`. Never type the headers — `op:'setupV2'` writes t
  */
 var SECRET = 'PASTE-YOUR-48-HEX-SECRET-HERE';
 var TAB = 'Feedback';
-var HEADERS = ['date', 'time', 'name', 'email', 'role', 'channel', 'category', 'feedback', 'session_id'];
+var HEADERS = ['date', 'time', 'name', 'email', 'role', 'channel', 'category', 'feedback', 'session_id', 'entry_id'];
 
 function doPost(e) {
   try {
@@ -71,8 +78,8 @@ function doPost(e) {
     if (p.op === 'setupV2') { setupV2(); return json_({ ok: true, did: 'setupV2' }); }
     if (p.op === 'cleanupSmoke') { cleanupSmoke(); return json_({ ok: true, did: 'cleanupSmoke' }); }
 
-    // A wrong-shape push must fail HERE — no row written, no dedupe mark recorded — so the correct
-    // retry can still land.
+    // A wrong-shape push must fail HERE — no row written, nothing recorded — so the correct retry
+    // can still land.
     if (typeof p.session_id !== 'string' || p.session_id === '' || !Array.isArray(p.entries)) {
       return json_({ ok: false, error: 'bad_payload' });
     }
@@ -81,24 +88,26 @@ function doPost(e) {
     lock.waitLock(10000);
     try {
       var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB);
-      var col = sessionCol_(sh);
+      var col = col_(sh, 'entry_id', HEADERS.length);
       var last = sh.getLastRow();
+      var seen = {};
       if (last > 1) {
         var ids = sh.getRange(2, col, last - 1, 1).getValues();
-        for (var i = 0; i < ids.length; i++) {
-          if (ids[i][0] === p.session_id) return json_({ ok: true, dedup: true });
-        }
+        for (var i = 0; i < ids.length; i++) seen[String(ids[i][0])] = true;
       }
       var rows = [];
       for (var j = 0; j < p.entries.length; j++) {
         var en = p.entries[j] || {};
+        var id = (typeof en.id === 'string' && en.id !== '') ? en.id : p.session_id + '#' + j;
+        if (seen[id]) continue;
+        seen[id] = true;
         rows.push([str_(en.date), str_(en.time), str_(p.name), str_(p.email), str_(p.role),
-                   str_(p.channel), str_(en.category), str_(en.feedback), p.session_id]);
+                   str_(p.channel), str_(en.category), str_(en.feedback), p.session_id, id]);
       }
       if (rows.length > 0) {
         sh.getRange(sh.getLastRow() + 1, 1, rows.length, HEADERS.length).setValues(rows);
       }
-      return json_({ ok: true, appended: rows.length });
+      return json_({ ok: true, appended: rows.length, dedup: rows.length === 0 && p.entries.length > 0 });
     } finally {
       lock.releaseLock();
     }
@@ -107,11 +116,11 @@ function doPost(e) {
   }
 }
 
-/** session_id column found by HEADER NAME (row 1), fallback = last header. */
-function sessionCol_(sh) {
+/** A column found by HEADER NAME (row 1), so columns can be reordered without breaking dedupe. */
+function col_(sh, name, fallback) {
   var hdr = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0];
-  var idx = hdr.indexOf('session_id');
-  return idx === -1 ? HEADERS.length : idx + 1;
+  var idx = hdr.indexOf(name);
+  return idx === -1 ? fallback : idx + 1;
 }
 
 /** Text only, and never a formula: feedback is typed by people. */
@@ -129,7 +138,7 @@ function setupV2() {
   sh.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
   sh.setFrozenRows(1);
   sh.getRange('A2:B').setNumberFormat('@');   // date + time stay TEXT exactly as sent
-  var widths = [90, 55, 170, 210, 70, 70, 120, 440, 150];
+  var widths = [90, 55, 170, 210, 70, 70, 120, 440, 150, 110];
   for (var i = 0; i < widths.length; i++) sh.setColumnWidth(i + 1, widths[i]);
   sh.getRange('H2:H').setWrap(true);          // feedback text wraps
 }
@@ -137,7 +146,7 @@ function setupV2() {
 /** Deletes rows whose session_id starts with 'smoke-' (bottom-up). */
 function cleanupSmoke() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB);
-  var col = sessionCol_(sh);
+  var col = col_(sh, 'session_id', HEADERS.length - 1);
   var last = sh.getLastRow();
   if (last < 2) return;
   var ids = sh.getRange(2, col, last - 1, 1).getValues();

@@ -6,8 +6,10 @@
  * app (docs/assistant-feedback-sheet.md): verify shared secret → dedupe on the session_id column → one
  * appended row per entry → {ok:true, appended:n}.
  *
- * One POST per SESSION carrying an `entries` array — so sheet_pushed stays a per-session marker, retries
- * stay dedupe-safe, and a close fits the gate's 4s budget.
+ * Each entry is pushed the moment it is captured (the tool), and the whole session is pushed again when
+ * it closes (gate / sweeper). The script dedupes PER ENTRY on entry_id and appends only what is missing,
+ * so every push is idempotent: the close push is a no-op when the live pushes landed, and the repair when
+ * one did not. sheet_pushed on the session row means "every entry is known to be in the Sheet".
  *
  * Env (unset → not_configured; the push is skipped and retried once configured):
  *   FEEDBACK_SHEET_WEBHOOK_URL  the /exec web-app URL
@@ -23,6 +25,8 @@ import { DESK_TIMEZONE } from './state';
 import { closeSession, collectEntries, updateSessionFull, type CloseReason, type FeedbackSessionData } from './store';
 
 export interface SheetEntryPayload {
+  /** The entry's Data row id — the Sheet's per-entry dedupe key. */
+  id: string;
   date: string; // capture date, Nairobi time
   time: string; // capture time HH:mm, Nairobi time
   category: string;
@@ -61,7 +65,7 @@ function deskTime(iso: string): string {
  * the caller injects it at POST time only, so the payload can safely be logged. */
 export function buildSheetPayload(
   session: Pick<FeedbackSessionData, 'session_id' | 'name' | 'email' | 'role' | 'channel'>,
-  entries: Array<{ text: string; category: string; created_at: string }>,
+  entries: Array<{ id?: string; text: string; category: string; created_at: string }>,
 ): SheetPayload {
   return {
     session_id: session.session_id,
@@ -70,6 +74,7 @@ export function buildSheetPayload(
     role: session.role ?? '',
     channel: session.channel ?? '',
     entries: entries.map((e) => ({
+      id: e.id ?? '',
       date: deskDate(String(e.created_at)),
       time: deskTime(String(e.created_at)),
       category: e.category,

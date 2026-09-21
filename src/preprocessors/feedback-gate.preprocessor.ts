@@ -100,6 +100,8 @@ const feedbackGate = new PreProcessor({
           allowed = hasFeedbackAccess(access, { email: identityFromUser(user).email });
           // 1:1 chats only — in a Teams group the invite would land on whoever happened to speak.
           if (allowed && (await currentConversation()).isGroup) allowed = false;
+          // Never on email — replies there reach auto-responders and forwarded threads.
+          if (_channel === 'email') allowed = false;
         } catch {
           // Config unreadable → dark this turn.
         }
