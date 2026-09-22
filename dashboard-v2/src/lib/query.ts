@@ -1,4 +1,4 @@
-import { QueryClient, useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { QueryClient, useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from './api';
 import { buildListParams } from './params';
 import type { ListResult, ListQuery, EventRow, Digest, FilterState } from '@/types';
@@ -50,11 +50,50 @@ export function usePatchRecord(endpoint: string) {
     onSettled: (_d, _e, vars) => {
       qc.invalidateQueries({ queryKey: [endpoint, 'detail', vars.id] });
       qc.invalidateQueries({ queryKey: [endpoint, 'list'] });
+      invalidateLots(qc, endpoint);
     },
   });
 }
 
 export function useClients(q: ListQuery) { return useRecords('/clients', q); }
+
+// --- Lots (round 10) -------------------------------------------------------------------------
+// A lot is what a ref names: the coffee. GET /lots lists one row per ref with a status
+// roll-up of its sends (contracts §3, served through useRecords('/lots', …) so the Coffees
+// view shares RecordTable's paging + keepPreviousData); GET /lots/:ref is the lot with its
+// sends (§2), fetched when a coffee is expanded or its Related tab opens.
+export const LOTS_ENDPOINT = '/lots';
+export type LotBook = 'specialty' | 'commercial';
+export type Lot = {
+  ref: string; book: LotBook; coffee_key: string;
+  outturn: string | null; grade: string | null; quality: string | null; blend: string | null;
+  first_issued_at: string;
+};
+export type LotSend = {
+  tab: string; id: string; receiver: string | null; date_on: string | null; status: string | null;
+  qty_grams: number | null; courier_norm: string | null; awb: string | null;
+  title?: string | null; consignment_number?: string | null;
+};
+export type LotDetail = { lot: Lot; sends: LotSend[] };
+
+const lotDetailQuery = (ref: string) => ({
+  queryKey: [LOTS_ENDPOINT, 'detail', ref] as const,
+  queryFn: () => api<LotDetail>(`${LOTS_ENDPOINT}/${encodeURIComponent(ref)}`),
+});
+
+export function useLotSends(ref: string | null | undefined) {
+  return useQuery({ ...lotDetailQuery(ref ?? ''), enabled: !!ref });
+}
+
+/** One detail query per expanded coffee, in `refs` order (the Coffees view keeps several open). */
+export function useLotSendsMany(refs: string[]) {
+  return useQueries({ queries: refs.map((ref) => lotDetailQuery(ref)) });
+}
+
+/** Sample writes change what the lot views show (sends, roll-ups) — refresh them alongside the book. */
+function invalidateLots(qc: QueryClient, endpoint: string) {
+  if (SAMPLE_ENDPOINTS.includes(endpoint)) qc.invalidateQueries({ queryKey: [LOTS_ENDPOINT] });
+}
 
 // --- Add a contact / delivery address to an existing client (migration 016) ---------------
 export type ClientContactInput = {
@@ -127,6 +166,7 @@ export function useCreateRecord(endpoint: string) {
       api<Record<string, unknown>>(endpoint, { method: 'POST', body: JSON.stringify(body) }),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: [endpoint, 'list'] });
+      invalidateLots(qc, endpoint);
     },
   });
 }
@@ -140,6 +180,7 @@ export function useDeleteRecord(endpoint: string) {
     onSettled: (_d, _e, id) => {
       qc.invalidateQueries({ queryKey: [endpoint, 'list'] });
       qc.invalidateQueries({ queryKey: [endpoint, 'detail', id] });
+      invalidateLots(qc, endpoint);
     },
   });
 }

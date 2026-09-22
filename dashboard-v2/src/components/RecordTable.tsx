@@ -75,6 +75,8 @@ export type RecordTableProps = {
   initialSort?: SortState;
   // Round 10: nest child rows under each parent (see ExpandableConfig).
   expandable?: ExpandableConfig;
+  // Row identity (defaults to `row.id`); lots are keyed by `ref`.
+  rowId?: (row: RowData) => string;
   // Footer count wording; defaults to "N record(s)".
   countLabel?: (total: number) => string;
 };
@@ -100,7 +102,7 @@ function displayValue(value: unknown): React.ReactNode {
   return String(value);
 }
 
-export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true, initialSort = null, expandable, countLabel }: RecordTableProps) {
+export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true, initialSort = null, expandable, rowId, countLabel }: RecordTableProps) {
   const [sort, setSort] = React.useState<SortState>(initialSort);
   const [page, setPage] = React.useState(1);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -184,7 +186,8 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
     getSubRows: expandable ? (row) => (row as RowData & { subRows?: RowData[] }).subRows : undefined,
     getRowCanExpand: expandable ? (row) => row.depth === 0 : () => false,
     // Children get a parent-scoped id so the same send can never collide with a parent id.
-    getRowId: (row, index, parent) => (parent ? `${parent.id}:${String(row.id ?? index)}` : String(row.id)),
+    getRowId: (row, index, parent) =>
+      parent ? `${parent.id}:${String(row.id ?? index)}` : rowId ? rowId(row) : String(row.id),
     state: { columnVisibility: columnVisibility ?? {}, expanded: expandable?.expanded ?? {} },
     onExpandedChange: handleExpandedChange,
   });
