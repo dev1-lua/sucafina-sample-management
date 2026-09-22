@@ -19,7 +19,8 @@ bash scripts/deploy-api.sh
 echo "== 4/5 verify"
 printf 'health: '; curl -s https://sucafina-api.luameet.in/health; echo
 echo "lots endpoint (expect a JSON page, not 404):"
-curl -s "https://sucafina-api.luameet.in/lots?book=commercial&pageSize=3" -H "x-api-key: ${API_KEY:?set API_KEY}" | head -c 600; echo
+KEY="${API_KEY:-$(grep "^API_KEY=" .env.prod 2>/dev/null | cut -d= -f2-)}"
+curl -s "https://sucafina-api.luameet.in/lots?book=commercial&pageSize=3" -H "x-api-key: ${KEY}" | head -c 600; echo
 
 echo "== 5/5 lot conflicts (dry run — refs that name two different coffees, e.g. TYPE-113)"
 echo "Run ON THE VPS inside the api container:  npx tsx scripts/lot-conflicts.ts        (dry run)"

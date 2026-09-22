@@ -16,7 +16,8 @@ tar xzf ~/sucafina-deploy.tar.gz
 DC="docker compose -f docker-compose.prod.yml --env-file .env.prod"
 echo "== backup before migrations (round 10 adds lots + order columns and backfills lots)"
 mkdir -p /opt/sucafina/backups
-$DC exec -T postgres pg_dump -U sucafina sucafina | gzip > "/opt/sucafina/backups/sucafina-$(date +%Y%m%d-%H%M%S).sql.gz"
+# < /dev/null: exec -T still attaches stdin, and without the redirect pg_dump would swallow the rest of this heredoc script.
+$DC exec -T postgres pg_dump -U sucafina sucafina < /dev/null | gzip > "/opt/sucafina/backups/sucafina-$(date +%Y%m%d-%H%M%S).sql.gz"
 ls -la /opt/sucafina/backups | tail -2
 echo "== migration 011 (idempotent)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/011_priority.sql
