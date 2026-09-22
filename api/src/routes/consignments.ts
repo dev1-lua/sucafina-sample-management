@@ -8,7 +8,7 @@ import { issueConsignmentNumber } from '../lib/refs.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
 import { enqueueDeleted } from '../lib/change-alerts.js';
 import { parseId, clampInt } from '../lib/validate.js';
-import { DERIVED_STATUS, MEMBER_COUNT, TABLE, TABS, attachSamples, detachSamples, memberRows, type Tab } from '../lib/consignments.js';
+import { DERIVED_STATUS, MEMBER_COUNT, TABLE, TABS, attachSamples, detachAll, detachSamples, memberRows, type Tab } from '../lib/consignments.js';
 import { patchBulkSample } from './bulk-samples.js';
 import { patchSpecialtySample } from './specialty-samples.js';
 import { patchForwardingSample } from './forwarding-samples.js';
@@ -213,12 +213,13 @@ consignments.delete('/:id', h(async (req, res) => {
     `UPDATE consignments SET deleted_at = now(), updated_at = now()
       WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
     [id], { entityType: 'consignment', type: 'deleted', note: 'soft-deleted', actor },
-    async (db, row) => enqueueDeleted(db, 'consignment', String(row.id), actor),
+    // Members are detached on the same transaction so they're free to regroup (the row is kept for audit),
+    // and the order comes off their still-pending created pings.
+    async (db, row) => {
+      await enqueueDeleted(db, 'consignment', String(row.id), actor);
+      await detachAll(db, String(row.id));
+    },
   );
   if (!row) throw new HttpError(404, 'consignment not found');
-  // Detach members so they're free to regroup (the consignment row is kept for audit).
-  for (const t of TABS) {
-    await pool.query(`UPDATE ${TABLE[t]} SET consignment_id = NULL WHERE consignment_id = $1`, [id]);
-  }
   res.json({ ok: true, id });
 }));

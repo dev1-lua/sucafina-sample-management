@@ -122,6 +122,16 @@ describe('consignments as orders (round 10)', () => {
     expect((await auth(request(app).post('/bulk-samples')).send({ quality: 'PB', client: 'EDMAX', consignment_id: '00000000-0000-0000-0000-000000000000' })).status).toBe(400);
   });
 
+  it('deleting the order clears it from the members\' still-pending created pings', async () => {
+    const c = await auth(request(app).post('/consignments')).send({ client_id: clientId });
+    const born = await auth(request(app).post('/bulk-samples')).send({ quality: 'PB', client: 'EDMAX', client_id: clientId, sample_type: 'offer', consignment_id: c.body.id });
+    expect(born.status).toBe(201);
+    await auth(request(app).delete(`/consignments/${c.body.id}`));
+    const { rows: [after] } = await pool.query(`SELECT payload FROM notifications_outbox WHERE event = 'created' AND sample_id = $1`, [born.body.id]);
+    expect(after.payload).toBeNull();
+    expect((await auth(request(app).get(`/bulk-samples/${born.body.id}`))).body.consignment_number).toBeNull();
+  });
+
   it('lists with client_name + derived_status and filters by book / client_id / q (client name)', async () => {
     const all = await auth(request(app).get('/consignments'));
     const row = all.body.data.find((c: { id: string }) => c.id === orderId);

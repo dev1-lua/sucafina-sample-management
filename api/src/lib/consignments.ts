@@ -107,19 +107,38 @@ export async function detachSamples(db: Db, consignmentId: string, tab: Tab, ids
     [consignmentId, ids],
   );
   const detached = upd.rows.map((r) => String(r.id));
-  if (detached.length) {
-    await db.query(
-      `UPDATE notifications_outbox
-          SET payload = NULLIF(COALESCE(payload, '{}'::jsonb) - 'consignment_id' - 'consignment_number', '{}'::jsonb)
-        WHERE tab = $2 AND sample_id = ANY($1::uuid[]) AND event = 'created' AND sent_at IS NULL`,
-      [detached, tab],
-    );
-  }
+  await clearOrderOnPendingPings(db, tab, detached);
   await db.query(
     `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('consignment', $1, 'edited', $2, $3)`,
     [consignmentId, `removed ${detached.length} ${tab} sample(s)`, actor],
   );
   return detached;
+}
+
+/** Take the order off the still-pending `created` pings of these samples (the payload goes back to null when nothing is left). */
+async function clearOrderOnPendingPings(db: Db, tab: Tab, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  await db.query(
+    `UPDATE notifications_outbox
+        SET payload = NULLIF(COALESCE(payload, '{}'::jsonb) - 'consignment_id' - 'consignment_number', '{}'::jsonb)
+      WHERE tab = $2 AND sample_id = ANY($1::uuid[]) AND event = 'created' AND sent_at IS NULL`,
+    [ids, tab],
+  );
+}
+
+/**
+ * On the order's soft-delete: free every member (so they can regroup) and take the order off their pending
+ * `created` pings — QC must not be pointed at an order that no longer exists. No per-tab event: the
+ * consignment's own `deleted` event is the record.
+ */
+export async function detachAll(db: Db, consignmentId: string): Promise<void> {
+  for (const tab of TABS) {
+    const upd = await db.query(
+      `UPDATE ${TABLE[tab]} SET consignment_id = NULL, updated_at = now() WHERE consignment_id = $1 RETURNING id`,
+      [consignmentId],
+    );
+    await clearOrderOnPendingPings(db, tab, upd.rows.map((r) => String(r.id)));
+  }
 }
 
 /** The live consignment behind an id, or a 400 — a sample must never point at a missing or deleted order. */
