@@ -68,11 +68,17 @@ export type Lot = {
   ref: string; book: LotBook; coffee_key: string;
   outturn: string | null; grade: string | null; quality: string | null; blend: string | null;
   first_issued_at: string;
+  // Round 10b: a PSS lot (SSKE-<contract digits>) groups its lettered options. `options` are the
+  // group's live option letters A→Z (`[]` for any other lot); `contract_client` is the contract's
+  // client name via a live send, else null.
+  options?: string[];
+  contract_client?: string | null;
 };
 export type LotSend = {
-  tab: string; id: string; receiver: string | null; date_on: string | null; status: string | null;
+  tab: string; id: string; ref?: string | null; receiver: string | null; date_on: string | null; status: string | null;
   qty_grams: number | null; courier_norm: string | null; awb: string | null;
   title?: string | null; consignment_number?: string | null;
+  option_letter?: string | null; // PSS option of this send (SSKE-104929C → "C"), else null
 };
 export type LotDetail = { lot: Lot; sends: LotSend[] };
 

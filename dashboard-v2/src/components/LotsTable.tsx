@@ -6,6 +6,7 @@ import { CellValue } from '@/components/CellValue';
 import { StatusBadge } from '@/components/StatusBadge';
 import { LOTS_ENDPOINT, useLotSendsMany, type LotBook, type LotSend } from '@/lib/query';
 import { formatQty } from '@/lib/format';
+import { isPssGroup, lotRefFor, optionLetterOf } from '@/lib/lots';
 import { cn } from '@/lib/cn';
 import type { ColumnDef, FilterState } from '@/types';
 
@@ -27,6 +28,23 @@ export function lotCoffeeLabel(lot: RowData, book: LotBook): string | null {
   return present.length ? present.join(' · ') : null;
 }
 
+function optionLetters(lot: RowData): string[] {
+  return Array.isArray(lot.options) ? lot.options.filter((o): o is string => typeof o === 'string' && o !== '') : [];
+}
+
+/** A PSS lot (`SSKE-<contract digits>`) groups the lettered options drawn against one contract. */
+export function isPssLot(lot: RowData): boolean {
+  return isPssGroup(text(lot.ref)) || optionLetters(lot).length > 0;
+}
+
+/** "CK Corporation · options A, B" — the contract's client (else the last receiver) and the live options. */
+export function pssGroupLabel(lot: RowData): string | null {
+  const who = text(lot.contract_client) ?? text(lot.last_receiver);
+  const options = optionLetters(lot);
+  const parts = [who, options.length ? `options ${options.join(', ')}` : null].filter((p): p is string => p !== null);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 function columnsFor(book: LotBook): ColumnDef[] {
   return [
     { key: 'ref', header: 'Ref', sortKey: 'ref', width: 120 },
@@ -35,7 +53,7 @@ function columnsFor(book: LotBook): ColumnDef[] {
       header: 'Coffee',
       sortKey: book === 'specialty' ? 'outturn' : 'quality',
       width: 260,
-      render: (r) => <CellValue value={lotCoffeeLabel(r, book)} />,
+      render: (r) => <CellValue value={isPssLot(r) ? pssGroupLabel(r) : lotCoffeeLabel(r, book)} />,
     },
     { key: 'sends', header: 'Sends', sortKey: 'sends', width: 80 },
     { key: 'status_rollup', header: 'Status', width: 200 },
@@ -44,8 +62,12 @@ function columnsFor(book: LotBook): ColumnDef[] {
   ];
 }
 
-// Child rows share one grid so the columns line up under every expanded coffee.
-const CHILD_GRID = 'grid h-8 grid-cols-[100px_minmax(0,1fr)_72px_160px_130px_100px] items-center gap-3 pl-7 pr-2 text-xs';
+// Child rows share one grid so the columns line up under every expanded coffee; a PSS group
+// leads with the option letter.
+const CHILD_GRID = 'grid h-8 items-center gap-3 pl-7 pr-2 text-xs';
+const SEND_COLS = 'grid-cols-[100px_minmax(0,1fr)_72px_160px_130px_100px]';
+const PSS_SEND_COLS = 'grid-cols-[56px_100px_minmax(0,1fr)_72px_160px_130px_100px]';
+const childGrid = (pss: boolean) => cn(CHILD_GRID, pss ? PSS_SEND_COLS : SEND_COLS);
 
 function sendTime(s: LotSend): number {
   const t = s.date_on ? Date.parse(s.date_on) : NaN;
@@ -57,7 +79,8 @@ export type LotsTableProps = {
   // The list page's FilterState. Only free text applies to lots: `q` (or the `ref` deep-link
   // filter) goes to the server as `q`, which also matches any send's receiver.
   filters: FilterState;
-  // `?ref=` on load: open this coffee straight away.
+  // `?ref=` on load: open this coffee straight away. A lettered PSS ref (SSKE-104929A) opens
+  // its contract group (SSKE-104929).
   initialExpandedRef?: string | null;
   onSendClick: (send: LotSend) => void;
 };
@@ -69,16 +92,20 @@ export type LotsTableProps = {
  * from GET /lots/:ref only when a coffee is expanded and sorted client-side by date.
  */
 export function LotsTable({ book, filters, initialExpandedRef, onSendClick }: LotsTableProps) {
+  // Rows are keyed by the lot ref, so a deep-linked option letter maps to its group first.
+  const initialLotRef = initialExpandedRef ? lotRefFor(initialExpandedRef) : null;
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>(() =>
-    initialExpandedRef ? { [initialExpandedRef]: true } : {},
+    initialLotRef ? { [initialLotRef]: true } : {},
   );
   React.useEffect(() => {
-    if (initialExpandedRef) setExpanded((prev) => (prev[initialExpandedRef] ? prev : { ...prev, [initialExpandedRef]: true }));
-  }, [initialExpandedRef]);
+    if (initialLotRef) setExpanded((prev) => (prev[initialLotRef] ? prev : { ...prev, [initialLotRef]: true }));
+  }, [initialLotRef]);
   const [childSort, setChildSort] = React.useState<Record<string, SortDir>>({});
 
   const requestFilters = React.useMemo<FilterState>(() => {
-    const q = text(filters.q) ?? text(filters.ref);
+    // Free text is sent as typed; a `?ref=` deep link searches for the lot (the PSS base).
+    const ref = text(filters.ref);
+    const q = text(filters.q) ?? (ref ? lotRefFor(ref) : null);
     const next: FilterState = { book };
     if (q) next.q = q;
     return next;
@@ -116,7 +143,8 @@ export function LotsTable({ book, filters, initialExpandedRef, onSendClick }: Lo
         const dir = childSort[ref] ?? 'desc';
         const Arrow = dir === 'desc' ? IconArrowDown : IconArrowUp;
         return (
-          <div className={cn(CHILD_GRID, 'uppercase tracking-wide text-muted-foreground')}>
+          <div className={cn(childGrid(isPssLot(parent)), 'uppercase tracking-wide text-muted-foreground')}>
+            {isPssLot(parent) && <span>Option</span>}
             <button
               type="button"
               onClick={(e) => {
@@ -139,7 +167,8 @@ export function LotsTable({ book, filters, initialExpandedRef, onSendClick }: Lo
       const send = sub as unknown as LotSend;
       const courier = [send.courier_norm, send.awb].filter((p) => !!p).join(' · ');
       return (
-        <div className={CHILD_GRID}>
+        <div className={childGrid(isPssLot(parent))}>
+          {isPssLot(parent) && <span className="font-medium text-foreground">{optionLetterOf(send) ?? '—'}</span>}
           <span className="tabular-nums">{send.date_on ? send.date_on.slice(0, 10) : '—'}</span>
           <span className="truncate text-foreground">{send.receiver || '—'}</span>
           <span className="tabular-nums">{formatQty(send.qty_grams) ?? '—'}</span>

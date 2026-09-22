@@ -113,3 +113,75 @@ it('a ref filter is sent as q too (the deep-link case)', async () => {
   expect(String(spy.mock.calls[0][0])).toMatch(/book=commercial/);
   expect(String(spy.mock.calls[0][0])).toContain('q=TYPE-113');
 });
+
+// --- Round 10b: PSS options group by contract (SSKE-<digits><letter> → one SSKE-<digits> lot) ---
+
+const PSS_LOT = {
+  ref: 'SSKE-104929', book: 'commercial', coffee_key: 'k-pss', outturn: null, grade: null, quality: 'AB FAQ', blend: null,
+  first_issued_at: '2026-08-01T00:00:00Z', sends: 2, open_sends: 1, delivered_sends: 1, last_send_on: '2026-08-20',
+  last_receiver: 'CK Corporation', status_rollup: '1 delivered · 1 pending', options: ['A', 'B'], contract_client: 'CK Corporation',
+};
+const PLAIN_LOT = {
+  ref: 'TYPE-113', book: 'commercial', coffee_key: 'k-113', outturn: null, grade: null, quality: 'AB FAQ', blend: 'Blend',
+  first_issued_at: '2026-07-01T00:00:00Z', sends: 1, open_sends: 1, delivered_sends: 0, last_send_on: '2026-07-02',
+  last_receiver: 'Paulig', status_rollup: '1 pending', options: [], contract_client: null,
+};
+const PSS_SENDS = {
+  lot: PSS_LOT,
+  sends: [
+    { tab: 'commercial', id: 'b-2', ref: 'SSKE-104929B', receiver: 'CK Corporation', date_on: '2026-08-20', status: 'requested', qty_grams: 300, courier_norm: null, awb: null, consignment_number: 'CN-2001', option_letter: 'B' },
+    // A legacy row: option_letter unset, the letter comes from the send's own ref.
+    { tab: 'commercial', id: 'b-1', ref: 'SSKE-104929A', receiver: 'CK Corporation', date_on: '2026-08-05', status: 'delivered', qty_grams: 300, courier_norm: 'dhl', awb: '990', consignment_number: null, option_letter: null },
+  ],
+};
+
+function stubPssFetch() {
+  const lots = [PSS_LOT, PLAIN_LOT];
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input);
+    const body = /\/lots\/[^?]/.test(url) ? PSS_SENDS : { data: lots, total: lots.length, page: 1, pageSize: 50 };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  });
+}
+
+it('a PSS group row reads "<contract client> · options A, B" under its contract ref', async () => {
+  stubPssFetch();
+  renderTable({ book: 'commercial' });
+  expect(await screen.findByText('SSKE-104929')).toBeInTheDocument();
+  expect(screen.getByText('CK Corporation · options A, B')).toBeInTheDocument();
+  // A non-PSS lot keeps the coffee label.
+  expect(screen.getByText('AB FAQ · Blend')).toBeInTheDocument();
+});
+
+it('expanding a PSS group shows an Option header and the letters on the children in date order', async () => {
+  stubPssFetch();
+  renderTable({ book: 'commercial' });
+  await screen.findByText('SSKE-104929');
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle sends of SSKE-104929' }));
+  expect(await screen.findByText('dhl · 990')).toBeInTheDocument();
+  expect(screen.getByText('Option')).toBeInTheDocument();
+  const rows = screen.getAllByRole('row').map((r) => r.textContent ?? '');
+  const b = rows.findIndex((t) => t.includes('CN-2001'));
+  const a = rows.findIndex((t) => t.includes('dhl · 990'));
+  expect(b).toBeGreaterThan(-1);
+  expect(a).toBeGreaterThan(b); // newest first: B (20 Aug) above A (5 Aug)
+  expect(rows[b]!.startsWith('B')).toBe(true);
+  expect(rows[a]!.startsWith('A')).toBe(true);
+});
+
+it('a non-PSS lot renders no Option cell', async () => {
+  stubFetch();
+  renderTable({ initialExpandedRef: 'SL-7336' });
+  expect(await screen.findByText('Beyers')).toBeInTheDocument();
+  expect(screen.queryByText('Option')).not.toBeInTheDocument();
+});
+
+it('?ref= with a lettered PSS ref opens and searches the contract group', async () => {
+  const spy = stubPssFetch();
+  renderTable({ book: 'commercial', filters: { ref: 'SSKE-104929A' }, initialExpandedRef: 'SSKE-104929A' });
+  expect(await screen.findByText('dhl · 990')).toBeInTheDocument();
+  expect(String(spy.mock.calls[0][0])).toContain('q=SSKE-104929');
+  expect(String(spy.mock.calls[0][0])).not.toContain('q=SSKE-104929A');
+  expect(spy.mock.calls.some(([u]) => /\/lots\/SSKE-104929$/.test(String(u)))).toBe(true);
+  expect(spy.mock.calls.some(([u]) => /\/lots\/SSKE-104929A/.test(String(u)))).toBe(false);
+});
