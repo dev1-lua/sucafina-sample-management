@@ -275,14 +275,17 @@ bulkSamples.post('/', h(async (req, res) => {
   res.status(201).json({ ...row, lot_sends: await countLotSends(pool, 'bulk_samples', 'sample_ref', sampleRef), reused_ref: reusedRef });
 }));
 
-bulkSamples.patch('/:id', h(async (req, res) => {
-  const id = parseId(req.params.id);
-  const body = parseBody(patchSchema, req.body);
-  const actor = actorFrom(req);
+export type BulkPatch = z.infer<typeof patchSchema>;
+
+/**
+ * The per-sample PATCH write (one event, status/outbox pings, contract hooks). Exported so an order's
+ * dispatch (POST /consignments/:id/dispatch, round 10) applies exactly this to every member.
+ */
+export async function patchBulkSample(id: string, body: BulkPatch, actor: string): Promise<Record<string, unknown>> {
   const cur = await pool.query(`SELECT * FROM bulk_samples WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!cur.rows[0]) throw new HttpError(404, 'bulk sample not found');
   const prev = cur.rows[0];
-  if (Object.keys(body).length === 0) return res.json(prev);
+  if (Object.keys(body).length === 0) return prev;
   const nextStatus = body.result_norm ? 'results_in' : body.status ?? null;
 
   const eventType =
@@ -364,7 +367,11 @@ bulkSamples.patch('/:id', h(async (req, res) => {
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');
   // extraWrites returns void, so the replacement's ref reaches the caller through the closure.
-  res.json({ ...row, replacement_ref: out.drawn?.sample_ref ?? null });
+  return { ...row, replacement_ref: out.drawn?.sample_ref ?? null };
+}
+
+bulkSamples.patch('/:id', h(async (req, res) => {
+  res.json(await patchBulkSample(parseId(req.params.id), parseBody(patchSchema, req.body), actorFrom(req)));
 }));
 
 bulkSamples.delete('/:id', h(async (req, res) => {

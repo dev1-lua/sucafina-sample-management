@@ -174,14 +174,17 @@ forwardingSamples.post('/', h(async (req, res) => {
   res.status(201).json(row);
 }));
 
-forwardingSamples.patch('/:id', h(async (req, res) => {
-  const id = parseId(req.params.id);
-  const body = parseBody(patchSchema, req.body);
-  const actor = actorFrom(req);
+export type ForwardingPatch = z.infer<typeof patchSchema>;
+
+/**
+ * The per-row PATCH write (one event, status/outbox pings). Exported so an order's dispatch
+ * (POST /consignments/:id/dispatch, round 10) applies exactly this to every member.
+ */
+export async function patchForwardingSample(id: string, body: ForwardingPatch, actor: string): Promise<Record<string, unknown>> {
   const cur = await pool.query(`SELECT * FROM forwarding_samples WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!cur.rows[0]) throw new HttpError(404, 'forwarding sample not found');
   const prev = cur.rows[0];
-  if (Object.keys(body).length === 0) return res.json(prev);
+  if (Object.keys(body).length === 0) return prev;
   const nextStatus = body.status ?? null; // NEVER results_in
 
   const eventType =
@@ -240,7 +243,11 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
     },
   );
   if (!row) throw new HttpError(404, 'forwarding sample not found');
-  res.json(row);
+  return row;
+}
+
+forwardingSamples.patch('/:id', h(async (req, res) => {
+  res.json(await patchForwardingSample(parseId(req.params.id), parseBody(patchSchema, req.body), actorFrom(req)));
 }));
 
 forwardingSamples.delete('/:id', h(async (req, res) => {
