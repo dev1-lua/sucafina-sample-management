@@ -174,6 +174,9 @@ export const bulkConfig: TabConfig = {
   // `qty_grams`/`moisture_pct`/`water_activity_num` (typed sort-only companions of
   // qty/moisture/water_activity), and `client_id` (uuid FK — no client picker in this track's scope).
   createFields: [
+    // Round 10: a ref names the coffee (POST field is `sample_ref` on this book). Blank → the server
+    // issues/reuses one; typed → claimed, or the dialog's /lots/resolve notice explains the clash.
+    { key: 'sample_ref', label: 'Ref', type: 'text', placeholder: 'blank = issued on save' },
     { key: 'quality', label: 'Quality', type: 'text', required: true },
     { key: 'client', label: 'Client', type: 'text', required: true },
     { key: 'sample_type', label: 'Sample Type', type: 'select', options: SAMPLE_TYPES, defaultValue: 'other', allowCustom: true },
