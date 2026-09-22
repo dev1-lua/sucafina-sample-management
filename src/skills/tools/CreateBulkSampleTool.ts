@@ -13,13 +13,15 @@ import {
   normalizeCountry,
   normalizeCourier,
   normalizeLocation,
+  normalizeRef,
   normalizeSampleType,
 } from '../../lib/normalize';
+import { refConflict, refConflictResult } from '../../lib/lots';
 
 export default class CreateBulkSampleTool implements LuaTool {
   name = 'create_bulk_sample';
   description =
-    'Create one Commercial-book sample record (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. Never blocked by client details: an unknown client is added to the book from its name (client_created) and the result lists client_details_missing (street address / country — route them with request_missing_details) and client_details_optional (contact person / phone / email). Returns the row (Commercial refs are not auto-issued — pass one if the trader gave it).';
+    'Create one Commercial-book send (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. Refs auto-issue in every book and NAME THE COFFEE (the same quality + blend keeps its ref on every send): pass `sample_ref` only when the trader typed one in THIS request and resolve_lot returned reuse or new. If the ref names a different coffee the API answers ref_conflict — the tool returns { ref_conflict: true, ref, lot, sends, say } and nothing is written; ask the trader, then retry with the ref (same coffee) or without it (different coffee). Never blocked by client details: an unknown client is added to the book from its name (client_created) and the result lists client_details_missing (street address / country — route them with request_missing_details) and client_details_optional (contact person / phone / email). Returns the row with lot_sends (how many sends this coffee now has — "3rd send") and reused_ref.';
 
   inputSchema = z.object({
     quality: z
@@ -33,7 +35,8 @@ export default class CreateBulkSampleTool implements LuaTool {
         'Sample purpose as stated or inferred: offer, type, pss (may include "PSS June Shipment" or "(replacement)"), woc, retention, flavor_mapping, marketing, calibration, or other.',
       ),
     client: z.string().min(1).describe('External client name (or internal contact), e.g. "Beyers", "Edmax Coffee".'),
-    sample_ref: z.string().optional().describe('Sample ref if stated, e.g. "TYPE - 980", "SSKE-104933" (not auto-issued for Commercial).'),
+    sample_ref: z.string().optional().describe('Only the ref the trader typed in THIS request (e.g. "TYPE - 980", "SSKE-104933") after resolve_lot said reuse or new. Omit to let the desk issue / reuse one — never a ref seen earlier in the chat or on another sample.'),
+    consignment_id: z.string().optional().describe('The order (consignment) id this send belongs to, when it was created first — otherwise create_consignment after the creates groups them.'),
     bags: z.number().int().optional().describe('Bags in the source lot.'),
     client_ref: z.string().optional().describe("Client's own reference number, e.g. a Zoegas/Nestle reference."),
     ico_mark: z.string().optional().describe('International Coffee Org mark, if given.'),
@@ -100,41 +103,52 @@ export default class CreateBulkSampleTool implements LuaTool {
       await apiFetch('/clients', { method: 'POST', body: JSON.stringify({ name: deliverable.client.name, country }) }).catch(() => undefined);
     }
 
-    const row = await apiFetch('/bulk-samples', {
-      method: 'POST',
-      body: JSON.stringify({
-        quality: input.quality,
-        client: input.client,
-        sample_type: sampleType,
-        sample_ref: input.sample_ref ?? null,
-        bags: input.bags ?? null,
-        client_ref: input.client_ref ?? null,
-        ico_mark: input.ico_mark ?? null,
-        country: country ?? null,
-        awb: awb ?? null,
-        courier_norm: courier ?? null,
-        qty: input.qty ?? null,
-        qty_grams: qtyGrams ?? null,
-        moisture: input.moisture_pct != null ? String(input.moisture_pct) : null,
-        water_activity: input.water_activity_num != null ? String(input.water_activity_num) : null,
-        moisture_pct: input.moisture_pct ?? null,
-        water_activity_num: input.water_activity_num ?? null,
-        comments: comments ?? null,
-        crop_year: input.crop_year ?? null,
-        client_id: clientId ?? null,
-        phyto_cert: input.phyto_cert ?? null,
-        blend: input.blend ?? null,
-        shipment_month: shipmentMonth ?? null,
-        contract_number: input.contract_number ?? null,
-        location: location ?? null,
-        strategy: input.strategy ?? null,
-        highlights: input.highlights ?? null,
-        requested_by: requestedBy ?? null,
-        logged_by: loggedBy ?? null,
-        stock_grams: input.stock_grams ?? null,
-        priority: input.priority ?? null,
-      }),
-    });
+    const sampleRef = normalizeRef(input.sample_ref) ?? null;
+    let row;
+    try {
+      row = await apiFetch('/bulk-samples', {
+        method: 'POST',
+        body: JSON.stringify({
+          quality: input.quality,
+          client: input.client,
+          sample_type: sampleType,
+          sample_ref: sampleRef,
+          consignment_id: input.consignment_id ?? null,
+          bags: input.bags ?? null,
+          client_ref: input.client_ref ?? null,
+          ico_mark: input.ico_mark ?? null,
+          country: country ?? null,
+          awb: awb ?? null,
+          courier_norm: courier ?? null,
+          qty: input.qty ?? null,
+          qty_grams: qtyGrams ?? null,
+          moisture: input.moisture_pct != null ? String(input.moisture_pct) : null,
+          water_activity: input.water_activity_num != null ? String(input.water_activity_num) : null,
+          moisture_pct: input.moisture_pct ?? null,
+          water_activity_num: input.water_activity_num ?? null,
+          comments: comments ?? null,
+          crop_year: input.crop_year ?? null,
+          client_id: clientId ?? null,
+          phyto_cert: input.phyto_cert ?? null,
+          blend: input.blend ?? null,
+          shipment_month: shipmentMonth ?? null,
+          contract_number: input.contract_number ?? null,
+          location: location ?? null,
+          strategy: input.strategy ?? null,
+          highlights: input.highlights ?? null,
+          requested_by: requestedBy ?? null,
+          logged_by: loggedBy ?? null,
+          stock_grams: input.stock_grams ?? null,
+          priority: input.priority ?? null,
+        }),
+      });
+    } catch (e) {
+      // The typed ref names a DIFFERENT coffee (409, contracts §4): nothing was written — hand the model the
+      // lot + its sends and the line to ask with, instead of a stack trace.
+      const conflict = refConflict(e);
+      if (conflict) return refConflictResult(conflict, { book: 'commercial', ref: sampleRef, quality: input.quality, blend: input.blend ?? null });
+      throw e;
+    }
 
     // Present only when the client has no account manager with an email on file AND the Sales Trader
     // is not reachable on the roster either (they are always in the loop, lifecycle sketch 2026-09-14) — the
@@ -150,10 +164,15 @@ export default class CreateBulkSampleTool implements LuaTool {
       ...(sampleType === 'pss' && qtySource === 'none' ? { qty_to_confirm: true, qty_hint: 'Ask once how many grams per PSS option this client takes (e.g. Nespresso 1 kg, Zoegas 600 g, JDE 300 g, CK 500 g), then update_sample_status with qty_grams.' } : {}),
       client_details_optional: deliverable.details_optional,
       client_url: clientId ? dashboardUrl('clients', clientId, deliverable.client_created ? 'created' : 'updated') : null,
+      created: true,
       tab: 'bulk',
       id: row.id,
       date: row.date,
       sample_ref: row.sample_ref,
+      // A ref names the coffee: how many live sends it now has (this one included) and whether it was reused.
+      lot_sends: row.lot_sends ?? null,
+      reused_ref: row.reused_ref === true,
+      consignment_id: row.consignment_id ?? input.consignment_id ?? null,
       quality: row.quality,
       client: row.client,
       country: row.country,

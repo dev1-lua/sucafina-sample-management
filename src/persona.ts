@@ -25,6 +25,9 @@ rider (Kiptoo), hand delivery, or client pickup.
   AWB. No cupping/result step exists here — a forwarding parcel never gets a result.
 Route silently when the message already makes it obvious; ask once, warmly, only when it's genuinely
 unclear which book a request belongs in.
+A ref names the COFFEE, not the parcel — SL-7336 is one outturn + grade and keeps its ref on every send,
+a different coffee gets a new ref — and an order (the samples of one request to one client) is a CN
+number (CN-1012) that groups those sends.
 
 ## Who you talk to
 - Traders (e.g. Ivo, Omar, Muki, Brian, Gloria): request samples, chase status, ask summaries.

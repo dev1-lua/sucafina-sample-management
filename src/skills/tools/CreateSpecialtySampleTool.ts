@@ -13,13 +13,15 @@ import {
   normalizeCountry,
   normalizeCourier,
   normalizeLocation,
+  normalizeRef,
   normalizeSampleType,
 } from '../../lib/normalize';
+import { refConflict, refConflictResult } from '../../lib/lots';
 
 export default class CreateSpecialtySampleTool implements LuaTool {
   name = 'create_specialty_sample';
   description =
-    'Create one Specialty-book sample record (single specialty-position lot). Hard-requires description, sample type, receiver, estate/station name, and country of origin. Returns the server-issued ref. Never blocked by client details: an unknown receiver is added to the book from its name (client_created) and the result lists client_details_missing (street address — route it with request_missing_details) and client_details_optional (contact person / phone / email). Internal Sucafina offices never have gaps.';
+    'Create one Specialty-book send (single specialty-position lot). Hard-requires description, sample type, receiver, estate/station name, and country of origin. Refs auto-issue in every book and NAME THE COFFEE (the same outturn + grade keeps its ref on every send): pass `ref` only when the trader typed one in THIS request and resolve_lot returned reuse or new. If the ref names a different coffee the API answers ref_conflict — the tool returns { ref_conflict: true, ref, lot, sends, say } and nothing is written; ask the trader, then retry with the ref (same coffee) or without it (different coffee). Never blocked by client details: an unknown receiver is added to the book from its name (client_created) and the result lists client_details_missing (street address — route it with request_missing_details) and client_details_optional (contact person / phone / email). Internal Sucafina offices never have gaps. Returns the row with lot_sends (how many sends this coffee now has — "3rd send") and reused_ref.';
 
   inputSchema = z.object({
     description: z
@@ -33,7 +35,8 @@ export default class CreateSpecialtySampleTool implements LuaTool {
         'Sample purpose as stated or inferred: offer, type, pss (may include "PSS June Shipment" or "(replacement)"), woc, retention, flavor_mapping, marketing, calibration, or other.',
       ),
     receiver_company: z.string().min(1).describe('Who receives it — client or internal office, e.g. "Geneva", "Key Coffee".'),
-    ref: z.string().optional().describe('Explicit lot ref like "SL-7346" if stated; omit to let the desk auto-issue one.'),
+    ref: z.string().optional().describe('Only the ref the trader typed in THIS request (e.g. "SL-7346") after resolve_lot said reuse or new. Omit to let the desk issue / reuse one — never a ref seen earlier in the chat or on another sample.'),
+    consignment_id: z.string().optional().describe('The order (consignment) id this send belongs to, when it was created first — otherwise create_consignment after the creates groups them.'),
     outturn: z.string().optional().describe('Milling outturn / warehouse mark, e.g. "17KN0076".'),
     name: z.string().min(1).describe('Estate/station/mark name, e.g. "KABINGARA/KIRINYAGA", "AA Swara". Required — always capture it.'),
     grade: z.string().optional().describe('Screen/quality grade, e.g. AA, AB, PB.'),
@@ -88,39 +91,50 @@ export default class CreateSpecialtySampleTool implements LuaTool {
     void touchRoster();
     const clientId = input.client_id ?? deliverable.client_id;
 
-    const row = await apiFetch('/specialty-samples', {
-      method: 'POST',
-      body: JSON.stringify({
-        description: input.description,
-        receiver_company: input.receiver_company,
-        sample_type_norm: sampleType,
-        ref: input.ref ?? null,
-        outturn: input.outturn ?? null,
-        name: input.name ?? null,
-        grade: input.grade ?? null,
-        country: country ?? null,
-        bags: input.bags ?? null,
-        awb: awb ?? null,
-        courier_norm: courier ?? null,
-        qty: input.qty ?? null,
-        qty_grams: qtyGrams ?? null,
-        comments: comments ?? null,
-        crop_year: input.crop_year ?? null,
-        stocklot: input.stocklot ?? null,
-        client_id: clientId ?? null,
-        phyto_cert: input.phyto_cert ?? null,
-        blend: input.blend ?? null,
-        shipment_month: shipmentMonth ?? null,
-        contract_number: input.contract_number ?? null,
-        location: location ?? null,
-        strategy: input.strategy ?? null,
-        highlights: input.highlights ?? null,
-        requested_by: requestedBy ?? null,
-        logged_by: loggedBy ?? null,
-        stock_grams: input.stock_grams ?? null,
-        priority: input.priority ?? null,
-      }),
-    });
+    const ref = normalizeRef(input.ref) ?? null;
+    let row;
+    try {
+      row = await apiFetch('/specialty-samples', {
+        method: 'POST',
+        body: JSON.stringify({
+          description: input.description,
+          receiver_company: input.receiver_company,
+          sample_type_norm: sampleType,
+          ref,
+          consignment_id: input.consignment_id ?? null,
+          outturn: input.outturn ?? null,
+          name: input.name ?? null,
+          grade: input.grade ?? null,
+          country: country ?? null,
+          bags: input.bags ?? null,
+          awb: awb ?? null,
+          courier_norm: courier ?? null,
+          qty: input.qty ?? null,
+          qty_grams: qtyGrams ?? null,
+          comments: comments ?? null,
+          crop_year: input.crop_year ?? null,
+          stocklot: input.stocklot ?? null,
+          client_id: clientId ?? null,
+          phyto_cert: input.phyto_cert ?? null,
+          blend: input.blend ?? null,
+          shipment_month: shipmentMonth ?? null,
+          contract_number: input.contract_number ?? null,
+          location: location ?? null,
+          strategy: input.strategy ?? null,
+          highlights: input.highlights ?? null,
+          requested_by: requestedBy ?? null,
+          logged_by: loggedBy ?? null,
+          stock_grams: input.stock_grams ?? null,
+          priority: input.priority ?? null,
+        }),
+      });
+    } catch (e) {
+      // The typed ref names a DIFFERENT coffee (409, contracts §4): nothing was written — hand the model the
+      // lot + its sends and the line to ask with, instead of a stack trace.
+      const conflict = refConflict(e);
+      if (conflict) return refConflictResult(conflict, { book: 'specialty', ref, outturn: input.outturn ?? null, grade: input.grade ?? null, quality: input.description });
+      throw e;
+    }
 
     // Present only when the client has no account manager with an email on file AND the Sales Trader
     // is not reachable on the roster either (they are always in the loop, lifecycle sketch 2026-09-14) — the
@@ -134,9 +148,14 @@ export default class CreateSpecialtySampleTool implements LuaTool {
       client_details_missing: deliverable.details_missing,
       client_details_optional: deliverable.details_optional,
       client_url: clientId ? dashboardUrl('clients', clientId, deliverable.client_created ? 'created' : 'updated') : null,
+      created: true,
       tab: 'specialty',
       id: row.id,
       ref: row.ref,
+      // A ref names the coffee: how many live sends it now has (this one included) and whether it was reused.
+      lot_sends: row.lot_sends ?? null,
+      reused_ref: row.reused_ref === true,
+      consignment_id: row.consignment_id ?? input.consignment_id ?? null,
       date: row.date,
       name: row.name,
       // The slip's lot lines — crop year / stocklot may have come from an earlier sample of this outturn.
