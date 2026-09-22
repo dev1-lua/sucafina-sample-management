@@ -21,7 +21,8 @@ if (!groups.length) {
     for (const r of g.rows) {
       const coffee = describeCoffee({ book: r.book, outturn: r.outturn, grade: r.grade, quality: r.quality });
       const state = r.live ? `${r.status ?? '?'} ${r.date_on ?? ''}`.trim() : '(deleted)';
-      console.log(`    - ${r.tab.padEnd(9)} ${short(r.sample_id)}  ${(r.receiver ?? '?').padEnd(24)} ${coffee.padEnd(28)} ${state.padEnd(22)} → ${r.live ? 'would re-issue' : 'would drop'}`);
+      const action = r.live ? 're-issue' : 'drop (row deleted)';
+      console.log(`    - ${r.tab.padEnd(9)} ${short(r.sample_id)}  ${(r.receiver ?? '?').padEnd(24)} ${coffee.padEnd(28)} ${state.padEnd(22)} → ${apply ? '' : 'would '}${action}`);
     }
   }
   if (!apply) {
