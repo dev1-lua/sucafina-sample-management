@@ -29,6 +29,8 @@ const detail = {
 function stubFetch() {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
     const method = (init as RequestInit | undefined)?.method ?? 'GET';
+    // The details tab's loop-in section reads the roster on every sample; an empty one is fine here.
+    if (String(_url).includes('/traders')) return new Response(JSON.stringify({ data: [], total: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
     const body = method === 'PATCH' ? { ...detail, ...JSON.parse(String((init as RequestInit).body)) } : detail;
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
   });
@@ -82,6 +84,7 @@ it('date edit field shows YYYY-MM-DD from an ISO timestamp and PATCHes the picke
   ];
   const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
     const method = (init as RequestInit | undefined)?.method ?? 'GET';
+    if (String(_url).includes('/traders')) return new Response(JSON.stringify({ data: [], total: 0 }), { status: 200, headers: { 'content-type': 'application/json' } });
     const row = { ...detail, dispatched_on: '2026-08-20T00:00:00.000Z' };
     const body = method === 'PATCH' ? { ...row, ...JSON.parse(String((init as RequestInit).body)) } : row;
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -129,6 +132,7 @@ const ORDER = {
     { tab: 'bulk', id: 'u-7', ref: 'TYPE-113', title: 'AB FAQ', receiver: 'Paulig', status: 'requested' },
   ],
 };
+const CLIENT = { id: 'cl-1', name: 'Paulig', country: 'FI', account_owner_id: 't-2', account_owner: { id: 't-2', name: 'Gloria', role: 'trader', email: null }, contacts: [], orders: [], events: [] };
 const ROSTER = [
   { id: 'id-ivo', name: 'Ivo', email: 'ivo@sucafina.com', role: 'trader', active: true },
   { id: 'id-harriet', name: 'Harriet', email: null, role: 'qc', active: true },
@@ -145,6 +149,7 @@ function stubRound10(row: Record<string, unknown> = RESEND) {
     if (url.includes('/lots/')) body = LOT;
     else if (url.includes('/consignments/')) body = ORDER;
     else if (url.includes('/traders')) body = { data: ROSTER, total: ROSTER.length };
+    else if (url.includes('/clients/')) body = CLIENT;
     else if (method === 'PATCH') body = current = { ...current, ...JSON.parse(String((init as RequestInit).body)) };
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
   });
@@ -211,4 +216,18 @@ it('In the loop: chips from notify_trader_ids, add from the active roster, remov
     const patches = spy.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
     expect(JSON.parse(String((patches.at(-1)![1] as RequestInit).body))).toEqual({ notify_trader_ids: ['id-harriet'] });
   });
+});
+
+it('In the loop: the account manager comes from the client record when the row only carries client_id', async () => {
+  const spy = stubRound10({ ...RESEND, notify_trader_ids: [], client_id: 'cl-1' });
+  render(wrap(<DetailDrawer endpoint="/bulk-samples" id="u-2" open onClose={() => {}} fields={fields} />));
+  expect(await screen.findByText('Account manager: Gloria')).toBeInTheDocument();
+  expect(spy.mock.calls.some(([input]) => String(input).includes('/clients/cl-1'))).toBe(true);
+});
+
+it('In the loop: no account-manager line when neither the row nor a client carries one', async () => {
+  stubRound10({ ...RESEND, notify_trader_ids: [] });
+  render(wrap(<DetailDrawer endpoint="/forwarding-samples" id="u-2" open onClose={() => {}} fields={fields} />));
+  expect(await screen.findByText('In the loop')).toBeInTheDocument();
+  expect(screen.queryByText(/Account manager:/)).not.toBeInTheDocument();
 });

@@ -253,6 +253,7 @@ function RelatedTab({
   lotSends,
   sends,
   sendsLoading,
+  sendsError,
 }: {
   row: RowData;
   id: string;
@@ -260,6 +261,7 @@ function RelatedTab({
   lotSends: number;
   sends: LotSend[] | undefined;
   sendsLoading: boolean;
+  sendsError: boolean;
 }) {
   const navigate = useNavigate();
   const consignmentId = str(row.consignment_id);
@@ -274,8 +276,10 @@ function RelatedTab({
           <p className="text-sm text-muted-foreground">No other sends of this coffee.</p>
         ) : sendsLoading ? (
           <Skeleton className="h-8 w-full" />
-        ) : others.length === 0 ? (
+        ) : sendsError ? (
           <p className="text-sm text-muted-foreground">Couldn’t load the other sends.</p>
+        ) : others.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No other sends of this coffee.</p>
         ) : (
           <ul className="-mx-2 flex flex-col">
             {others.map((s) => (
@@ -339,18 +343,27 @@ function RelatedTab({
   );
 }
 
+/** The account manager's display name from a joined `account_owner` (trader row) or a bare name. */
+function ownerNameOf(owner: unknown): string | null {
+  if (typeof owner === 'string') return str(owner);
+  if (owner && typeof owner === 'object' && 'name' in owner) return str((owner as { name?: unknown }).name);
+  return null;
+}
+
 /** Details-tab section: who else hears about this sample. Chips for `notify_trader_ids`
  * (names via the roster), an "Add…" select of active colleagues not yet listed, and the
- * client's account manager read-only when the row carries one. Every change PATCHes the
- * full array (the API replaces it wholesale). */
+ * client's account manager read-only — from the row when it carries `account_owner`, else
+ * from the client record (`client_id`; the sample routes return the bare row today). Every
+ * change PATCHes the full array (the API replaces it wholesale). */
 function LoopInSection({ row, onCommit }: { row: RowData; onCommit: (ids: string[]) => void }) {
   const roster = useTeamRoster();
   const ids = Array.isArray(row.notify_trader_ids) ? row.notify_trader_ids.filter((v): v is string => typeof v === 'string') : [];
   const byId = new Map((roster.data ?? []).map((m) => [m.id, m]));
   const candidates = (roster.data ?? []).filter((m) => m.active && !ids.includes(m.id));
-  const owner = row.account_owner;
-  const ownerName =
-    typeof owner === 'string' ? owner : owner && typeof owner === 'object' && 'name' in owner ? str((owner as { name?: unknown }).name) : null;
+  const rowOwner = ownerNameOf(row.account_owner);
+  const clientId = rowOwner ? null : str(row.client_id);
+  const client = useRecord('/clients', clientId ?? '');
+  const ownerName = rowOwner ?? ownerNameOf(client.data?.account_owner);
 
   return (
     <div className="flex flex-col gap-2">
@@ -582,7 +595,7 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
               {isLoading ? (
                 <DetailsSkeleton />
               ) : (
-                <RelatedTab row={data} id={id} lotRef={ref} lotSends={lotSends} sends={lot.data?.sends} sendsLoading={lot.isLoading} />
+                <RelatedTab row={data} id={id} lotRef={ref} lotSends={lotSends} sends={lot.data?.sends} sendsLoading={lot.isLoading} sendsError={lot.isError} />
               )}
             </TabsContent>
           </Tabs>
