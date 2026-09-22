@@ -3,7 +3,7 @@ import request from 'supertest';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
 import { resetDb, API_KEY } from './helpers.js';
-import { BACKFILL_ORDERS_ACTOR, backfillOrders, findOrderGroups } from '../src/lib/backfill-orders.js';
+import { BACKFILL_ORDERS_ACTOR, applyOrderGroups, backfillOrders, findOrderGroups } from '../src/lib/backfill-orders.js';
 import { issueConsignmentNumber } from '../src/lib/refs.js';
 
 // Round 10b, task 3: rows logged before round 10 have no order (dashboard Order column "—"). Rows that
@@ -243,5 +243,56 @@ describe('scripts/backfill-orders', () => {
       const row = (await pool.query(`SELECT client_id FROM consignments WHERE number = $1`, [report.groups.find((g) => g.awb === awb)!.number])).rows[0];
       expect(row.client_id).toBeNull();
     }
+  });
+
+  // Fix wave (review): the apply re-checks every row inside its transaction. A row attached (or deleted)
+  // between the read and the write is skipped, and a group that shrinks to one row is not an order.
+  it('apply skips rows attached or deleted since the read; a group left with one row is skipped and burns no CN number', async () => {
+    const stolen = await pool.query(
+      `INSERT INTO bulk_samples (sample_ref, quality, client, awb, status, date_on) VALUES
+         ('TYPE-601', 'AB FAQ', 'Race Roasters', '4440001234', 'delivered', '2026-09-10'),
+         ('TYPE-602', 'AA FAQ', 'Race Roasters', '4440001234', 'delivered', '2026-09-10'),
+         ('TYPE-603', 'PB',     'Race Roasters', '4440001234', 'delivered', '2026-09-11')
+       RETURNING id, sample_ref`);
+    const shrinking = await pool.query(
+      `INSERT INTO bulk_samples (sample_ref, quality, client, awb, status, date_on) VALUES
+         ('TYPE-604', 'AB FAQ', 'Race Roasters', '3330001234', 'delivered', '2026-09-10'),
+         ('TYPE-605', 'AA FAQ', 'Race Roasters', '3330001234', 'delivered', '2026-09-10')
+       RETURNING id, sample_ref`);
+    const idOf = (rows: { id: string; sample_ref: string }[], ref: string) => String(rows.find((r) => r.sample_ref === ref)!.id);
+    const read = await findOrderGroups(pool, { since: '2026-09-09' });
+    const stale = { groups: read.groups.filter((g) => ['4440001234', '3330001234'].includes(g.awb)), placeholders: 0 };
+    expect(stale.groups.map((g) => [g.awb, g.rows.length]).sort()).toEqual([['3330001234', 2], ['4440001234', 3]]);
+
+    // Meanwhile: TYPE-601 lands on an order of its own; TYPE-605 is deleted.
+    const other = await auth(request(app).post('/consignments')).send({ samples: [{ tab: 'bulk', id: idOf(stolen.rows, 'TYPE-601') }] });
+    expect(other.status).toBe(201);
+    await auth(request(app).delete(`/bulk-samples/${idOf(shrinking.rows, 'TYPE-605')}`));
+
+    const consignments = await count('consignments');
+    const counter = await cnCounter();
+    const client = await pool.connect();
+    let applied;
+    try {
+      await client.query('BEGIN');
+      applied = await applyOrderGroups(client, stale, BACKFILL_ORDERS_ACTOR);
+      await client.query('COMMIT');
+    } finally {
+      client.release();
+    }
+    // One order, of the two rows still free; the shrunk group made nothing and burned no number.
+    expect(applied.groups.map((g) => [g.awb, g.rows.map((r) => r.ref).sort()])).toEqual([['4440001234', ['TYPE-602', 'TYPE-603']]]);
+    expect(applied.groups[0].number).toBe(`CN-${counter}`);
+    expect(await count('consignments')).toBe(consignments + 1);
+    expect(await cnCounter()).toBe(counter + 1);
+    const cn = (await pool.query(`SELECT id FROM consignments WHERE number = $1`, [applied.groups[0].number])).rows[0];
+    const got = await auth(request(app).get(`/consignments/${cn.id}`));
+    expect(got.body.members.map((m: { id: string }) => m.id).sort()).toEqual([idOf(stolen.rows, 'TYPE-602'), idOf(stolen.rows, 'TYPE-603')].sort());
+    // TYPE-601 stays on the order it got meanwhile; TYPE-604 is still free (its box is one row now).
+    expect(String((await pool.query(`SELECT consignment_id FROM bulk_samples WHERE id = $1`, [idOf(stolen.rows, 'TYPE-601')])).rows[0].consignment_id)).toBe(other.body.id);
+    expect((await pool.query(`SELECT consignment_id FROM bulk_samples WHERE id = $1`, [idOf(shrinking.rows, 'TYPE-604')])).rows[0].consignment_id).toBeNull();
+    // Nothing left for a re-run to pick up on either AWB.
+    const again = await backfillOrders(pool, { apply: false, since: '2026-09-09' });
+    expect(again.groups.filter((g) => ['4440001234', '3330001234'].includes(g.awb))).toEqual([]);
   });
 });
