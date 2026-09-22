@@ -4,55 +4,55 @@ agent:
 skills:
   - name: sample-intake
     skillId: c956a600-f604-419a-b3d6-4be4863fedfa
-    version: 1.0.29
+    version: 1.0.30
   - name: client-book
     skillId: d4dfd7a4-2577-4839-88cf-5461847785ef
-    version: 1.0.29
+    version: 1.0.30
   - name: dispatch-logging
     skillId: 7d224af8-424d-4606-9c08-9bfc28c1e1f7
-    version: 1.0.29
+    version: 1.0.30
   - name: status-and-tracking
     skillId: 7e0234a6-d3c6-48a0-8023-c3f8de47ccf4
-    version: 1.0.29
+    version: 1.0.30
   - name: results-capture
     skillId: efcd6fde-e46a-462a-a0ce-b02aaae0567f
-    version: 1.0.29
+    version: 1.0.30
   - name: consignments
     skillId: 1718a42a-7015-4a3b-9e49-717f3f796b71
-    version: 1.0.19
+    version: 1.0.20
   - name: pss-schedule
     skillId: 6b95f431-c337-42d9-a85f-f4f3df967a1f
-    version: 1.0.4
+    version: 1.0.5
   - name: assistant-feedback
     skillId: 633c33a5-bb30-4135-93ea-79c0c7bb7879
-    version: 1.0.3
+    version: 1.0.4
 webhooks: []
 jobs:
   - jobId: d1a9b23b-3748-4eb7-a9c8-dc8c11e1cb15
     name: dispatch-notifier
-    version: 1.0.17
+    version: 1.0.18
   - jobId: d26decd9-bd71-4d16-8aef-89c228dc0166
     name: status-notifier
-    version: 1.0.13
+    version: 1.0.14
   - jobId: b91546cf-ae63-4c5b-9c69-9ebce29d1d9b
     name: details-chaser
-    version: 1.0.4
+    version: 1.0.5
   - jobId: 199def6f-44c9-42d9-a794-8f9f7757da60
     name: tracking-sweep
-    version: 1.0.4
+    version: 1.0.5
 preprocessors:
   - name: current-datetime
     preprocessorId: preprocessor_4f12f92f-446b-4d8b-b13d-3bd61248a664
-    version: 1.0.20
+    version: 1.0.21
   - name: feedback-gate
     preprocessorId: preprocessor_0e7b570f-c544-4bda-ac45-b5bcfc48f3e2
-    version: 1.0.3
+    version: 1.0.4
 postprocessors:
   - name: tag-guard
     postprocessorId: postprocessor_ee5a3ca5-e38d-4a33-a400-caa4b05c55a4
-    version: 1.0.3
+    version: 1.0.4
 mcpServers: []
 backup:
-  activeVersion: 27
-  lastHash: 2818275e5697a4f69d05dc1f0d52989015c36dd3b5bd1b77c1644c0421e6abe0
-  lastPushedAt: '2026-09-21T12:56:58.950Z'
+  activeVersion: 28
+  lastHash: 0bea9b4919a4f05e8ba7653e239cefc84827a9548338c68a144cc2cf98d93a29
+  lastPushedAt: '2026-09-22T12:40:58.832Z'
