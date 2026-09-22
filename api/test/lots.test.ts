@@ -4,6 +4,7 @@ import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
 import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
 import { normalizeRef, normalizeQuality, coffeeKeyFor, resolveLot, findLot, claimRef, liveSends } from '../src/lib/lots.js';
+import { LOT_CONFLICTS_ACTOR, applyLotConflicts, listLotConflicts } from '../src/lib/lot-conflicts.js';
 
 // Round 10 (A1): a ref names the COFFEE, not the send. The same ref is reused when the same coffee goes
 // out again (SL-7336 → 3 receivers); different coffee must never share a ref (the TYPE-113 bug).
@@ -332,5 +333,68 @@ describe('GET /samples/resolve + list filters', () => {
     expect((await auth(request(app).get('/search?ref=TYPE-973'))).body.total).toBe(2);
     expect((await auth(request(app).get('/specialty-samples?ref=sl-7336'))).body.total).toBe(1);
     expect((await auth(request(app).get('/forwarding-samples?ref=nothing'))).body.total).toBe(0);
+  });
+});
+
+// A5: the rows migration 023 flagged (one ref, two coffees) are re-issued by scripts/lot-conflicts.ts.
+describe('scripts/lot-conflicts (A5)', () => {
+  let nestrade1: string;
+  let nestrade2: string;
+
+  it('dry run groups the conflicts by ref with the lot\'s coffee and each row\'s own; changes nothing', async () => {
+    // A second AA FAQ send on TYPE-9113 (legacy-shaped): the two must end up SHARING one new ref.
+    await pool.query(
+      `INSERT INTO bulk_samples (sample_ref, quality, client, sample_type_norm, status, created_at) VALUES
+         ('TYPE-9113', 'AA FAQ', 'Nestrade', 'type', 'requested', now() - interval '2 days'),
+         ('TYPE-9113', 'PB', 'Gone Roasters', 'type', 'requested', now() - interval '1 day')`);
+    await reapplyMigrationsFrom('023');
+    // A flagged row deleted since detection is just dropped.
+    await pool.query(`UPDATE bulk_samples SET deleted_at = now() WHERE sample_ref = 'TYPE-9113' AND client = 'Gone Roasters'`);
+    const { rows } = await pool.query(`SELECT id FROM bulk_samples WHERE sample_ref = 'TYPE-9113' AND client = 'Nestrade' ORDER BY created_at`);
+    [nestrade1, nestrade2] = rows.map((r) => String(r.id));
+
+    const groups = await listLotConflicts(pool);
+    const g = groups.find((x) => x.ref === 'TYPE-9113')!;
+    expect(g.lot).toMatchObject({ ref: 'TYPE-9113', book: 'commercial', coffee_key: 'ab faq|', quality: 'AB FAQ' });
+    expect(g.rows).toHaveLength(3);
+    expect(g.rows.map((r) => r.receiver).sort()).toEqual(['Gone Roasters', 'Nestrade', 'Nestrade']);
+    expect(g.rows.find((r) => r.receiver === 'Gone Roasters')).toMatchObject({ live: false, tab: 'bulk', quality: 'PB', coffee_key: 'pb|' });
+    expect(g.rows.find((r) => r.sample_id === nestrade1)).toMatchObject({ live: true, status: 'requested', coffee_key: 'aa faq|', quality: 'AA FAQ' });
+    expect(groups.find((x) => x.ref === 'SL-9001')).toBeUndefined();
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lot_conflicts WHERE ref = 'TYPE-9113'`)).rows[0].n).toBe(3);
+  });
+
+  it('--apply keeps the ref on the oldest coffee, re-issues the others (one new ref per coffee) with an event + QC change alert, then clears the conflicts', async () => {
+    const before = (await pool.query(`SELECT next_val FROM ref_counters WHERE prefix = 'TYPE'`)).rows[0].next_val as number;
+    const report = await applyLotConflicts(pool);
+    expect(report.reissued).toHaveLength(2);
+    expect(report.dropped).toHaveLength(1);
+    expect(report.dropped[0]).toMatchObject({ tab: 'bulk', ref: 'TYPE-9113' });
+    const newRef = `TYPE-${before}`;
+    for (const r of report.reissued) expect(r).toMatchObject({ tab: 'bulk', from: 'TYPE-9113', to: newRef, receiver: 'Nestrade' });
+    expect((await pool.query(`SELECT next_val FROM ref_counters WHERE prefix = 'TYPE'`)).rows[0].next_val).toBe(before + 1);
+
+    // The rows: both AA FAQ sends now share the new ref; the AB FAQ sends keep TYPE-9113.
+    const { rows } = await pool.query(`SELECT client, sample_ref FROM bulk_samples WHERE id = ANY($1::uuid[]) ORDER BY created_at`, [[nestrade1, nestrade2]]);
+    expect(rows.map((r) => r.sample_ref)).toEqual([newRef, newRef]);
+    expect((await liveSends(pool, 'TYPE-9113', { limit: 20 })).map((s) => s.receiver)).toEqual(['Late Roasters', 'Beyers', 'Joh Johanson']);
+    expect((await liveSends(pool, newRef, { limit: 20 })).map((s) => s.id).sort()).toEqual([nestrade1, nestrade2].sort());
+    // The lots: the old one untouched, the new one names AA FAQ.
+    expect(await findLot(pool, 'TYPE-9113')).toMatchObject({ coffee_key: 'ab faq|', quality: 'AB FAQ' });
+    expect(await findLot(pool, newRef)).toMatchObject({ book: 'commercial', coffee_key: 'aa faq|', quality: 'AA FAQ', created_by: LOT_CONFLICTS_ACTOR });
+    // Audit + QC alert per re-issued row.
+    const ev = await pool.query(`SELECT note, actor FROM events WHERE entity_type = 'bulk' AND entity_id = $1 AND type = 'edited'`, [nestrade1]);
+    expect(ev.rows).toHaveLength(1);
+    expect(ev.rows[0].actor).toBe(LOT_CONFLICTS_ACTOR);
+    expect(ev.rows[0].note).toMatch(new RegExp(`TYPE-9113 → ${newRef}`));
+    const ob = await pool.query(`SELECT recipient, actor, payload FROM notifications_outbox WHERE event = 'request_edited' AND sample_id = ANY($1::uuid[]) ORDER BY created_at`, [[nestrade1, nestrade2]]);
+    expect(ob.rows).toHaveLength(2);
+    expect(ob.rows[0]).toMatchObject({ recipient: 'qc', actor: LOT_CONFLICTS_ACTOR });
+    expect(ob.rows[0].payload.changes).toEqual({ sample_ref: { from: 'TYPE-9113', to: newRef } });
+    // Handled conflicts are gone; a re-run is a no-op.
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lot_conflicts WHERE ref = 'TYPE-9113'`)).rows[0].n).toBe(0);
+    const again = await applyLotConflicts(pool);
+    expect(again.reissued).toHaveLength(0);
+    expect(again.dropped).toHaveLength(0);
   });
 });
