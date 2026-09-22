@@ -3,7 +3,7 @@ import request from 'supertest';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
 import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
-import { normalizeRef, normalizeQuality, coffeeKeyFor, resolveLot, findLot, findLotByCoffee, claimRef, liveSends, lotRefFor, optionLetterOfRef, groupOptionLetters, registerLot } from '../src/lib/lots.js';
+import { normalizeRef, normalizeQuality, qualityKey, coffeeKeyFor, resolveLot, findLot, findLotByCoffee, claimRef, liveSends, lotRefFor, optionLetterOfRef, groupOptionLetters, registerLot } from '../src/lib/lots.js';
 import { drawPss } from '../src/lib/contracts.js';
 import { LOT_CONFLICTS_ACTOR, applyLotConflicts, listLotConflicts } from '../src/lib/lot-conflicts.js';
 
@@ -135,6 +135,26 @@ describe('coffeeKeyFor', () => {
     expect(coffeeKeyFor({ book: 'commercial', quality: 'AB FAQ', blend: null })).toBe('ab faq|');
     expect(coffeeKeyFor({ book: 'commercial', quality: 'Blend', blend: 'AB 70%, AA PLUS 30%' })).toBe('blend|aa plus 30% / ab 70%');
   });
+  // Fix wave (review): the softened normaliser reduces "Kenya", "Washed", "Sample" … to '' — those must NOT all
+  // collapse onto the empty key '|' and become one coffee. An all-noise quality keys on its raw text.
+  it('an all-noise quality keys on its raw text (lower-cased, whitespace-collapsed), never on the empty key', () => {
+    expect(normalizeQuality('Kenya')).toBe('');            // the normaliser itself is unchanged …
+    expect(qualityKey('Kenya')).toBe('kenya');             // … the KEY falls back to the raw text
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'Kenya', blend: null })).toBe('kenya|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'Washed', blend: null })).toBe('washed|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'Arabica', blend: null })).toBe('arabica|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'Sample', blend: null })).toBe('sample|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'same coffee as TYPE-903', blend: null })).toBe('same coffee as type-903|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'Kenya Arabica Washed Process Certified', blend: null })).toBe('kenya arabica washed process certified|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'kenya', blend: null })).toBe(coffeeKeyFor({ book: 'commercial', quality: '  Kenya ', blend: null }));
+    expect(coffeeKeyFor({ book: 'commercial', quality: ' Kenya   Washed ', blend: null })).toBe('kenya washed|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'Kenya', blend: null })).not.toBe(coffeeKeyFor({ book: 'commercial', quality: 'Washed', blend: null }));
+    // The specialty description fallback takes the same rule; a genuinely empty quality is still empty.
+    expect(coffeeKeyFor({ book: 'specialty', outturn: null, grade: 'AB', quality: 'Kenya' })).toBe('kenya|AB');
+    expect(coffeeKeyFor({ book: 'specialty', outturn: null, grade: 'AB', quality: '' })).toBe('|AB');
+    expect(coffeeKeyFor({ book: 'commercial', quality: '', blend: null })).toBe('|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: '   ', blend: null })).toBe('|');
+  });
   it('agrees with the SQL coffee_key()/normalize_ref() used by the backfill and the view', async () => {
     const cases: Array<{ book: 'specialty' | 'commercial'; outturn?: string | null; grade?: string | null; quality?: string | null; blend?: string | null }> = [
       { book: 'specialty', outturn: ' 15/5670 ', grade: 'aa', quality: 'Nyeri AA' },
@@ -143,6 +163,18 @@ describe('coffeeKeyFor', () => {
       { book: 'commercial', quality: 'AA PLUS (30%), AB (70%)', blend: 'AB 70%, AA PLUS 30%' },
       { book: 'commercial', quality: 'ARABICA SAMPLE B', blend: null },
       { book: 'commercial', quality: 'Kenya AB samples.', blend: '' },
+      // all-noise qualities: the raw-text fallback must agree byte for byte
+      { book: 'commercial', quality: 'Kenya', blend: null },
+      { book: 'commercial', quality: 'Washed', blend: null },
+      { book: 'commercial', quality: 'Arabica', blend: null },
+      { book: 'commercial', quality: 'Sample', blend: null },
+      { book: 'commercial', quality: 'same coffee as TYPE-903', blend: null },
+      { book: 'commercial', quality: 'Kenya Arabica Washed Process Certified', blend: null },
+      { book: 'commercial', quality: '  Kenya \t Washed ', blend: 'Sample' },
+      { book: 'specialty', outturn: null, grade: 'AB', quality: 'Kenya' },
+      { book: 'specialty', outturn: null, grade: 'AB', quality: '   ' },
+      { book: 'commercial', quality: '', blend: null },
+      { book: 'commercial', quality: null, blend: null },
     ];
     for (const c of cases) {
       const { rows } = await pool.query(`SELECT coffee_key($1, $2, $3, $4, $5) AS k`, [c.book, c.outturn ?? null, c.grade ?? null, c.quality ?? null, c.blend ?? null]);
@@ -211,6 +243,24 @@ describe('resolveLot (pure read)', () => {
   it('no ref + no lot → new, ref null', async () => {
     const r = await resolveLot(pool, { book: 'specialty', outturn: '99/0001', grade: 'PB', quality: 'x' });
     expect(r).toMatchObject({ action: 'new', ref: null, lot: null, sends: [] });
+  });
+
+  it('no ref + an all-noise quality never reuses a lot registered for a different all-noise quality; an empty coffee is never matched', async () => {
+    await pool.query(`INSERT INTO bulk_samples (sample_ref, quality, client, status) VALUES ('TYPE-9301', 'Washed', 'Noise Roasters', 'requested')`);
+    await registerLot(pool, { ref: 'TYPE-9301', book: 'commercial', quality: 'Washed', blend: null });
+    expect(await findLot(pool, 'TYPE-9301')).toMatchObject({ coffee_key: 'washed|' });
+    // "Kenya" is a different (unknown) coffee, not a re-send of the "Washed" lot.
+    expect(await resolveLot(pool, { book: 'commercial', quality: 'Kenya', blend: null })).toMatchObject({ action: 'new', ref: null, lot: null });
+    expect(await resolveLot(pool, { book: 'commercial', quality: 'Arabica', blend: null })).toMatchObject({ action: 'new', ref: null, lot: null });
+    // The same all-noise text IS the same coffee.
+    expect(await resolveLot(pool, { book: 'commercial', quality: ' washed ', blend: null })).toMatchObject({ action: 'reuse', ref: 'TYPE-9301' });
+    // A lot whose quality part is empty (legacy data) is never proposed by coffee, in either book.
+    await pool.query(`INSERT INTO lots (ref, book, coffee_key, quality, created_by) VALUES ('TYPE-9302', 'commercial', '|', '', 'test'), ('SL-9302', 'specialty', '|AA', '', 'test') ON CONFLICT (ref) DO NOTHING`);
+    expect(await findLotByCoffee(pool, 'commercial', '|')).toBeNull();
+    expect(await findLotByCoffee(pool, 'specialty', '|AA')).toBeNull();
+    expect(await resolveLot(pool, { book: 'commercial', quality: '', blend: null })).toMatchObject({ action: 'new', ref: null, lot: null });
+    expect(await resolveLot(pool, { book: 'specialty', outturn: null, grade: 'AA', quality: null })).toMatchObject({ action: 'new', ref: null, lot: null });
+    await pool.query(`DELETE FROM lots WHERE ref IN ('TYPE-9302', 'SL-9302')`);
   });
 
   it('liveSends is newest first, live rows only, capped', async () => {
@@ -494,6 +544,58 @@ describe('PSS lots group by contract (round 10b)', () => {
     const list = await auth(request(app).get('/lots?q=SSKE-95986D'));
     expect(list.body.data[0]).toMatchObject({ ref: 'SSKE-95986', options: ['D'] });
   });
+
+  // Fix wave (review): a TYPED lettered SSKE ref on a row that auto-links to its contract used to keep the typed
+  // ref but take the contract's next free letter as option_letter — a row saying C whose column said B.
+  it('bulk: a typed SSKE-<digits>E on a contract with A–C live IS option E (not the next free D); the same letter again is a 409; foreign digits do not link a letter', async () => {
+    const c = await auth(request(app).post('/contracts')).send({ contract_number: 'SSKE-556101', client_name: 'Zoegas', quality: 'AA FAQ', pss_expected: 3, shipment_date: '2027-03-15', create_pss: true });
+    expect(c.status).toBe(201);
+    expect((await auth(request(app).get('/lots?q=SSKE-556101'))).body.data[0].options).toEqual(['A', 'B', 'C']);
+    // The contract drew A–C; the desk types E by hand (skipping D — the contract's next free letter must NOT win).
+    const typed = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB SCREEN 17', client: 'Zoegas', sample_type: 'pss', contract_number: 'SSKE-556101', sample_ref: 'sske-556101 e' });
+    expect(typed.status).toBe(201);
+    expect(typed.body).toMatchObject({ sample_ref: 'SSKE-556101 E', option_letter: 'E', contract_id: c.body.id, reused_ref: true, lot_sends: 4 });
+    expect((await auth(request(app).get('/lots?q=SSKE-556101'))).body.data[0]).toMatchObject({ ref: 'SSKE-556101', options: ['A', 'B', 'C', 'E'], contract_client: 'Zoegas' });
+    // The same letter again, by hand: the 021 partial unique index refuses it and nothing is written.
+    const dup = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB SCREEN 17', client: 'Zoegas', sample_type: 'pss', contract_number: 'SSKE-556101', sample_ref: 'SSKE-556101E' });
+    expect(dup.status).toBe(409);
+    expect(dup.body.constraint).toBe('bulk_samples_contract_option_idx');
+    expect((await pool.query(`SELECT count(*)::int AS n FROM bulk_samples WHERE lot_ref(sample_ref) = 'SSKE-556101' AND deleted_at IS NULL`)).rows[0].n).toBe(4);
+    // A typed ref whose digits are another contract's: the row still links, but takes no option letter.
+    const foreign = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB SCREEN 17', client: 'Zoegas', sample_type: 'pss', contract_number: 'SSKE-556101', sample_ref: 'SSKE-999101B' });
+    expect(foreign.status).toBe(201);
+    expect(foreign.body).toMatchObject({ sample_ref: 'SSKE-999101B', option_letter: null, contract_id: c.body.id });
+    expect((await auth(request(app).get('/lots?q=SSKE-556101'))).body.data[0].options).toEqual(['A', 'B', 'C', 'E']);
+    // A typed ref with no letter (the bare contract base) keeps today's behaviour: the contract's next free letter.
+    const bare = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB SCREEN 17', client: 'Zoegas', sample_type: 'pss', contract_number: 'SSKE-556101', sample_ref: 'SSKE-556101' });
+    expect(bare.status).toBe(201);
+    expect(bare.body).toMatchObject({ sample_ref: 'SSKE-556101', option_letter: 'F', contract_id: c.body.id, reused_ref: true });
+    expect((await auth(request(app).get('/lots?q=SSKE-556101'))).body.data[0].options).toEqual(['A', 'B', 'C', 'E', 'F']);
+  });
+
+  it('specialty: a typed SSKE-<digits>D on a contract with A, B live IS option D (not the next free C); the same letter again is a 409', async () => {
+    const c = await auth(request(app).post('/contracts')).send({ contract_number: 'SSKE-556102', client_name: 'Zoegas', quality: 'Nyeri AA', pss_expected: 3, shipment_date: '2027-03-15' });
+    expect(c.status).toBe(201);
+    const send = (body: Record<string, unknown>) => auth(request(app).post('/specialty-samples'))
+      .send({ description: 'Nyeri AA', receiver_company: 'Zoegas', sample_type_norm: 'pss', contract_number: 'SSKE-556102', ...body });
+    const a = await send({});
+    const b = await send({});
+    expect([a.body, b.body].map((r) => [r.ref, r.option_letter])).toEqual([['SSKE-556102A', 'A'], ['SSKE-556102B', 'B']]);
+    const typed = await send({ ref: 'SSKE-556102D' });
+    expect(typed.status).toBe(201);
+    expect(typed.body).toMatchObject({ ref: 'SSKE-556102D', option_letter: 'D', contract_id: c.body.id, reused_ref: true, lot_sends: 3 });
+    expect((await auth(request(app).get('/lots?q=SSKE-556102'))).body.data[0]).toMatchObject({ ref: 'SSKE-556102', options: ['A', 'B', 'D'], contract_client: 'Zoegas' });
+    const dup = await send({ ref: 'sske-556102 d' });
+    expect(dup.status).toBe(409);
+    expect(dup.body.constraint).toBe('specialty_samples_contract_option_idx');
+    expect((await pool.query(`SELECT count(*)::int AS n FROM specialty_samples WHERE lot_ref(ref) = 'SSKE-556102' AND deleted_at IS NULL`)).rows[0].n).toBe(3);
+    const foreign = await send({ ref: 'SSKE-999102E' });
+    expect(foreign.body).toMatchObject({ ref: 'SSKE-999102E', option_letter: null, contract_id: c.body.id });
+  });
 });
 
 describe('migration 024: PSS lots re-keyed by contract, keys softened, conflicts rebuilt', () => {
@@ -515,6 +617,18 @@ describe('migration 024: PSS lots re-keyed by contract, keys softened, conflicts
     // A pre-softening key on a plain lot gets recomputed too.
     await pool.query(`INSERT INTO bulk_samples (sample_ref, quality, client, sample_type_norm, status) VALUES ('TYPE-9864', 'AB-FAQ', 'JDE', 'type', 'dispatched')`);
     await pool.query(`INSERT INTO lots (ref, book, coffee_key, quality, created_by) VALUES ('TYPE-9864', 'commercial', 'ab-faq|', 'AB-FAQ', 'migration:023') ON CONFLICT (ref) DO NOTHING`);
+    // All-noise qualities (023 keyed them on the word; the softened normaliser drops it): they must NOT be
+    // recomputed onto one shared empty key '|', and a row whose text differs from its lot's is a conflict.
+    await pool.query(
+      `INSERT INTO bulk_samples (sample_ref, quality, client, sample_type_norm, status, created_at) VALUES
+         ('TYPE-9865', 'Kenya',  'Noise Roasters', 'type', 'dispatched', now() - interval '2 days'),
+         ('TYPE-9865', 'Washed', 'Noise Roasters', 'type', 'dispatched', now() - interval '1 day'),
+         ('TYPE-9866', 'Washed', 'Noise Roasters', 'type', 'dispatched', now() - interval '1 day')`);
+    await pool.query(
+      `INSERT INTO lots (ref, book, coffee_key, quality, created_by) VALUES
+         ('TYPE-9865', 'commercial', 'kenya|',  'Kenya',  'migration:023'),
+         ('TYPE-9866', 'commercial', 'washed|', 'Washed', 'migration:023')
+       ON CONFLICT (ref) DO NOTHING`);
 
     const files = await reapplyMigrationsFrom('023');
     expect(files.slice(0, 2)).toEqual(['023_lots_and_orders.sql', '024_pss_lots_by_contract.sql']);
@@ -523,6 +637,12 @@ describe('migration 024: PSS lots re-keyed by contract, keys softened, conflicts
     expect(lots).toHaveLength(1);
     expect(lots[0]).toMatchObject({ ref: 'SSKE-101798', book: 'commercial', quality: 'Grinders', coffee_key: 'grinder|' });
     expect(await findLot(pool, 'TYPE-9864')).toMatchObject({ coffee_key: 'ab faq|' });
+    expect(await findLot(pool, 'TYPE-9865')).toMatchObject({ coffee_key: 'kenya|' });
+    expect(await findLot(pool, 'TYPE-9866')).toMatchObject({ coffee_key: 'washed|' });
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lots WHERE coffee_key LIKE '|%'`)).rows[0].n).toBe(0);
+    // The "Washed" row on the "Kenya" lot is flagged; the "Washed" row on its own lot is not.
+    expect((await pool.query(`SELECT quality FROM lot_conflicts WHERE ref = 'TYPE-9865'`)).rows.map((r) => r.quality)).toEqual(['Washed']);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lot_conflicts WHERE ref = 'TYPE-9866'`)).rows[0].n).toBe(0);
     const sends = await liveSends(pool, 'SSKE-101798B', { limit: 20 });
     expect(sends).toHaveLength(4);
     expect(sends.map((s) => s.option_letter).sort()).toEqual(['A', 'B', 'C', 'C']);
@@ -540,6 +660,10 @@ describe('migration 024: PSS lots re-keyed by contract, keys softened, conflicts
     await reapplyMigrationsFrom('023');
     expect((await pool.query(`SELECT ref, coffee_key FROM lots ORDER BY ref`)).rows).toEqual(before.rows);
     expect((await pool.query(`SELECT ref, sample_id FROM lot_conflicts ORDER BY ref, sample_id`)).rows).toEqual(conflictsBefore.rows);
+    // Tidy the all-noise fixture: the A5 apply below re-issues every conflict on file and pins its count.
+    await pool.query(`UPDATE bulk_samples SET deleted_at = now() WHERE sample_ref IN ('TYPE-9865', 'TYPE-9866')`);
+    await pool.query(`DELETE FROM lot_conflicts WHERE ref IN ('TYPE-9865', 'TYPE-9866')`);
+    await pool.query(`DELETE FROM lots WHERE ref IN ('TYPE-9865', 'TYPE-9866')`);
   });
 });
 

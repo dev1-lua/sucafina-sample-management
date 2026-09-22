@@ -12,8 +12,8 @@
 -- api/src/lib/lots.ts; test/lots.test.ts pins the parity), then every lot's coffee_key is recomputed and
 -- lot_conflicts — derived data — is rebuilt from scratch with the new keys and lot_ref() joins.
 --
--- Idempotent — deploy-api.sh re-applies 023 then this file on every deploy. 023 recreates normalize_quality
--- and all_samples_v in their OLD shape; this file must always run after it and bring both forward.
+-- Idempotent — deploy-api.sh re-applies 023 then this file on every deploy. 023 recreates normalize_quality,
+-- coffee_key and all_samples_v in their OLD shape; this file must always run after it and bring all three forward.
 
 -- ---- 1. lot key -----------------------------------------------------------------------------------------
 
@@ -56,6 +56,28 @@ LANGUAGE sql IMMUTABLE AS $$
         FROM regexp_split_to_table(COALESCE(s, ''), '[,/]') AS part
     ) parts
    WHERE p <> ''
+$$;
+
+-- An all-noise quality ("Kenya", "Washed", "Arabica", "Sample", "same coffee as TYPE-903") normalises to '' —
+-- that must not make every such row ONE coffee on the empty key '|' (resolve would reuse whichever lot first
+-- took it, lot_conflicts would flag them as one coffee, step 4 below would recompute legacy lots onto it).
+-- The KEY of such a quality is its raw text, lower-cased and whitespace-collapsed; a genuinely empty quality
+-- stays ''. == qualityKey in api/src/lib/lots.ts. Blends keep the plain normaliser.
+CREATE OR REPLACE FUNCTION quality_key(s text) RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT COALESCE(NULLIF(normalize_quality(s), ''), btrim(regexp_replace(lower(COALESCE(s, '')), '\s+', ' ', 'g')))
+$$;
+
+-- coffee_key (023) brought forward: the quality part goes through quality_key(). == coffeeKeyFor in lots.ts.
+CREATE OR REPLACE FUNCTION coffee_key(book text, outturn text, grade text, quality text, blend text) RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE
+    WHEN book = 'specialty' THEN
+      CASE WHEN COALESCE(btrim(outturn), '') <> ''
+           THEN upper(btrim(outturn)) || '|' || upper(COALESCE(btrim(grade), ''))
+           ELSE quality_key(quality) || '|' || upper(COALESCE(btrim(grade), '')) END
+    ELSE quality_key(quality) || '|' || normalize_quality(blend)
+  END
 $$;
 
 -- Lot identity is lot_ref(ref): index it like 023 indexed normalize_ref(ref) — every lot_sends count and

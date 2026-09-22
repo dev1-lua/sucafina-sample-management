@@ -10,7 +10,7 @@ import { createdPayload, enqueueOutbox, enqueueStatusEvents } from '../lib/notif
 import { parseId, assertIn } from '../lib/validate.js';
 import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
-import { maybeDrawReplacement, recomputeContractStatus, resolveContractLink } from '../lib/contracts.js';
+import { maybeDrawReplacement, recomputeContractStatus, resolveContractLink, typedOptionLetter } from '../lib/contracts.js';
 import { attachLot, consignmentNumberColumn, countLotSends, lotSendsColumn, normalizeRef, resolveLot, type Coffee } from '../lib/lots.js';
 import { assertConsignment, consignmentWhere } from '../lib/consignments.js';
 
@@ -210,6 +210,9 @@ bulkSamples.post('/', h(async (req, res) => {
   // Auto-link (migration 020/021): a PSS logged with just its contract number finds the contract, the
   // first option slot still free, its option letter and its contract-derived ref (SSKE-<digits><letter>),
   // so nobody has to know contract ids. Non-PSS rows are left alone and take the counter ref.
+  // A TYPED lettered SSKE ref decides the option letter (typedOptionLetter): the row must never say C in its
+  // ref and B in its column.
+  const typedRef = normalizeRef(body.sample_ref) || null;
   let contractId = body.contract_id ?? null;
   let containerNo = body.container_no ?? null;
   let optionLetter: string | null = null;
@@ -220,7 +223,7 @@ bulkSamples.post('/', h(async (req, res) => {
     });
     contractId = link.contract_id;
     containerNo = link.container_no;
-    optionLetter = link.option_letter;
+    optionLetter = typedRef && contractId ? typedOptionLetter(typedRef, link) : link.option_letter;
     linkedRef = link.ref;
   }
   // Round 10: the ref names the COFFEE (quality + blend). A typed ref is normalised and checked against its
@@ -228,7 +231,6 @@ bulkSamples.post('/', h(async (req, res) => {
   // TYPE-113 bug). No typed ref → the counter mints one (even when this coffee already has a ref — the
   // agent's confirm step decides whether to reuse; see POST /lots/resolve).
   const coffee: Coffee = { book: 'commercial', quality: body.quality, blend: body.blend ?? null };
-  const typedRef = normalizeRef(body.sample_ref) || null;
   if (typedRef) {
     const r = await resolveLot(pool, { ...coffee, ref: typedRef });
     if (r.action === 'conflict') return res.status(409).json({ error: 'ref_conflict', ref: typedRef, lot: r.lot, sends: r.sends });

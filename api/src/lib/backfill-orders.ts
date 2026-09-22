@@ -142,11 +142,56 @@ export async function findOrderGroups(db: Q, o: { since?: string | null } = {}):
   return { groups, placeholders };
 }
 
+const TABLE: Record<Book, string> = { specialty: 'specialty_samples', bulk: 'bulk_samples' };
+
+/** Lock the group's rows and keep the ones still live and unattached — a row that got an order (or was deleted) since the read is skipped. */
+async function lockFreeRows(client: Q, rows: GroupRow[]): Promise<GroupRow[]> {
+  const free = new Set<string>();
+  for (const tab of [...new Set(rows.map((r) => r.tab))]) {
+    const { rows: locked } = await client.query(
+      `SELECT id FROM ${TABLE[tab]} WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND consignment_id IS NULL FOR UPDATE`,
+      [rows.filter((r) => r.tab === tab).map((r) => r.id)],
+    );
+    for (const r of locked) free.add(String(r.id));
+  }
+  return rows.filter((r) => free.has(r.id));
+}
+
 /**
- * Dry run: the groups, nothing written. Apply: ONE transaction creating, per group, a consignment (status
- * and location as POST /consignments defaults them — open, none; created_at = the earliest send's date so
- * the Orders list dates and sorts it by the real send), its `created` event and the members' attachment
- * (attachSamples stamps the order on any still-pending created pings too).
+ * Write the candidate groups on the caller's transaction: per group, a consignment (status and location as
+ * POST /consignments defaults them — open, none; created_at = the earliest send's date so the Orders list
+ * dates and sorts it by the real send), its `created` event and the members' attachment (attachSamples
+ * stamps the order on any still-pending created pings too). Every row is re-checked and locked first: one
+ * attached or deleted since the read is left out, and a group that shrinks to one row makes no order and
+ * burns no CN number. Returns what was actually written.
+ */
+export async function applyOrderGroups(client: Q, candidates: Candidates, actor: string): Promise<Candidates> {
+  const groups: OrderGroup[] = [];
+  for (const g of candidates.groups) {
+    const rows = await lockFreeRows(client, g.rows);
+    if (rows.length < 2) continue;
+    const number = await issueConsignmentNumber(client);
+    const { rows: [row] } = await client.query(
+      `INSERT INTO consignments (number, location, status, notes, client_id, requested_by, logged_by, created_at, updated_at)
+       VALUES ($1, NULL, 'open', $2, $3::uuid, $4, $5, COALESCE($6::date, now()), now()) RETURNING id`,
+      [number, `backfilled from AWB ${g.awb}`, g.client_id, g.requested_by, g.logged_by, g.date_from],
+    );
+    const id = String(row.id);
+    await client.query(
+      `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('consignment', $1, 'created', $2, $3)`,
+      [id, `consignment ${number}`, actor],
+    );
+    const byTab = new Map<Book, string[]>();
+    for (const r of rows) byTab.set(r.tab, [...(byTab.get(r.tab) ?? []), r.id]);
+    for (const [tab, ids] of byTab) await attachSamples(client, { id, number }, tab, ids, actor);
+    groups.push({ ...g, rows, number });
+  }
+  return { groups, placeholders: candidates.placeholders };
+}
+
+/**
+ * Dry run: the groups, nothing written. Apply: ONE transaction — the read, then applyOrderGroups on the
+ * same connection; the report lists what was written.
  */
 export async function backfillOrders(db: Pool = pool, o: BackfillOptions): Promise<BackfillReport> {
   const actor = o.actor ?? BACKFILL_ORDERS_ACTOR;
@@ -161,27 +206,10 @@ export async function backfillOrders(db: Pool = pool, o: BackfillOptions): Promi
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    const candidates = await findOrderGroups(client, { since });
-    for (const g of candidates.groups) {
-      const number = await issueConsignmentNumber(client);
-      const { rows: [row] } = await client.query(
-        `INSERT INTO consignments (number, location, status, notes, client_id, requested_by, logged_by, created_at, updated_at)
-         VALUES ($1, NULL, 'open', $2, $3::uuid, $4, $5, COALESCE($6::date, now()), now()) RETURNING id`,
-        [number, `backfilled from AWB ${g.awb}`, g.client_id, g.requested_by, g.logged_by, g.date_from],
-      );
-      const id = String(row.id);
-      await client.query(
-        `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('consignment', $1, 'created', $2, $3)`,
-        [id, `consignment ${number}`, actor],
-      );
-      const byTab = new Map<Book, string[]>();
-      for (const r of g.rows) byTab.set(r.tab, [...(byTab.get(r.tab) ?? []), r.id]);
-      for (const [tab, ids] of byTab) await attachSamples(client, { id, number }, tab, ids, actor);
-      g.number = number;
-    }
+    const applied = await applyOrderGroups(client, await findOrderGroups(client, { since }), actor);
     await client.query('COMMIT');
     client.release();
-    return summarise(candidates, true);
+    return summarise(applied, true);
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     client.release(e as Error);

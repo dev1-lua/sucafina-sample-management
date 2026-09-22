@@ -3,7 +3,7 @@ import { pool } from '../db.js';
 import { HttpError } from '../errors.js';
 import { issueRef } from './refs.js';
 import { enqueueOutbox } from './notify-outbox.js';
-import { registerLot } from './lots.js';
+import { lotRefFor, optionLetterOfRef, registerLot } from './lots.js';
 
 // Contracts + pre-shipment samples (migration 020, reshaped by 021 — Harriet, round 6 + her answers of
 // 2026-09-10). A contract owes N lettered PSS OPTIONS (A, B, C… — "CK wants 2 options of 500 g", "JDE a
@@ -197,6 +197,22 @@ export async function resolveContractLink(
     option_letter: letter,
     ref: pssRefFor(String(rows[0].contract_number), letter),
   };
+}
+
+/**
+ * The option letter a row takes when the desk TYPED a ref and the row auto-linked to its contract. A typed
+ * SSKE option letter IS the row's option letter (SSKE-104929C → C — the 021 unique index then refuses a
+ * duplicate letter as designed); a lettered ref whose digits are another contract's links the row but takes no
+ * letter at all (the ref says one contract, the number another — nothing is guessed). A typed ref with no
+ * letter (TYPE-5, a bare SSKE-104929) keeps the contract's next free letter.
+ */
+export function typedOptionLetter(
+  typedRef: string,
+  link: { option_letter: string | null; ref: string | null },
+): string | null {
+  const letter = optionLetterOfRef(typedRef);
+  if (!letter) return link.option_letter;
+  return link.ref !== null && lotRefFor(link.ref) === lotRefFor(typedRef) ? letter : null;
 }
 
 /** Every live PSS row on a contract, from both books, oldest first within a slot. */
