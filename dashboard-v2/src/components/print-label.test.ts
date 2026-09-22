@@ -52,7 +52,19 @@ describe('sampleLabelData', () => {
       { label: 'Grower', value: 'CHERIWET' },
       { label: 'Screen', value: 'AB' },
       { label: 'Crop', value: '2025/2026' },
+      { label: 'Deliver to', value: 'TORCH' },
     ]);
+  });
+
+  // Round 10: the same ref goes out to several receivers, so the slip names who this bag is for —
+  // last line, right above the barcode. A row with no receiver prints no line.
+  it('names the receiver as the last line so two bags with the same ref are distinguishable', () => {
+    const lines = (row: Record<string, unknown>) => sampleLabelData({ ref: 'SL-7336', outturn: '08KN0021', ...row }, NOW).lines;
+    expect(lines({ receiver_company: 'Sucafina NV' }).at(-1)).toEqual({ label: 'Deliver to', value: 'Sucafina NV' });
+    expect(lines({ receiver_company: 'Sucafina NV', sample_type_norm: 'pss', contract_number: 'P-1', option_letter: 'A' }).map((l) => l.label))
+      .toEqual(['Outturn', 'Crop', 'Contract', 'Option', 'Deliver to']);
+    expect(lines({}).map((l) => l.label)).not.toContain('Deliver to');
+    expect(sampleLabelData({ sample_ref: 'TYPE-113', quality: 'AB FAQ', client: 'Paulig' }, NOW).lines.at(-1)).toEqual({ label: 'Deliver to', value: 'Paulig' });
   });
 
   it('the grower is the wet mill before the "/" of the name, without a leading grade', () => {
@@ -102,7 +114,7 @@ describe('sampleLabelData', () => {
     ]);
   });
 
-  it('a commercial sample leads with its ref: Ref, Quality, Client, Crop', () => {
+  it('a commercial sample leads with its ref: Ref, Quality, Crop, then who it goes to', () => {
     const label = sampleLabelData({
       id: 'u-2', sample_ref: 'TYPE-8121', quality: 'AB FAQ', client: 'Paulig', crop_year: '2025/2026',
       consignment_number: 'CN-1001', consignment_location: 'thika',
@@ -112,8 +124,8 @@ describe('sampleLabelData', () => {
     expect(label.lines).toEqual([
       { label: 'Ref', value: 'TYPE-8121' },
       { label: 'Quality', value: 'AB FAQ' },
-      { label: 'Client', value: 'Paulig' },
       { label: 'Crop', value: '2025/2026' },
+      { label: 'Deliver to', value: 'Paulig' },
     ]);
   });
 
@@ -129,8 +141,8 @@ describe('sampleLabelData', () => {
       { label: 'Option', value: 'C' },
       { label: 'Quality', value: 'AB FAQ' },
       { label: 'Shipment', value: 'Nov' },
-      { label: 'Client', value: 'Paulig' },
       { label: 'Crop', value: '2025/2026' },
+      { label: 'Deliver to', value: 'Paulig' },
     ]);
     expect(sampleLabelData({ sample_ref: 'SSKE-9001', sample_type_norm: 'pss', contract_number: 'P-1', container_no: 3 }).lines)
       .toContainEqual({ label: 'Option', value: '3' });

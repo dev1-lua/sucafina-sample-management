@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 
 import { RecordTable } from './RecordTable';
@@ -61,4 +62,77 @@ it('a pinned column renders sticky-right header and body cells with an opaque ba
   expect(bodyCell.className).toContain('bg-background');
   // Unpinned neighbors stay static.
   expect(screen.getByText('R1').closest('td')!.className).not.toContain('sticky');
+});
+
+// Round 10: parent → child rows (Coffees view). The children are supplied by the caller
+// (loaded on expand) and rendered as full-width 32px rows, so the fixed-height virtualizer
+// stays honest; the chevron is a real button (Enter/Space toggle) that keeps focus.
+describe('expandable rows', () => {
+  const CHILDREN: Record<string, Record<string, unknown>[]> = {
+    'SL-1': [{ id: 's1', receiver: 'Sucafina NV' }, { id: 's2', receiver: 'Paulig' }],
+  };
+  function Harness({ onSubRowClick = () => {} }: { onSubRowClick?: (sub: Record<string, unknown>) => void }) {
+    const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+    return (
+      <RecordTable
+        endpoint="/lots"
+        columns={cols}
+        filters={{}}
+        onRowClick={(row) => setExpanded((e) => ({ ...e, [String(row.id)]: !e[String(row.id)] }))}
+        expandable={{
+          expanded,
+          onExpandedChange: setExpanded,
+          getSubRows: (row) => (expanded[String(row.id)] ? CHILDREN[String(row.id)] ?? [] : []),
+          renderSubRow: (sub) => <span>→ {String(sub.receiver)}</span>,
+          onSubRowClick,
+          expandLabel: (row) => `Expand ${String(row.ref)}`,
+        }}
+        countLabel={(n) => `${n} coffees`}
+      />
+    );
+  }
+
+  it('renders a chevron per parent; toggling shows the children and collapses them again', async () => {
+    stubFetch([{ id: 'SL-1', ref: 'SL-1', name: 'AA' }, { id: 'SL-2', ref: 'SL-2', name: 'AB' }]);
+    render(wrap(<Harness />));
+    await waitFor(() => screen.getByText('SL-1'));
+    const chevron = screen.getByRole('button', { name: 'Expand SL-1' });
+    expect(chevron).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('→ Sucafina NV')).not.toBeInTheDocument();
+    fireEvent.click(chevron);
+    expect(chevron).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('→ Sucafina NV')).toBeInTheDocument();
+    expect(screen.getByText('→ Paulig')).toBeInTheDocument();
+    // Children sit between their parent and the next parent.
+    const texts = screen.getAllByRole('row').map((r) => r.textContent);
+    expect(texts.findIndex((t) => t?.includes('→ Paulig'))).toBeLessThan(texts.findIndex((t) => t?.includes('SL-2')));
+    fireEvent.click(chevron);
+    expect(screen.queryByText('→ Sucafina NV')).not.toBeInTheDocument();
+    expect(screen.getByText('2 coffees')).toBeInTheDocument();
+  });
+
+  it('Enter / Space on the focused chevron toggles and keeps focus on it', async () => {
+    stubFetch([{ id: 'SL-1', ref: 'SL-1', name: 'AA' }]);
+    const user = userEvent.setup();
+    render(wrap(<Harness />));
+    await waitFor(() => screen.getByText('SL-1'));
+    const chevron = screen.getByRole('button', { name: 'Expand SL-1' });
+    chevron.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByText('→ Sucafina NV')).toBeInTheDocument();
+    expect(document.activeElement).toBe(chevron);
+    await user.keyboard(' ');
+    expect(screen.queryByText('→ Sucafina NV')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(chevron);
+  });
+
+  it('a child row click reports the child, not the parent row', async () => {
+    stubFetch([{ id: 'SL-1', ref: 'SL-1', name: 'AA' }]);
+    const onSub = vi.fn();
+    render(wrap(<Harness onSubRowClick={onSub} />));
+    await waitFor(() => screen.getByText('SL-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand SL-1' }));
+    fireEvent.click(screen.getByText('→ Paulig'));
+    expect(onSub).toHaveBeenCalledWith(expect.objectContaining({ id: 's2' }), expect.objectContaining({ id: 'SL-1' }));
+  });
 });

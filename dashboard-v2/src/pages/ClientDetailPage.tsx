@@ -14,7 +14,7 @@ import { ClientFormDialog } from '@/components/ClientFormDialog';
 import { ClientDeleteDialog } from '@/components/client-delete-dialog';
 import { ClientMergeDialog } from '@/components/ClientMergeDialog';
 import { ClientOwnerChip } from '@/components/client-owner-chip';
-import { ClientOrdersTable } from '@/components/client-orders-table';
+import { ClientConsignmentsTable, ClientOrdersTable } from '@/components/client-orders-table';
 import { ClientSpecsCard } from '@/components/ClientSpecsCard';
 import { ApprovedSamplesCard } from '@/components/ApprovedSamplesCard';
 import type { ClientContact, ClientDetail, ClientDetailRequest } from '@/components/client-types';
@@ -216,11 +216,19 @@ export default function ClientDetailPage() {
           )}
         </section>
 
-        {/* Cross-table orders (specialty/bulk/forwarding) */}
-        <section className="rounded-lg border border-border bg-card p-4 lg:col-span-2">
-          <h2 className="text-sm font-medium text-foreground">Orders</h2>
-          <div className="mt-3">
-            <ClientOrdersTable orders={data.orders} />
+        {/* Round 10: the client's orders (consignments) above its per-sample history (all three books). */}
+        <section className="flex flex-col gap-4 lg:col-span-2">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <h2 className="text-sm font-medium text-foreground">Orders</h2>
+            <div className="mt-3">
+              <ClientConsignmentsTable clientId={data.id} />
+            </div>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <h2 className="text-sm font-medium text-foreground">Samples</h2>
+            <div className="mt-3">
+              <ClientOrdersTable orders={data.orders} />
+            </div>
           </div>
         </section>
       </div>

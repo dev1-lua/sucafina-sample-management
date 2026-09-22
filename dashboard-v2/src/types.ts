@@ -43,6 +43,10 @@ export type SortState = { sort: string; order: 'asc' | 'desc' } | null;
 
 export type FilterState = Record<string, string | string[]>;
 
+// Round 10: how a sample book is looked at. Sends = one row per parcel (the flat table),
+// Coffees = one row per ref with its sends nested, Orders = the consignments of the book.
+export type ListView = 'sends' | 'coffees' | 'orders';
+
 export type FilterDef =
   | { key: string; label: string; type: 'enum'; options: string[]; multi?: boolean; searchable?: boolean }
   | { key: string; label: string; type: 'text' }

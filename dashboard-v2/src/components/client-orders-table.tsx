@@ -1,10 +1,59 @@
 import * as React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { cn } from '@/lib/cn';
+import { useRecords } from '@/lib/query';
 import { StatusBadge } from '@/components/StatusBadge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { ClientOrder, ClientOrderTab } from './client-types';
+
+const HEAD = 'text-xs uppercase tracking-wide text-muted-foreground';
+
+/** Round 10: the client's ORDERS (consignments — one request of several coffees) from
+ * GET /consignments?client_id=, shown above the per-sample history below. Newest first as
+ * the API returns them; each number opens the order page. */
+export function ClientConsignmentsTable({ clientId }: { clientId: string }) {
+  const query = useRecords('/consignments', { sort: null, filters: { client_id: clientId }, page: 1, pageSize: 50 });
+  const rows = query.data?.data ?? [];
+
+  if (query.isLoading) return <Skeleton className="h-16 w-full" />;
+  if (query.isError) return <p className="py-6 text-center text-sm text-muted-foreground">Couldn’t load this client’s orders.</p>;
+  if (rows.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">No orders for this client yet.</p>;
+
+  return (
+    <div className="max-h-[20rem] overflow-auto rounded-[4px] border border-border">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-0 z-10 bg-background">
+          <TableRow className="hover:bg-transparent">
+            <TableHead className={HEAD}>Order</TableHead>
+            <TableHead className={HEAD}>Date</TableHead>
+            <TableHead className={HEAD}>Samples</TableHead>
+            <TableHead className={HEAD}>Status</TableHead>
+            <TableHead className={HEAD}>Requested by</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((o) => (
+            <TableRow key={String(o.id)}>
+              <TableCell className="font-medium">
+                <Link to={`/consignments/${String(o.id)}`} className="rounded-[2px] text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {String(o.number ?? '')}
+                </Link>
+              </TableCell>
+              <TableCell className="tabular-nums">{typeof o.created_at === 'string' ? o.created_at.slice(0, 10) : '—'}</TableCell>
+              <TableCell className="tabular-nums">{typeof o.member_count === 'number' ? o.member_count : '—'}</TableCell>
+              <TableCell>
+                <StatusBadge kind="order_status" value={typeof o.derived_status === 'string' ? o.derived_status : null} />
+              </TableCell>
+              <TableCell>{displayValue(typeof o.requested_by === 'string' ? o.requested_by : null)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </table>
+    </div>
+  );
+}
 
 const TAB_LABEL: Record<ClientOrderTab, string> = {
   specialty: 'Specialty',
@@ -41,8 +90,9 @@ function displayValue(value: string | null): React.ReactNode {
 
 type SortDir = 'asc' | 'desc';
 
-/** Cross-table (specialty/bulk/forwarding) order history for a client, client-side sortable
- * by order date. The server already returns rows date-sorted desc, so the initial render
+/** Cross-table (specialty/bulk/forwarding) SAMPLE history for a client (one row per send;
+ * the "Samples" card on the client page — orders/consignments live in ClientConsignmentsTable
+ * above it), client-side sortable by order date. The server already returns rows date-sorted desc, so the initial render
  * needs no re-sort — clicking the header just flips direction. */
 export function ClientOrdersTable({ orders }: { orders: ClientOrder[] }) {
   const navigate = useNavigate();
@@ -59,7 +109,7 @@ export function ClientOrdersTable({ orders }: { orders: ClientOrder[] }) {
   }, [orders, sortDir]);
 
   if (orders.length === 0) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">No orders placed by this client yet.</p>;
+    return <p className="py-6 text-center text-sm text-muted-foreground">No samples sent to this client yet.</p>;
   }
 
   function toggleSort() {
