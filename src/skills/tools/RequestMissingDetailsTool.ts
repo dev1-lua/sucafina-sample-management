@@ -112,9 +112,8 @@ export default class RequestMissingDetailsTool implements LuaTool {
       participant = conv?.isGroup ? matchParticipant(input.to_name, conv.participants) : null;
       const chatEmail = participant?.channelIdentity?.email?.trim().toLowerCase() || null;
       if (participant && chatEmail && isInternalEmail(chatEmail)) {
-        const { person, matchedBy } = await resolveOrCreatePerson({ name: participant.displayName, email: chatEmail });
+        const { person } = await resolveOrCreatePerson({ name: participant.displayName, email: chatEmail });
         to = asPerson(person);
-        if (to) to = { ...to, name: matchedBy === 'created' ? participant.displayName : to.name };
       }
       if (!to) {
         // 2b. The roster, by the chat display name when there was one, else by the name as given.

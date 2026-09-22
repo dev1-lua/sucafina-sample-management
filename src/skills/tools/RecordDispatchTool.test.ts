@@ -37,6 +37,18 @@ describe('record_dispatch — items by ref, or a whole order by CN', () => {
     expect(r.url).toContain('/consignments/cn-uuid');
   });
 
+  it('consignment + extra items: the order count and the per-row list keep separate keys', async () => {
+    api.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith('/consignments?q=CN-1012')) return { data: [{ id: 'cn-uuid', number: 'CN-1012' }] };
+      if (path === '/consignments/cn-uuid/dispatch') return { updated: 2 };
+      if (path === '/forwarding-samples/f1' && init?.method === 'PATCH') return { id: 'f1', sample_ref: 'SSUG-1', status: 'dispatched', client_id: null };
+      throw new Error(`unexpected ${path}`);
+    });
+    const r: any = await new RecordDispatchTool().execute({ consignment: 'CN-1012', items: [{ tab: 'forwarding', id: 'f1' }], courier: 'dhl', awb: '1' });
+    expect(r).toMatchObject({ consignment: 'CN-1012', consignment_updated: 2 });
+    expect(r.updated).toEqual([expect.objectContaining({ id: 'f1', status: 'dispatched' })]);
+  });
+
   it('an unknown consignment is reported, nothing is written', async () => {
     api.mockResolvedValueOnce({ data: [] });
     const r = await new RecordDispatchTool().execute({ consignment: 'CN-9999', courier: 'dhl' });

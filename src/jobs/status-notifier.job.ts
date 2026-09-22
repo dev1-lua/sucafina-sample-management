@@ -265,8 +265,12 @@ export function qcMessage(i: OutboxItem, opts: { now?: Date } = {}): { text: str
   };
 }
 
-/** The order a `created` row belongs to: its consignment, else the request (logger + client). Null = never grouped. */
+/**
+ * The order a `created` row belongs to: its consignment, else the request (logger + client). Null = never
+ * grouped — a replacement PSS is a follow-up on its own, never a line in an order.
+ */
 function orderKey(i: OutboxItem): string | null {
+  if (i.payload?.replacement_of) return null;
   const cn = i.payload?.consignment_id ?? i.consignment_id ?? i.payload?.consignment_number ?? i.consignment_number;
   if (cn) return `cn:${cn}`;
   const client = i.client_id ?? i.client_name;
@@ -291,6 +295,8 @@ export function groupCreated(items: OutboxItem[]): OutboxItem[][] {
   }
   return groups;
 }
+
+const BOOK_PATH = { specialty: true, bulk: true, forwarding: true } as const;
 
 /**
  * The grouped "new order" ping — one message for the 3 samples of CN-1012 instead of three. Subject
@@ -322,8 +328,6 @@ export function qcOrderMessage(items: OutboxItem[], opts: { now?: Date } = {}): 
     subject: `New sample request (${n})${anyUrgent ? ' (URGENT)' : ''}: ${cn ? `${cn} · ` : ''}${client}${gap ? ' — address pending' : ''}`,
   };
 }
-
-const BOOK_PATH = { specialty: true, bulk: true, forwarding: true } as const;
 
 async function mark(id: string, via: 'teams' | 'email' | 'skipped', detail: string | null) {
   await apiFetch('/notifications/outbox-mark', {

@@ -103,6 +103,11 @@ describe('groupCreated — one request to one client = one QC ping', () => {
     ]);
   });
 
+  it('a replacement PSS stays its own ping even inside an order', () => {
+    const rows = [...ORDER, created({ outbox_id: 'o9', ref: 'SSKE-104929D', payload: { ...ORDER[0]!.payload, replacement_of: 'SSKE-104929C' } })];
+    expect(groupCreated(rows).map((g) => g.map((i) => i.ref))).toEqual([['TYPE-980', 'TYPE-981', 'TYPE-982'], ['SSKE-104929D']]);
+  });
+
   it('a created row with no consignment and no client is never grouped with another', () => {
     const rows = [
       created({ outbox_id: 'a', ref: 'SL-1', consignment_id: null, consignment_number: null, payload: {}, client_name: null, client_id: null }),

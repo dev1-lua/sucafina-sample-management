@@ -121,6 +121,7 @@ export default class RecordDispatchTool implements LuaTool {
         url: dashboardUrl(tab, row.id, 'updated'),
       });
     }
-    return { ...(order ?? {}), updated };
+    // Both given: the order's count and link ride under their own keys, `updated` stays the per-row list.
+    return { ...(order ? { consignment: order.consignment, consignment_updated: order.updated, consignment_url: order.url } : {}), updated };
   }
 }
