@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
+import { releaseLotIfOrphaned } from './lots.js';
 
 // Sample-type → ref prefix. pss=Shipment Sample Kenya, type=Type sample; everything else
 // (offer, specialty lots, woc, retention, …) falls back to SL. Every prefix here must have a
@@ -32,8 +33,11 @@ export async function issueConsignmentNumber(): Promise<string> {
  * Harriet (2026-09-10): a deleted sample's ref may be reused PROVIDED it was the latest number for its
  * prefix — SL-7491 deleted while the counter stands at 7492 hands 7491 back; deleting SL-7480 moves
  * nothing. Runs on the soft-delete's own transaction. Returns whether the counter stepped back.
+ * Round 10: the lot goes with the last send — once no live row in either book carries the ref, the ref
+ * no longer names a coffee (any ref shape, not only the counter-issued ones).
  */
 export async function releaseRefIfLatest(db: Pick<PoolClient, 'query'>, ref: string | null | undefined): Promise<boolean> {
+  await releaseLotIfOrphaned(db, ref);
   const m = /^(SL|TYPE|SSKE)-(\d+)$/.exec((ref ?? '').trim());
   if (!m) return false;
   const { rowCount } = await db.query(

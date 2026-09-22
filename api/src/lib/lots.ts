@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
+import { HttpError } from '../errors.js';
 
 // Lots (migration 023, round 10). The desk's sample ref names the COFFEE, not the send: the same ref is
 // reused when the same coffee goes out again (SL-7336 → three receivers), and different coffee must never
@@ -179,6 +180,36 @@ export async function claimRef(db: Db, ref: string): Promise<boolean> {
     [m[1], Number(m[2])],
   );
   return (rowCount ?? 0) > 0;
+}
+
+/**
+ * The create routes' lot write, on the insert's own transaction. A TYPED ref registers its lot (or must
+ * match the one on file — the route pre-checked with resolveLot; a concurrent claim in between is the
+ * only way to get here with a different coffee) and moves the counter past its number. A counter-issued or
+ * contract-derived ref (PSS: SSKE-<digits><letter>) registers its lot if missing and never conflicts.
+ * `reused` = the ref already named this coffee (a re-send of the same lot).
+ */
+export async function attachLot(
+  client: Db,
+  o: Coffee & { ref: string; typed: boolean; createdBy: string },
+): Promise<{ reused: boolean }> {
+  const { lot, created } = await registerLot(client, o);
+  if (o.typed) {
+    if (!created && lot.coffee_key !== coffeeKeyFor(o)) {
+      throw new HttpError(409, 'ref_conflict', { ref: lot.ref, lot });
+    }
+    await claimRef(client, o.ref);
+  }
+  return { reused: !created };
+}
+
+/** Live rows on this (normalised) ref in one book table — the create responses' `lot_sends`. */
+export async function countLotSends(db: Db, table: string, refCol: string, ref: string): Promise<number> {
+  const { rows } = await db.query(
+    `SELECT count(*)::int AS n FROM ${table} WHERE deleted_at IS NULL AND normalize_ref(${refCol}) = $1`,
+    [normalizeRef(ref)],
+  );
+  return Number(rows[0].n);
 }
 
 /** After a soft-delete: drop the lot when no live row in either book carries its ref any more. */

@@ -4,6 +4,8 @@ import { h } from '../errors.js';
 import { AWAITING_COLLECTION_WHERE } from '../lib/detail-requests.js';
 import { makeFilters } from '../lib/list.js';
 import { assertIn, clampInt } from '../lib/validate.js';
+import { normalizeRef } from '../lib/lots.js';
+import { consignmentWhere } from '../lib/consignments.js';
 
 export const search = Router();
 
@@ -54,6 +56,9 @@ search.get('/', h(async (req, res) => {
     const values = String(req.query.country).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
     if (values.length) f.add(`lower(country) = ANY (?::text[])`, values);
   }
+  // Round 10: every send of one coffee (?ref=, exact after normalisation) / of one order (?consignment=).
+  if (req.query.ref) f.add(`normalize_ref(ref) = ?`, normalizeRef(String(req.query.ref)));
+  if (req.query.consignment) consignmentWhere(f, String(req.query.consignment), 'number');
 
   // Paginated like the per-table list endpoints (see lib/list.ts): `page` is 1-based,
   // `pageSize` clamped ≤100. `total` is the true match count (window fn), so a caller can
@@ -67,6 +72,7 @@ search.get('/', h(async (req, res) => {
        blend, strategy, highlights, result_on,
        location, requested_by, completed_by, stock_grams, dispatched_on, priority,
        client_address_missing, details_requested_from, details_requested_at,
+       lot_sends, consignment_number,
        (${AWAITING_COLLECTION_WHERE}) AS awaiting_collection,
        count(*) OVER ()::int AS full_count
      FROM all_samples_v ${whereSql}

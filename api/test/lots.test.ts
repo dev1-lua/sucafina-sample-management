@@ -185,3 +185,152 @@ describe('migration 023 backfill', () => {
     expect((await pool.query(`SELECT count(*)::int AS n FROM lots WHERE ref IN ('SL-9001','TYPE-9113')`)).rows[0].n).toBe(2);
   });
 });
+
+describe('create routes: typed ref → lot + counter', () => {
+  it('a typed free ref registers its lot and moves the counter past it, so the next auto-issue never collides', async () => {
+    const before = (await pool.query(`SELECT next_val FROM ref_counters WHERE prefix = 'SL'`)).rows[0].next_val as number;
+    const typed = `SL-${before + 10}`;
+    const res = await auth(request(app).post('/specialty-samples')).send({ description: 'Typed AA', receiver_company: 'Beyers', outturn: '30/2000', grade: 'AA', ref: ` sl - ${before + 10} ` });
+    expect(res.status).toBe(201);
+    expect(res.body.ref).toBe(typed);
+    expect(res.body).toMatchObject({ lot_sends: 1, reused_ref: false });
+    expect(await findLot(pool, typed)).toMatchObject({ book: 'specialty', coffee_key: '30/2000|AA', created_by: 'test' });
+    expect((await pool.query(`SELECT next_val FROM ref_counters WHERE prefix = 'SL'`)).rows[0].next_val).toBe(before + 11);
+    const auto = await auth(request(app).post('/specialty-samples')).send({ description: 'Auto', receiver_company: 'Beyers' });
+    expect(auto.body.ref).toBe(`SL-${before + 11}`);
+    expect(await findLot(pool, auto.body.ref)).toMatchObject({ book: 'specialty', coffee_key: 'auto|' });
+  });
+
+  it('typed ref + same coffee → 201 with reused_ref: true and lot_sends: 2 (a re-send)', async () => {
+    const first = await auth(request(app).post('/bulk-samples')).send({ quality: 'AB FAQ', client: 'Joh Johanson', sample_type: 'type', sample_ref: 'TYPE-973' });
+    expect(first.status).toBe(201);
+    expect(first.body).toMatchObject({ lot_sends: 1, reused_ref: false });
+    const again = await auth(request(app).post('/bulk-samples')).send({ quality: 'ab faq.', client: 'Joh Johanson', sample_type: 'type', sample_ref: 'type-973' });
+    expect(again.status).toBe(201);
+    expect(again.body.sample_ref).toBe('TYPE-973');
+    expect(again.body).toMatchObject({ lot_sends: 2, reused_ref: true });
+    expect((await auth(request(app).get(`/bulk-samples/${first.body.id}`))).body.lot_sends).toBe(2);
+  });
+
+  it('typed ref + different coffee → 409 ref_conflict with the lot and its sends; nothing written', async () => {
+    const n = (await pool.query(`SELECT count(*)::int AS n FROM bulk_samples`)).rows[0].n;
+    const res = await auth(request(app).post('/bulk-samples')).send({ quality: 'AA FAQ', client: 'Nestrade', sample_type: 'type', sample_ref: 'TYPE-973' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('ref_conflict');
+    expect(res.body.ref).toBe('TYPE-973');
+    expect(res.body.lot).toMatchObject({ ref: 'TYPE-973', book: 'commercial', quality: 'AB FAQ' });
+    expect(res.body.sends).toHaveLength(2);
+    expect(res.body.sends[0]).toMatchObject({ tab: 'bulk', receiver: 'Joh Johanson' });
+    expect((await pool.query(`SELECT count(*)::int AS n FROM bulk_samples`)).rows[0].n).toBe(n);
+    // Specialty too.
+    const sp = await auth(request(app).post('/specialty-samples')).send({ description: 'Other', receiver_company: 'X', outturn: '99/9999', grade: 'PB', ref: 'SL-7336' });
+    expect(sp.status).toBe(409);
+    expect(sp.body.lot.coffee_key).toBe('15/5670|AA');
+  });
+
+  it('no ref + an existing coffee: resolve says reuse, but a create without a ref still mints a new one (the agent decides)', async () => {
+    const r = await auth(request(app).post('/lots/resolve')).send({ book: 'commercial', quality: 'AB FAQ', blend: null, sample_type: 'type' });
+    expect(r.status).toBe(200);
+    expect(r.body.action).toBe('reuse');
+    const res = await auth(request(app).post('/bulk-samples')).send({ quality: 'AB FAQ', client: 'Beyers', sample_type: 'type' });
+    expect(res.status).toBe(201);
+    expect(res.body.sample_ref).toMatch(/^TYPE-\d+$/);
+    expect(res.body.sample_ref).not.toBe(r.body.ref);
+    expect(res.body).toMatchObject({ lot_sends: 1, reused_ref: false });
+  });
+
+  it('a PSS drawn from its contract number registers its contract-derived ref as a lot, never a conflict', async () => {
+    const c = await auth(request(app).post('/contracts')).send({ contract_number: 'SSKE-555001', client_name: 'Paulig', quality: 'AB FAQ', pss_expected: 1, shipment_date: '2027-01-15' });
+    expect(c.status).toBe(201);
+    const pss = await auth(request(app).post('/bulk-samples')).send({ quality: 'AB FAQ', client: 'Paulig', sample_type: 'pss', contract_number: 'SSKE-555001' });
+    expect(pss.status).toBe(201);
+    expect(pss.body.sample_ref).toBe('SSKE-555001A');
+    expect(await findLot(pool, 'SSKE-555001A')).toMatchObject({ book: 'commercial' });
+  });
+
+  it('deleting the last send removes the lot; deleting one of several keeps it', async () => {
+    const a = await auth(request(app).post('/bulk-samples')).send({ quality: 'PB', client: 'A', sample_type: 'offer', sample_ref: 'CUSTOM-77' });
+    const b = await auth(request(app).post('/bulk-samples')).send({ quality: 'PB', client: 'B', sample_type: 'offer', sample_ref: 'CUSTOM-77' });
+    expect(b.body.lot_sends).toBe(2);
+    await auth(request(app).delete(`/bulk-samples/${a.body.id}`));
+    expect(await findLot(pool, 'CUSTOM-77')).not.toBeNull();
+    await auth(request(app).delete(`/bulk-samples/${b.body.id}`));
+    expect(await findLot(pool, 'CUSTOM-77')).toBeNull();
+  });
+});
+
+describe('/lots routes', () => {
+  it('POST /lots/resolve validates and returns the resolution', async () => {
+    expect((await auth(request(app).post('/lots/resolve')).send({ book: 'nope' })).status).toBe(400);
+    const r = await auth(request(app).post('/lots/resolve')).send({ book: 'specialty', ref: 'sl 7336', outturn: '15/5670', grade: 'AA', quality: 'Nyeri AA' });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ action: 'reuse', ref: 'SL-7336' });
+    expect(r.body.lot.ref).toBe('SL-7336');
+    expect(Array.isArray(r.body.sends)).toBe(true);
+  });
+
+  it('GET /lots/:ref → lot + sends (with title and consignment_number); 404 when unknown', async () => {
+    const r = await auth(request(app).get('/lots/type - 973'));
+    expect(r.status).toBe(200);
+    expect(r.body.lot).toMatchObject({ ref: 'TYPE-973', book: 'commercial' });
+    expect(r.body.sends).toHaveLength(2);
+    expect(r.body.sends[0]).toMatchObject({ tab: 'bulk', title: 'ab faq.', receiver: 'Joh Johanson', consignment_number: null });
+    expect((await auth(request(app).get('/lots/NOPE-1'))).status).toBe(404);
+  });
+
+  it('GET /lots lists lots with send roll-ups; q matches a send\'s receiver; book filter', async () => {
+    const all = await auth(request(app).get('/lots?pageSize=100'));
+    expect(all.status).toBe(200);
+    const t973 = all.body.data.find((l: { ref: string }) => l.ref === 'TYPE-973');
+    expect(t973).toMatchObject({ book: 'commercial', sends: 2, open_sends: 2, delivered_sends: 0, last_receiver: 'Joh Johanson' });
+    expect(t973.status_rollup).toBe('2 pending');
+    expect(typeof t973.last_send_on).toBe('string');
+    expect(all.body.total).toBeGreaterThanOrEqual(3);
+
+    const byReceiver = await auth(request(app).get('/lots?q=johanson'));
+    expect(byReceiver.body.data.map((l: { ref: string }) => l.ref)).toContain('TYPE-973');
+    expect(byReceiver.body.data.map((l: { ref: string }) => l.ref)).not.toContain('SL-7336');
+
+    const spec = await auth(request(app).get('/lots?book=specialty&pageSize=100'));
+    expect(spec.body.data.every((l: { book: string }) => l.book === 'specialty')).toBe(true);
+    expect(spec.body.data.map((l: { ref: string }) => l.ref)).toContain('SL-7336');
+    expect((await auth(request(app).get('/lots?book=bogus'))).status).toBe(400);
+  });
+});
+
+describe('GET /samples/resolve + list filters', () => {
+  it('resolves a ref to its live candidates, newest first; receiver + tab filters; [] when unknown', async () => {
+    const r = await auth(request(app).get('/samples/resolve?ref=type%20973'));
+    expect(r.status).toBe(200);
+    expect(r.body.ref).toBe('TYPE-973');
+    expect(r.body.candidates).toHaveLength(2);
+    expect(r.body.candidates[0]).toMatchObject({ tab: 'bulk', ref: 'TYPE-973', receiver: 'Joh Johanson', status: 'requested', consignment_number: null, awb: null });
+    expect(Object.keys(r.body.candidates[0]).sort()).toEqual(['awb', 'consignment_number', 'courier_norm', 'date_on', 'id', 'receiver', 'ref', 'status', 'tab', 'title'].sort());
+    const none = await auth(request(app).get('/samples/resolve?ref=TYPE-973&receiver=nestrade'));
+    expect(none.body.candidates).toEqual([]);
+    const spec = await auth(request(app).get('/samples/resolve?ref=TYPE-973&tab=specialty'));
+    expect(spec.body.candidates).toEqual([]);
+    expect((await auth(request(app).get('/samples/resolve?ref=NOPE-1'))).body).toEqual({ ref: 'NOPE-1', candidates: [] });
+    expect((await auth(request(app).get('/samples/resolve'))).status).toBe(400);
+  });
+
+  it('book lists, GET /:id and /search carry lot_sends + consignment_number and take ?ref= / ?consignment=', async () => {
+    const cn = await auth(request(app).post('/consignments')).send({ location: 'thika' });
+    const bulk = await auth(request(app).get('/bulk-samples?ref=type%20973'));
+    expect(bulk.body.total).toBe(2);
+    expect(bulk.body.data[0]).toMatchObject({ lot_sends: 2, consignment_number: null });
+    const id = bulk.body.data[0].id;
+    await auth(request(app).post(`/consignments/${cn.body.id}/samples`)).send({ tab: 'bulk', ids: [id] });
+    const byNumber = await auth(request(app).get(`/bulk-samples?consignment=${cn.body.number}`));
+    expect(byNumber.body.data.map((r: { id: string }) => r.id)).toEqual([id]);
+    expect(byNumber.body.data[0].consignment_number).toBe(cn.body.number);
+    const byId = await auth(request(app).get(`/bulk-samples?consignment=${cn.body.id}`));
+    expect(byId.body.total).toBe(1);
+    const search = await auth(request(app).get(`/search?consignment=${cn.body.number}`));
+    expect(search.body.data.map((r: { id: string }) => r.id)).toEqual([id]);
+    expect(search.body.data[0]).toMatchObject({ lot_sends: 2, consignment_number: cn.body.number });
+    expect((await auth(request(app).get('/search?ref=TYPE-973'))).body.total).toBe(2);
+    expect((await auth(request(app).get('/specialty-samples?ref=sl-7336'))).body.total).toBe(1);
+    expect((await auth(request(app).get('/forwarding-samples?ref=nothing'))).body.total).toBe(0);
+  });
+});

@@ -6,13 +6,18 @@ import { actorFrom } from '../auth.js';
 import { issueRef, releaseRefIfLatest } from '../lib/refs.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
-import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
+import { createdPayload, enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
 import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
 import { maybeDrawReplacement, recomputeContractStatus, resolveContractLink } from '../lib/contracts.js';
+import { attachLot, consignmentNumberColumn, countLotSends, lotSendsColumn, normalizeRef, resolveLot, type Coffee } from '../lib/lots.js';
+import { assertConsignment, consignmentWhere } from '../lib/consignments.js';
 
 export const specialtySamples = Router();
+
+// Round 10: how many live sends share this row's ref, and the order (CN number) it belongs to.
+const LOT_COLUMNS = `${lotSendsColumn('specialty_samples', 'ref', 'specialty_samples')}, ${consignmentNumberColumn('specialty_samples')}`;
 
 const SAMPLE_TYPES = ['offer','type','pss','woc','retention','flavor_mapping','marketing','calibration','other'] as const;
 const STATUSES = ['requested','preparing','dispatched','delivered','results_in','cancelled'] as const;
@@ -67,6 +72,8 @@ const createSchema = z.object({
   container_no: z.number().int().min(1).nullish(),
   // Migration 022 (Gloria's slips): the stock lot printed on the label, e.g. "15/5670" or "DS".
   stocklot: z.string().nullish(),
+  // Migration 023 (round 10): the order this send belongs to. 400 when it doesn't exist or is deleted.
+  consignment_id: z.string().uuid().nullish(),
 });
 
 const patchSchema = z.object({
@@ -164,8 +171,11 @@ specialtySamples.get('/', h(async (req, res) => {
   if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
   // AWB on file, not yet collected by the courier (lifecycle sketch 2026-09-14).
   if (req.query.awaiting_collection === 'true') f.where.push(AWAITING_COLLECTION_WHERE);
+  // Round 10: every send of one coffee (?ref=, exact after normalisation) / of one order (?consignment=).
+  if (req.query.ref) f.add(`normalize_ref(ref) = ?`, normalizeRef(String(req.query.ref)));
+  if (req.query.consignment) consignmentWhere(f, String(req.query.consignment));
   const result = await buildList(
-    { table: 'specialty_samples', extraSelect: gapColumns('specialty_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb','requested_by','logged_by','outturn','stocklot'] },
+    { table: 'specialty_samples', extraSelect: `${gapColumns('specialty_samples')}, ${LOT_COLUMNS}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['ref','description','receiver_company','name','awb','requested_by','logged_by','outturn','stocklot'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -174,7 +184,8 @@ specialtySamples.get('/', h(async (req, res) => {
 specialtySamples.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
   const { rows } = await pool.query(
-    `SELECT t.*, ${gapColumns('t')}, c.number AS consignment_number, c.location AS consignment_location
+    `SELECT t.*, ${gapColumns('t')}, ${lotSendsColumn('t', 'ref', 'specialty_samples')},
+            c.number AS consignment_number, c.location AS consignment_location
        FROM specialty_samples t LEFT JOIN consignments c ON c.id = t.consignment_id
       WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'specialty sample not found');
@@ -206,7 +217,19 @@ specialtySamples.post('/', h(async (req, res) => {
     optionLetter = link.option_letter;
     linkedRef = link.ref;
   }
-  const ref = body.ref ?? linkedRef ?? (await issueRef(body.sample_type_norm));
+  // Round 10: the ref names the COFFEE (outturn + grade, else description + grade). A typed ref is
+  // normalised and checked against its lot before anything is written: same coffee → a re-send on the same
+  // ref; different coffee → 409. No typed ref → the counter mints one (even when this coffee already has a
+  // ref — the agent's confirm step decides whether to reuse; see POST /lots/resolve).
+  const coffee: Coffee = { book: 'specialty', outturn: body.outturn ?? null, grade: body.grade ?? null, quality: body.description };
+  const typedRef = normalizeRef(body.ref) || null;
+  if (typedRef) {
+    const r = await resolveLot(pool, { ...coffee, ref: typedRef });
+    if (r.action === 'conflict') return res.status(409).json({ error: 'ref_conflict', ref: typedRef, lot: r.lot, sends: r.sends });
+  }
+  const consignment = body.consignment_id ? await assertConsignment(pool, body.consignment_id) : null;
+  const ref = typedRef ?? linkedRef ?? (await issueRef(body.sample_type_norm));
+  let reusedRef = false;
   const row = await runWithEvent(
     // date (verbatim text, shown in the dashboard's Date column) and date_on (typed, sorted on)
     // both default to today in Nairobi time when no explicit date is given; $18 supplies an override.
@@ -214,11 +237,11 @@ specialtySamples.post('/', h(async (req, res) => {
        (ref, description, receiver_company, sample_type_norm, outturn, name, grade, bags,
         awb, courier_norm, qty, qty_grams, comments, crop_year, client_id, country, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, stocklot, date, date_on, status)
+        requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, stocklot, consignment_id, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14, ${fromLot('crop_year')}),$15,$16,
              COALESCE($17, (SELECT default_phyto_cert FROM clients WHERE id = $15::uuid)),
              $18,$19,$20,$21,$22,$23,$24,$26,$27,COALESCE($28,'normal'),$29,$30::uuid,$31,$32,
-             COALESCE($33, ${fromLot('stocklot')}),
+             COALESCE($33, ${fromLot('stocklot')}), $34::uuid,
              COALESCE($25, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($25::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -230,15 +253,20 @@ specialtySamples.post('/', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null, contractId, containerNo, optionLetter, body.stocklot ?? null],
+     body.logged_by ?? null, contractId, containerNo, optionLetter, body.stocklot ?? null, consignment?.id ?? null],
     { entityType: 'specialty', type: 'created', note: `${body.description} for ${body.receiver_company}`, actor },
     // Feedback #29: Quality is pinged for every request added in full (create implies the intake gates passed).
     async (client, row) => {
-      await enqueueOutbox(client, { tab: 'specialty', sampleId: String(row.id), event: 'created', recipient: 'qc' });
+      // The lot rides the insert's transaction: a rolled-back create claims nothing.
+      reusedRef = (await attachLot(client, { ...coffee, ref, typed: !!typedRef, createdBy: actor })).reused;
+      await enqueueOutbox(client, {
+        tab: 'specialty', sampleId: String(row.id), event: 'created', recipient: 'qc',
+        payload: await createdPayload(client, row, consignment),
+      });
       if (row.contract_id) await recomputeContractStatus(client, String(row.contract_id), actor);
     },
   );
-  res.status(201).json(row);
+  res.status(201).json({ ...row, lot_sends: await countLotSends(pool, 'specialty_samples', 'ref', ref), reused_ref: reusedRef });
 }));
 
 specialtySamples.patch('/:id', h(async (req, res) => {
