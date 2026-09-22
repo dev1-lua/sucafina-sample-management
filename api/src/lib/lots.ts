@@ -116,14 +116,27 @@ export function normalizeQuality(s: string | null | undefined): string {
 
 const upperTrim = (s: string | null | undefined) => (s ?? '').trim().toUpperCase();
 
-/** The coffee a row names. Specialty: outturn|grade (fallback: normalised description|grade). Commercial: quality|blend, both normalised. */
+/**
+ * The quality part of a coffee key. A quality the normaliser reduces to nothing ("Kenya", "Washed",
+ * "Sample", "same coffee as TYPE-903") keys on its raw text, lower-cased and whitespace-collapsed — so those
+ * stay distinct coffees instead of all collapsing onto the empty key and becoming one. A genuinely empty
+ * quality stays "" (and findLotByCoffee never matches it). Mirrored by SQL quality_key() (migration 024).
+ */
+export function qualityKey(s: string | null | undefined): string {
+  return normalizeQuality(s) || (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** The coffee a row names. Specialty: outturn|grade (fallback: description key|grade). Commercial: quality key|normalised blend. */
 export function coffeeKeyFor(c: Coffee): string {
   if (c.book === 'specialty') {
     const outturn = upperTrim(c.outturn);
-    return outturn ? `${outturn}|${upperTrim(c.grade)}` : `${normalizeQuality(c.quality)}|${upperTrim(c.grade)}`;
+    return outturn ? `${outturn}|${upperTrim(c.grade)}` : `${qualityKey(c.quality)}|${upperTrim(c.grade)}`;
   }
-  return `${normalizeQuality(c.quality)}|${normalizeQuality(c.blend)}`;
+  return `${qualityKey(c.quality)}|${normalizeQuality(c.blend)}`;
 }
+
+/** A key whose quality part is empty ("|", "|AA") names no coffee: nothing may be matched to it. */
+const namesACoffee = (coffeeKey: string): boolean => !coffeeKey.startsWith('|');
 
 /** Human label for a lot's coffee — used in resolve reasons and conflict messages. */
 export function describeCoffee(c: Coffee): string {
@@ -158,6 +171,7 @@ export async function findLot(db: Db, ref: string): Promise<Lot | null> {
 
 /** The most recently issued lot naming this coffee in this book (the backfill may have left several). */
 export async function findLotByCoffee(db: Db, book: Book, coffeeKey: string): Promise<Lot | null> {
+  if (!namesACoffee(coffeeKey)) return null;
   // A PSS contract group (SSKE-<digits>) is never proposed by coffee: its refs are contract-derived and belong to
   // that contract's client only — a type/offer sample of the same quality gets its own SL/TYPE ref.
   const { rows } = await db.query(
