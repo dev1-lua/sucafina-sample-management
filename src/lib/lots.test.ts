@@ -59,6 +59,11 @@ describe('lotSay — a PSS ref is one contract group (round 10b)', () => {
     expect(lotSay(res, { book: 'commercial', ref: 'SSKE-104929C', quality: 'AB FAQ' })).toBe('SSKE-104929 has options A, B; this will be C');
   });
 
+  it("reuse with the sheet's spelling of the letter (SSKE 104929 C → SSKE-104929 C): the typed letter is still read", () => {
+    const res: LotResolution = { action: 'reuse', ref: 'SSKE-104929', lot: pssLot, sends: [pss('A')], reason: '' };
+    expect(lotSay(res, { book: 'commercial', ref: 'SSKE-104929 C', quality: 'AB FAQ' })).toBe('SSKE-104929 has option A; this will be C');
+  });
+
   it('reuse without a typed letter: the next letter after the highest on file', () => {
     const res: LotResolution = { action: 'reuse', ref: 'SSKE-104929', lot: pssLot, sends: [pss('A')], reason: '' };
     expect(lotSay(res, { book: 'commercial', ref: 'SSKE-104929', quality: 'AB FAQ' })).toBe('SSKE-104929 has option A; this will be B');

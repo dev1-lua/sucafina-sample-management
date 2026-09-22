@@ -184,24 +184,31 @@ export function extractPssNote(raw?: string | null): string | undefined {
 // ---- Sample ref (round 10 contracts: Ref normalisation) -------------------
 
 /**
- * `normalizeRef("type - 980") === "TYPE-980"`: trim, upper-case, collapse any run of spaces/dashes between
- * the prefix and the number to a single `-`. The API applies the same rule on every inbound ref, so a ref
- * typed either way lands on the same lot. Empty input → undefined.
+ * `normalizeRef("type - 980") === "TYPE-980"`: trim, upper-case, collapse whitespace, `\s*-\s*` → `-`, and a
+ * bare `PREFIX 980` → `PREFIX-980`. EXACTLY the API's three steps (api/src/lib/lots.ts normalizeRef / SQL
+ * normalize_ref) — nothing more: a ref typed either way lands on the same lot, and what the agent sends is
+ * what the API would have stored anyway. So the sheet's own spelling of a PSS option, `SSKE 95986 D`, stays
+ * `SSKE-95986 D` (the API's lot_ref reads the option letter off it); collapsing that space to a dash filed
+ * the sample as a NEW lot outside its contract group. Empty input → undefined.
  */
 export function normalizeRef(raw?: string | null): string | undefined {
   const s = (raw ?? '').trim().toUpperCase();
   if (!s) return undefined;
-  return s.replace(/[\s-]+/g, '-');
+  return s
+    .replace(/\s+/g, ' ')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/^([A-Z]+) (\d)/, '$1-$2');
 }
 
 /**
  * The lot a ref groups under (round 10b, Harriet): a PSS ref `SSKE-<contract digits><option letter>` is one
  * OPTION of a contract, and all of a contract's options are one group — so `lotRefFor("SSKE-104929C") ===
- * "SSKE-104929"`. Every other ref is its normalised self. Mirrors the API's `lotRefFor` / SQL `lot_ref`.
+ * "SSKE-104929"`, and so does the sheet's `SSKE 95986 D` (normalised `SSKE-95986 D`) → `SSKE-95986`. Every
+ * other ref is its normalised self. Mirrors the API's `lotRefFor` / SQL `lot_ref` (migration 024).
  */
 export function lotRefFor(raw?: string | null): string | undefined {
   const ref = normalizeRef(raw);
-  return ref?.replace(/^(SSKE-\d+)[A-Z]$/, '$1');
+  return ref?.replace(/^(SSKE-\d+) ?[A-Z]$/, '$1');
 }
 
 // ---- AWB (data-dictionary §9 rule 1) -------------------------------------

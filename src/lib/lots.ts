@@ -93,7 +93,8 @@ export function lotSay(res: LotResolution, typed: CoffeeInput): string {
 }
 
 const PSS_BASE = /^SSKE-\d+$/;
-const PSS_LETTER = /^SSKE-\d+([A-Z])$/;
+// The option letter, off `SSKE-104929C` or the sheet's `SSKE-104929 C` (normalizeRef keeps that space).
+const PSS_LETTER = /^SSKE-\d+ ?([A-Z])$/;
 
 /**
  * A PSS ref's options are one contract group (round 10b): a reuse of `SSKE-104929` reads
