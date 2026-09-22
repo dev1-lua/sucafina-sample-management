@@ -176,6 +176,7 @@ export default function SampleListView({ tab }: { tab: TabKey }) {
           endpoint={cfg.endpoint}
           entityLabel={cfg.entityLabel}
           fields={cfg.createFields}
+          book={book ?? undefined}
           open={createOpen}
           onOpenChange={setCreateOpen}
         />

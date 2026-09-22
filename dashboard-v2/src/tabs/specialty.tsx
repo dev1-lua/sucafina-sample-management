@@ -147,6 +147,9 @@ export const specialtyConfig: TabConfig = {
   // Omits: `ref` (server issues it via issueRef when absent), `qty_grams` (typed sort-only
   // companion of `qty`), `client_id` (uuid FK — no client picker in this track's scope).
   createFields: [
+    // Round 10: a ref names the coffee. Blank → the server issues/reuses one; typed → claimed, or the
+    // dialog's /lots/resolve notice says it already names another coffee.
+    { key: 'ref', label: 'Ref', type: 'text', placeholder: 'blank = issued on save' },
     { key: 'description', label: 'Description', type: 'text', required: true },
     { key: 'receiver_company', label: 'Receiver', type: 'text', required: true },
     { key: 'sample_type_norm', label: 'Sample Type', type: 'select', options: SAMPLE_TYPES, defaultValue: 'other', allowCustom: true },
