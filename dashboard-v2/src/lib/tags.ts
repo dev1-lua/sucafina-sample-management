@@ -27,7 +27,7 @@ const PALETTE = {
 
 type Color = keyof typeof PALETTE;
 
-export type TagKind = 'status' | 'result' | 'sample_type' | 'stock' | 'priority' | 'gap' | 'contract_status';
+export type TagKind = 'status' | 'result' | 'sample_type' | 'stock' | 'priority' | 'gap' | 'contract_status' | 'order_status';
 
 const STATUS: Record<string, Color> = {
   requested: 'gray',
@@ -103,6 +103,19 @@ const CONTRACT_STATUS_LABELS: Record<string, string> = {
   pss_replacement_rejected: 'PSS replacement rejected',
 };
 
+// Where an order (consignment, round 10) stands, derived by the API from its members: the
+// sample lifecycle colours, with the half-way state in amber like a pending result.
+const ORDER_STATUS: Record<string, Color> = {
+  requested: 'gray',
+  partly_dispatched: 'amber',
+  dispatched: 'blue',
+  delivered: 'teal',
+  closed: 'gray',
+};
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  partly_dispatched: 'Partly dispatched',
+};
+
 const MAPS: Record<TagKind, Record<string, Color>> = {
   status: STATUS,
   result: RESULT,
@@ -111,6 +124,7 @@ const MAPS: Record<TagKind, Record<string, Color>> = {
   priority: PRIORITY,
   gap: GAP,
   contract_status: CONTRACT_STATUS,
+  order_status: ORDER_STATUS,
 };
 
 export function tagColor(kind: TagKind, value: string): string {
@@ -122,6 +136,7 @@ export function tagColor(kind: TagKind, value: string): string {
 export function tagLabel(kind: TagKind, value: string): string {
   if (kind === 'gap' && GAP_LABELS[value]) return GAP_LABELS[value];
   if (kind === 'contract_status' && CONTRACT_STATUS_LABELS[value]) return CONTRACT_STATUS_LABELS[value];
+  if (kind === 'order_status' && ORDER_STATUS_LABELS[value]) return ORDER_STATUS_LABELS[value];
   return value.replace(/_/g, ' ');
 }
 
