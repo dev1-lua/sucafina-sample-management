@@ -120,6 +120,7 @@ describe('scripts/backfill-orders', () => {
     const counter = await cnCounter();
     const report = await backfillOrders(pool, { apply: false });
     expect(report.applied).toBe(false);
+    expect(report.since).toBeNull();
     expect(report.groups).toHaveLength(2);
     expect(report.rows).toBe(6);
     expect(report.placeholders).toBe(5);
@@ -172,5 +173,30 @@ describe('scripts/backfill-orders', () => {
     expect(again.rows).toBe(0);
     expect(await count('consignments')).toBe(consignments + 2);
     expect(await cnCounter()).toBe(counter + 2);
+  });
+
+  it('--since: rows dated before the floor neither form nor join a group (the legacy sheet shares one AWB across whole boxes back to 2023)', async () => {
+    // Two boxes to the same client: an old one (2023) and a recent one; one 2023 row straddles onto the recent AWB.
+    await pool.query(
+      `INSERT INTO bulk_samples (sample_ref, quality, client, awb, status, date_on) VALUES
+         ('TYPE-401', 'AB FAQ', 'Torch', '2023000001', 'delivered', '2023-03-01'),
+         ('TYPE-402', 'AA FAQ', 'Torch', '2023000001', 'delivered', '2023-03-02'),
+         ('TYPE-403', 'PB',     'Torch', '2023000001', 'delivered', '2023-03-02'),
+         ('TYPE-404', 'PB',     'Torch', '2026000002', 'delivered', '2023-03-02'),
+         ('TYPE-405', 'AB FAQ', 'Torch', '2026000002', 'delivered', '2026-08-10'),
+         ('TYPE-406', 'AA FAQ', 'Torch', '2026000002', 'delivered', '2026-08-11')`);
+    const noFloor = await findOrderGroups(pool);
+    expect(noFloor.groups.map((g) => [g.awb, g.rows.length]).sort()).toEqual([['2023000001', 3], ['2026000002', 3]]);
+
+    const consignments = await count('consignments');
+    const report = await backfillOrders(pool, { apply: true, since: '2026-08-01' });
+    expect(report.since).toBe('2026-08-01');
+    expect(report.groups).toHaveLength(1);
+    expect(report.groups[0]).toMatchObject({ awb: '2026000002', client: 'Torch', date_from: '2026-08-10', date_to: '2026-08-11' });
+    expect(report.groups[0].rows.map((r) => r.ref).sort()).toEqual(['TYPE-405', 'TYPE-406']);
+    expect(await count('consignments')).toBe(consignments + 1);
+    expect(await count(`bulk_samples WHERE sample_ref IN ('TYPE-401','TYPE-402','TYPE-403','TYPE-404') AND consignment_id IS NOT NULL`)).toBe(0);
+    // Without a floor the 2023 box is still there to be picked up.
+    expect((await backfillOrders(pool, { apply: false })).groups.map((g) => g.awb)).toEqual(['2023000001']);
   });
 });

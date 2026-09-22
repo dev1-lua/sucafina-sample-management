@@ -15,7 +15,9 @@ import { attachSamples, type Tab } from './consignments.js';
 //
 // The legacy sheet carries placeholder AWBs — "HD" (hand delivery) on 26 Connect Coffee rows, "n/a", "-" …
 // Grouping on those would make bogus 26-member orders, so an AWB only counts when it holds four digits in a
-// row; the rest are counted and reported as placeholders.
+// row; the rest are counted and reported as placeholders. It also shares one AWB across whole boxes back to
+// 2023 (317 groups / 1771 rows on the dev seed), hence `since`: a date floor on COALESCE(date_on, the day
+// logged) — rows before it neither form nor join a group. No floor by default.
 
 export const BACKFILL_ORDERS_ACTOR = 'script:backfill-orders';
 
@@ -40,7 +42,10 @@ export type OrderGroup = {
   number: string | null;
 };
 export type Candidates = { groups: OrderGroup[]; placeholders: number };
-export type BackfillReport = Candidates & { applied: boolean; rows: number; consignments: number };
+export type BackfillReport = Candidates & { applied: boolean; rows: number; consignments: number; since: string | null };
+export type BackfillOptions = { apply: boolean; actor?: string; since?: string };
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A real AWB holds four digits in a row; "HD", "n/a", "ref 12" are placeholders. */
 export const isRealAwb = (awb: string): boolean => /\d{4}/.test(awb);
@@ -57,14 +62,16 @@ const LIVE_UNATTACHED_SQL = `
              requested_by, logged_by, COALESCE(date_on, created_at::date) AS date, created_at
         FROM specialty_samples
        WHERE deleted_at IS NULL AND consignment_id IS NULL AND COALESCE(btrim(awb), '') <> ''
+         AND ($1::date IS NULL OR COALESCE(date_on, created_at::date) >= $1::date)
       UNION ALL
       SELECT 'bulk', id, sample_ref, btrim(awb), client_id, client,
              requested_by, logged_by, COALESCE(date_on, created_at::date), created_at
         FROM bulk_samples
        WHERE deleted_at IS NULL AND consignment_id IS NULL AND COALESCE(btrim(awb), '') <> ''
+         AND ($1::date IS NULL OR COALESCE(date_on, created_at::date) >= $1::date)
     ) live
     LEFT JOIN clients cl ON cl.id = live.client_id
-   ORDER BY live.awb, live.created_at, live.id`;
+   ORDER BY live.awb, live.created_at, live.ref, live.id`;
 
 const agreed = (values: Array<string | null>): string | null => {
   const set = new Set(values.map((v) => (v ?? '').trim()));
@@ -73,11 +80,13 @@ const agreed = (values: Array<string | null>): string | null => {
 };
 
 /**
- * The orders the backfill would create: groups of 2+ live, unattached rows on one real AWB and one client.
- * Pure read — the apply calls it again on its own transaction.
+ * The orders the backfill would create: groups of 2+ live, unattached rows on one real AWB and one client,
+ * dated on/after `since` when given. Pure read — the apply calls it again on its own transaction.
  */
-export async function findOrderGroups(db: Q): Promise<Candidates> {
-  const { rows } = await db.query(LIVE_UNATTACHED_SQL);
+export async function findOrderGroups(db: Q, o: { since?: string | null } = {}): Promise<Candidates> {
+  const since = o.since ?? null;
+  if (since !== null && !DATE_RE.test(since)) throw new Error(`since must be YYYY-MM-DD, got "${since}"`);
+  const { rows } = await db.query(LIVE_UNATTACHED_SQL, [since]);
   let placeholders = 0;
   const byKey = new Map<string, LiveRow[]>();
   for (const r of rows as LiveRow[]) {
@@ -113,19 +122,20 @@ export async function findOrderGroups(db: Q): Promise<Candidates> {
  * and location as POST /consignments defaults them — open, none), its `created` event and the members'
  * attachment (attachSamples stamps the order on any still-pending created pings too).
  */
-export async function backfillOrders(db: Pool = pool, o: { apply: boolean; actor?: string }): Promise<BackfillReport> {
+export async function backfillOrders(db: Pool = pool, o: BackfillOptions): Promise<BackfillReport> {
   const actor = o.actor ?? BACKFILL_ORDERS_ACTOR;
+  const since = o.since ?? null;
   const summarise = (c: Candidates, applied: boolean): BackfillReport => ({
-    ...c, applied,
+    ...c, applied, since,
     rows: c.groups.reduce((n, g) => n + g.rows.length, 0),
     consignments: applied ? c.groups.length : 0,
   });
-  if (!o.apply) return summarise(await findOrderGroups(db), false);
+  if (!o.apply) return summarise(await findOrderGroups(db, { since }), false);
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    const candidates = await findOrderGroups(client);
+    const candidates = await findOrderGroups(client, { since });
     for (const g of candidates.groups) {
       const number = await issueConsignmentNumber(client);
       const { rows: [row] } = await client.query(
