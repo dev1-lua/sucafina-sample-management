@@ -1,10 +1,11 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.25/MicrosoftTeams.schema.json",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "manifestVersion": "1.25",
   "id": "26796e6a-d79f-4739-8426-45b3a07b64bb",
   "name": {
-    "short": "Lua"
+    "short": "Sucafina Sample Manager",
+    "full": "Sucafina Sample Manager (Lua)"
   },
   "developer": {
     "name": "Lua Global Inc.",
@@ -13,8 +14,8 @@
     "termsOfUseUrl": "https://heylua.ai/terms-of-service/"
   },
   "description": {
-    "short": "Lua AI assistant — chat with your Lua agent directly inside Microsoft Teams.",
-    "full": "Lua brings your AI agent into Microsoft Teams, so your team can work with it right where they already collaborate — no separate app, no context switching.\n\nOnce added to a team, channel, or group chat, Lua can read and respond to messages, answer questions, look things up, and help your team get work done conversationally. It works the same way in Teams as it does across Lua's other channels, so your agent's knowledge, tools, and personality carry over seamlessly.\n\nAdd Lua to a channel for shared, team-wide assistance, or to a group chat for focused collaboration. Mention the bot to start a conversation and it responds in context.\n\nPowered by Lua (heylua.ai)."
+    "short": "Sample desk assistant for Quality and Trade — log, dispatch and track coffee samples from Teams.",
+    "full": "Sucafina Sample Manager logs sample requests, routes missing details to the colleague who has them, pings Quality when a request is complete, and keeps traders posted as samples are prepared, dispatched and tracked.\n\nMessage it 1:1, or forward a sample request to a colleague AND this bot to start a group chat: it reads the chat (including messages from before it was added), knows who asked, and answers when mentioned.\n\nPowered by Lua (heylua.ai)."
   },
   "icons": {
     "outline": "outline.png",
@@ -41,7 +42,28 @@
   },
   "authorization": {
     "permissions": {
-      "resourceSpecific": []
+      "resourceSpecific": [
+        {
+          "name": "ChatMessage.Read.Chat",
+          "type": "Application"
+        },
+        {
+          "name": "ChatMember.Read.Chat",
+          "type": "Application"
+        },
+        {
+          "name": "ChatSettings.Read.Chat",
+          "type": "Application"
+        },
+        {
+          "name": "ChannelMessage.Read.Group",
+          "type": "Application"
+        },
+        {
+          "name": "TeamMember.Read.Group",
+          "type": "Application"
+        }
+      ]
     }
   },
   "supportsChannelFeatures": "tier1"
