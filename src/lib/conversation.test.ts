@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { conversationFromRequest, GROUP_ASKS_ENABLED, matchParticipant, type ConversationParticipant } from './conversation';
+import { conversationFromRequest, GROUP_ASKS_ENABLED, matchParticipant, participantByEmail, type ConversationParticipant } from './conversation';
 
 const P: ConversationParticipant[] = [
   { userId: 'u-ivo', displayName: 'Ivo Jr.', isCurrentSpeaker: true, channelIdentity: { provider: 'teams', externalId: 't1', email: 'ivo@sucafina.com' } },
@@ -60,5 +60,20 @@ describe('matchParticipant — who the speaker named, from the people in the cha
   it('nobody → null (the roster is next)', () => {
     expect(matchParticipant('Gloria', P)).toBeNull();
     expect(matchParticipant('  ', P)).toBeNull();
+  });
+});
+
+describe('participantByEmail — is the colleague with this work email in the chat?', () => {
+  const people = [
+    { userId: 'u1', displayName: 'Ivo Jr.', channelIdentity: { provider: 'teams', externalId: 't1', email: 'Ivo@sucafina.com' } },
+    { userId: 'u2', displayName: 'Gloria Wanjiru', channelIdentity: { provider: 'teams', externalId: 't2' } },
+  ];
+  it('matches case-insensitively on the chat identity email', () => {
+    expect(participantByEmail('ivo@SUCAFINA.com', people)?.displayName).toBe('Ivo Jr.');
+  });
+  it('nobody with that email (or no email shared) → null', () => {
+    expect(participantByEmail('gloria@sucafina.com', people)).toBeNull();
+    expect(participantByEmail('', people)).toBeNull();
+    expect(participantByEmail(null, [])).toBeNull();
   });
 });

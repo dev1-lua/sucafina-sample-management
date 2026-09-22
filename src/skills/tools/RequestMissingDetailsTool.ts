@@ -16,7 +16,7 @@ import {
   sendToPerson,
   type TraderRow,
 } from '../../lib/notify';
-import { currentConversation, GROUP_ASKS_ENABLED, matchParticipant, type Conversation, type ConversationParticipant } from '../../lib/conversation';
+import { currentConversation, GROUP_ASKS_ENABLED, matchParticipant, participantByEmail, type Conversation, type ConversationParticipant } from '../../lib/conversation';
 import { resolveSampleByRef, sampleEndpoint } from '../../lib/resolve-sample';
 import { TABS } from '../../lib/normalize';
 
@@ -34,16 +34,18 @@ type Person = { name: string; email: string; trader_id: string | null };
  * Replaces notify_trader_missing_details, which took a name only, refused anyone not on the roster,
  * was warm-Teams-only with no email fallback, and had never delivered.
  *
- * Group chats: when the message arrived in a Teams GROUP chat, the ask is posted INTO THAT SAME CHAT
- * addressed to the colleague by name (they are there, or they are cold on Teams and a DM would never
- * reach them), and the email still goes with the QC desk + the person logging copied. Since lua-cli
- * 3.36 the runtime names the people in the chat, so "ask Tommie" finds Tommie Schretlen among them
- * first — and his Teams email, when shared, lands on the roster — before the roster is searched.
+ * Group chats: when the message arrived in a Teams GROUP chat and the colleague is IN that chat, the ask
+ * is posted INTO THAT SAME CHAT addressed to them by name, and the email still goes with the QC desk +
+ * the person logging copied. Since lua-cli 3.36 the runtime names the people in the chat, so "ask Tommie"
+ * finds Tommie Schretlen among them first — and his Teams email, when shared, lands on the roster —
+ * before the roster is searched. A colleague who is NOT in the chat (named by email, roster-only, or
+ * picked by the Sales-Trader / account-manager chain) would never see an @Name line there, so the ask
+ * takes the 1:1 path instead — a warm Teams DM, else the email — even though it was raised in a group.
  */
 export default class RequestMissingDetailsTool implements LuaTool {
   name = 'request_missing_details';
   description =
-    'Route a missing-client-details ask (delivery address / country / contact person / phone / email) to the Sucafina colleague who has them, AFTER the sample is logged. Resolves the person by email first (a new colleague is added to the roster), then — in a Teams GROUP chat — among the people in this chat by name (their Teams email joins the roster), then by roster name; in a group chat it posts the ask into that same chat addressed to them by name AND emails them (QC mailboxes + the person logging copied); in a 1:1 it sends a Teams DM if they have chatted with me, otherwise the email; records who was asked and when on the client and the sample; the desk chases them every morning until the address is saved. With no to_name/to_email it asks the Sales Trader (when that is not the person logging), else the client\'s account manager, else just records the gap for the daily chase. A client\'s own email is never a recipient. Call at most ONCE per sample. Returns {delivered, via: group|teams|email|null, to, recorded, reason} — only say a message went out when delivered is true, and say WHERE (via).';
+    'Route a missing-client-details ask (delivery address / country / contact person / phone / email) to the Sucafina colleague who has them, AFTER the sample is logged. Resolves the person by email first (a new colleague is added to the roster), then — in a Teams GROUP chat — among the people in this chat by name (their Teams email joins the roster), then by roster name; when they are IN this group chat it posts the ask into that same chat addressed to them by name AND emails them (QC mailboxes + the person logging copied); otherwise (a 1:1, or a colleague who is not in this chat) it sends a Teams DM if they have chatted with me, else the email; records who was asked and when on the client and the sample; the desk chases them every morning until the address is saved. With no to_name/to_email it asks the Sales Trader (when that is not the person logging), else the client\'s account manager, else just records the gap for the daily chase. A client\'s own email is never a recipient. Call at most ONCE per sample. Returns {delivered, via: group|teams|email|null, to, recorded, reason} — only say a message went out when delivered is true, and say WHERE (via).';
 
   inputSchema = z.object({
     sample_ref: z.string().min(1).describe('The sample just logged, e.g. "TYPE-113" — its client is who the details are for.'),
@@ -145,8 +147,9 @@ export default class RequestMissingDetailsTool implements LuaTool {
       if (!to) reason = `Nobody to ask: the Sales Trader${requester ? ` (${requester})` : ''} has no work email on the roster and ${client.name} has no account manager. The gap is recorded; the desk chases the person logging each morning until the address is saved.`;
     }
 
-    // 3. Deliver — in a group chat: post the ask into that chat + email; in a 1:1: Teams DM if warm, else
-    //    email. The email always copies the QC desk + the person logging.
+    // 3. Deliver — colleague IN this group chat: post the ask into the chat + email; anyone else (a 1:1, or
+    //    a colleague not in the chat): Teams DM if warm, else email. The email always copies the QC desk +
+    //    the person logging.
     let via: Via | null = null;
     let alsoEmailed = false;
     let groupConversation: string | null = null;
@@ -169,9 +172,11 @@ export default class RequestMissingDetailsTool implements LuaTool {
       const subject = `${client.name}: delivery address needed for ${refs.join(', ')}`;
       const cc = [...ccFor(to.email), ...(logger.email && isInternalEmail(logger.email) && logger.email !== to.email ? [logger.email] : [])];
 
-      // Group chat: the ask goes into the chat the request was made in, addressed to the person by the
-      // name Teams shows for them (the roster's short name otherwise).
-      if (conv?.isGroup && conv.conversationId) {
+      // Group chat: the ask goes into the chat the request was made in ONLY when the person is in it —
+      // matched by name above, or here by their work email (to_email / the chain) against the people the
+      // runtime lists. Addressed by the name Teams shows for them (the roster's short name otherwise).
+      if (conv?.isGroup && !participant) participant = participantByEmail(to.email, conv.participants);
+      if (conv?.isGroup && conv.conversationId && participant) {
         groupConversation = conv.conversationId;
         const groupText = [
           `@${participant?.displayName ?? to.name} — ${who} logged ${refs.join(', ')} (${summary}); the lab can't send it yet: ${client.name} has no delivery address in the sample book. Could you send:`,
@@ -187,7 +192,8 @@ export default class RequestMissingDetailsTool implements LuaTool {
       }
 
       try {
-        // After a group post the DM leg is skipped (the ask is already in front of them); the email still goes.
+        // After a group post the DM leg is skipped (the ask is already in front of them); the email still
+        // goes. Without one — a 1:1, or the person is not in this chat — the warm DM is tried first.
         const r = await this.deliver({ email: to.email, text, subject, cc, emailOnly: via === 'group' });
         if (via === 'group') alsoEmailed = r === 'email';
         else via = r;

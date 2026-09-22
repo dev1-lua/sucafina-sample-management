@@ -153,3 +153,15 @@ export function matchParticipant(name: string | null | undefined, participants: 
   }
   return hits[0] ?? null;
 }
+
+/**
+ * The participant whose Teams identity carries this work email, if they are in the chat (case-insensitive).
+ * request_missing_details uses it to decide whether an @Name post into the group would actually be seen:
+ * a colleague named by email, or picked by the Sales-Trader / account-manager chain, is only addressed in
+ * the chat when they are IN it — otherwise the ask goes to them directly. Null when nobody matches.
+ */
+export function participantByEmail(email: string | null | undefined, participants: ConversationParticipant[]): ConversationParticipant | null {
+  const e = (email ?? '').trim().toLowerCase();
+  if (!e) return null;
+  return participants.find((p) => (p.channelIdentity?.email ?? '').trim().toLowerCase() === e) ?? null;
+}
