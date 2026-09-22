@@ -1,6 +1,7 @@
 // Re-issue the rows that share a ref with a DIFFERENT coffee (the TYPE-113 bug) — round 10, A5.
 // Migration 023 listed them in lot_conflicts; the lot keeps the ref on the OLDEST coffee. Every other row gets
-// a fresh counter ref (one per coffee), its own lot, an `edited` event and a request_edited alert for QC.
+// the ref of the lot that already names its coffee, else a fresh counter ref (ONE per coffee across the run) and
+// its own lot — plus an `edited` event and a request_edited alert for QC.
 // Dry run:  npx tsx scripts/lot-conflicts.ts
 // Apply:    npx tsx scripts/lot-conflicts.ts --apply
 // Some refs only (dry or apply):  --ref TYPE-113,TYPE-114
@@ -33,7 +34,7 @@ if (!groups.length) {
     console.log('re-run with --apply to re-issue these refs (one transaction; QC is alerted per row)');
   } else {
     const report = await applyLotConflicts(pool, { onlyRefs });
-    for (const r of report.reissued) console.log(`  re-issued ${r.tab} ${short(r.id)} ${r.receiver ?? '?'}: ${r.from} → ${r.to} (${r.coffee})`);
+    for (const r of report.reissued) console.log(`  re-issued ${r.tab} ${short(r.id)} ${r.receiver ?? '?'}: ${r.from} → ${r.to} (${r.coffee}${r.minted ? '' : ' — existing lot'})`);
     for (const d of report.dropped) console.log(`  dropped   ${d.tab} ${short(d.id)} ${d.ref}: ${d.reason}`);
     console.log(`re-issued ${report.reissued.length} row(s), dropped ${report.dropped.length} stale conflict row(s)`);
   }

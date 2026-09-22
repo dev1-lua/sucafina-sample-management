@@ -118,7 +118,7 @@ export async function findLot(db: Db, ref: string): Promise<Lot | null> {
 }
 
 /** The most recently issued lot naming this coffee in this book (the backfill may have left several). */
-async function findLotByCoffee(db: Db, book: Book, coffeeKey: string): Promise<Lot | null> {
+export async function findLotByCoffee(db: Db, book: Book, coffeeKey: string): Promise<Lot | null> {
   const { rows } = await db.query(
     `SELECT * FROM lots WHERE book = $1 AND coffee_key = $2 ORDER BY first_issued_at DESC, ref LIMIT 1`,
     [book, coffeeKey],
