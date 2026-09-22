@@ -3,7 +3,8 @@ import request from 'supertest';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
 import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
-import { normalizeRef, normalizeQuality, coffeeKeyFor, resolveLot, findLot, claimRef, liveSends } from '../src/lib/lots.js';
+import { normalizeRef, normalizeQuality, coffeeKeyFor, resolveLot, findLot, findLotByCoffee, claimRef, liveSends, lotRefFor, optionLetterOfRef, groupOptionLetters, registerLot } from '../src/lib/lots.js';
+import { drawPss } from '../src/lib/contracts.js';
 import { LOT_CONFLICTS_ACTOR, applyLotConflicts, listLotConflicts } from '../src/lib/lot-conflicts.js';
 
 // Round 10 (A1): a ref names the COFFEE, not the send. The same ref is reused when the same coffee goes
@@ -23,25 +24,103 @@ describe('normalizeRef', () => {
   });
 });
 
+// Round 10b (Harriet, 2026-09-23): PSS refs are SSKE-<contract digits><option letter>; the LOT is the contract.
+describe('lotRefFor', () => {
+  it('strips one trailing option letter from an SSKE ref (with or without the legacy space), nothing else', () => {
+    expect(lotRefFor('SSKE-104929A')).toBe('SSKE-104929');
+    expect(lotRefFor('sske-104929 c')).toBe('SSKE-104929');
+    expect(lotRefFor('SSKE 95986 A')).toBe('SSKE-95986');      // the sheet's spelling → normalize_ref → SSKE-95986 A
+    expect(lotRefFor('SSKE-104929')).toBe('SSKE-104929');
+    expect(lotRefFor('SSKE-108575')).toBe('SSKE-108575');
+    expect(lotRefFor('TYPE-980A')).toBe('TYPE-980A');           // only SSKE groups by letter
+    expect(lotRefFor('SL-7336')).toBe('SL-7336');
+    expect(lotRefFor('SSKE-104929D-F')).toBe('SSKE-104929D-F'); // a range is not one option
+    expect(lotRefFor('')).toBe('');
+    expect(lotRefFor(null)).toBe('');
+  });
+  it('optionLetterOfRef reads the letter an SSKE ref carries', () => {
+    expect(optionLetterOfRef('SSKE-104929A')).toBe('A');
+    expect(optionLetterOfRef('sske 95986 d')).toBe('D');
+    expect(optionLetterOfRef('SSKE-104929')).toBeNull();
+    expect(optionLetterOfRef('TYPE-980A')).toBeNull();
+    expect(optionLetterOfRef(null)).toBeNull();
+  });
+  it('agrees with the SQL lot_ref() / ref_option_letter()', async () => {
+    for (const r of ['SSKE-104929A', 'sske-104929 c', 'SSKE 95986 A', 'SSKE-104929', 'TYPE-980A', 'type - 980', 'SSKE-104929D-F', '']) {
+      const { rows } = await pool.query(`SELECT lot_ref($1) AS r, ref_option_letter($1) AS l`, [r]);
+      expect(rows[0].r, r).toBe(lotRefFor(r));
+      expect(rows[0].l, r).toBe(optionLetterOfRef(r));
+    }
+  });
+});
+
 describe('normalizeQuality', () => {
   it('lower-cases, strips punctuation and the sample/replacement noise words', () => {
     expect(normalizeQuality('AB FAQ')).toBe('ab faq');
     expect(normalizeQuality('  AB  faq. ')).toBe('ab faq');
     expect(normalizeQuality('AB FAQ (replacement)')).toBe('ab faq');
     expect(normalizeQuality('AB FAQ sample')).toBe('ab faq');
-    expect(normalizeQuality('Kenya AB samples')).toBe('kenya ab');
+    expect(normalizeQuality('Kenya AB samples')).toBe('ab');
   });
-  it('keeps the distinguishing letter: "TYPE SAMPLE B" ≠ "ARABICA SAMPLE B"', () => {
+  // Round 10b: the desk's spellings of one coffee must land on one key (Harriet, 2026-09-23).
+  it('softened: dash/underscore inside a token, plural s, certification + origin noise, "same coffee as …"', () => {
+    expect(normalizeQuality('AB-FAQ')).toBe(normalizeQuality('AB FAQ'));
+    expect(normalizeQuality('AA-FAQ')).toBe(normalizeQuality('AA FAQ'));
+    expect(normalizeQuality('AB_FAQ')).toBe('ab faq');
+    expect(normalizeQuality('Grinder')).toBe(normalizeQuality('Grinders'));
+    expect(normalizeQuality('Grinders')).toBe('grinder');
+    expect(normalizeQuality('inders FAQ RA EUDR compliance')).toBe(normalizeQuality('Grinders FAQ'));
+    expect(normalizeQuality('Grinders FAQ')).toBe('grinder faq');
+    expect(normalizeQuality('AB FAQ RA EUDR Certificate')).toBe('ab faq');
+    expect(normalizeQuality('AB FAQ EUDR')).toBe('ab faq');
+    expect(normalizeQuality('Grinders RA')).toBe('grinder');
+    expect(normalizeQuality('Low Grades Arabica')).toBe(normalizeQuality('Low grade Arabica'));
+    expect(normalizeQuality('Kenya AB washed process, certified')).toBe('ab');
+    expect(normalizeQuality('AA FAQ same coffee as 903 and 902')).toBe('aa faq');
+    expect(normalizeQuality('AA FAQ, same coffee as TYPE-903')).toBe('aa faq');
+    // a 4-letter plural is left alone; a word ending in "ss" is not a plural
+    expect(normalizeQuality('FAQs')).toBe('faqs');
+    expect(normalizeQuality('glass')).toBe('glass');
+  });
+  it('the desk says TYPE SAMPLE B and ARABICA SAMPLE B were the same coffee; B is still not C', () => {
     expect(normalizeQuality('TYPE SAMPLE B')).toBe('b');
-    expect(normalizeQuality('ARABICA SAMPLE B')).toBe('arabica b');
-    expect(normalizeQuality('TYPE SAMPLE B')).not.toBe(normalizeQuality('ARABICA SAMPLE B'));
+    expect(normalizeQuality('ARABICA SAMPLE B')).toBe('b');
+    expect(normalizeQuality('TYPE SAMPLE B')).not.toBe(normalizeQuality('TYPE SAMPLE C'));
+  });
+  it('keeps what distinguishes coffees: grade tokens, screen sizes, percentages', () => {
+    expect(normalizeQuality('AA FAQ')).not.toBe(normalizeQuality('AB FAQ'));
+    expect(normalizeQuality('AB FAQ')).not.toBe(normalizeQuality('C FAQ'));
+    expect(normalizeQuality('PB')).not.toBe(normalizeQuality('AB'));
+    expect(normalizeQuality('AA PLUS')).not.toBe(normalizeQuality('AA'));
+    expect(normalizeQuality('AA PLUS')).toBe('aa plus');
+    expect(normalizeQuality('AB SCREEN 15')).toBe('ab screen 15');
+    expect(normalizeQuality('Grinders sc 13 up')).toBe('grinder sc 13 up');
+    expect(normalizeQuality('AB-FAQ -SC15+')).toBe('ab faq sc15');
+    expect(normalizeQuality('AB-FAQ -SC15+')).not.toBe(normalizeQuality('AB-FAQ'));
+    expect(normalizeQuality('TT')).toBe('tt');
+    expect(normalizeQuality('E')).toBe('e');
   });
   it('blends are order-insensitive: split on , or /, sorted, re-joined with " / "', () => {
     expect(normalizeQuality('AA PLUS 30% / AB 70%')).toBe('aa plus 30% / ab 70%');
+    expect(normalizeQuality('AA PLUS 30%/AB 70%')).toBe('aa plus 30% / ab 70%');
     expect(normalizeQuality('AB 70%, AA PLUS 30%')).toBe('aa plus 30% / ab 70%');
     expect(normalizeQuality('AA PLUS (30%), AB (70%)')).toBe('aa plus 30% / ab 70%');
+    expect(normalizeQuality('AB/C RFA EUDR')).toBe('ab / c rfa');
     expect(normalizeQuality('')).toBe('');
     expect(normalizeQuality(null)).toBe('');
+  });
+  it('agrees with the SQL normalize_quality() on every pair above', async () => {
+    const cases = [
+      'AB FAQ', '  AB  faq. ', 'AB FAQ (replacement)', 'Kenya AB samples', 'AB-FAQ', 'AB_FAQ', 'Grinder', 'Grinders',
+      'inders FAQ RA EUDR compliance', 'Grinders FAQ', 'AB FAQ RA EUDR Certificate', 'Grinders RA', 'Low Grades Arabica',
+      'Kenya AB washed process, certified', 'AA FAQ same coffee as 903 and 902', 'AA FAQ, same coffee as TYPE-903', 'FAQs', 'glass',
+      'TYPE SAMPLE B', 'ARABICA SAMPLE B', 'TYPE SAMPLE C', 'AA PLUS', 'AB SCREEN 15', 'Grinders sc 13 up', 'AB-FAQ -SC15+',
+      'AA PLUS 30% / AB 70%', 'AA PLUS 30%/AB 70%', 'AB 70%, AA PLUS 30%', 'AA PLUS (30%), AB (70%)', 'AB/C RFA EUDR', 'ARTABICA SAMPLE C', '',
+    ];
+    for (const c of cases) {
+      const { rows } = await pool.query(`SELECT normalize_quality($1) AS q`, [c]);
+      expect(rows[0].q, JSON.stringify(c)).toBe(normalizeQuality(c));
+    }
   });
 });
 
@@ -50,6 +129,7 @@ describe('coffeeKeyFor', () => {
     expect(coffeeKeyFor({ book: 'specialty', outturn: ' 15/5670 ', grade: 'aa', quality: 'Nyeri AA' })).toBe('15/5670|AA');
     expect(coffeeKeyFor({ book: 'specialty', outturn: '', grade: 'AB', quality: 'Kiri / Kirinyaga' })).toBe('kiri / kirinyaga|AB');
     expect(coffeeKeyFor({ book: 'specialty', outturn: null, grade: null, quality: 'Nyeri AA' })).toBe('nyeri aa|');
+    expect(coffeeKeyFor({ book: 'commercial', quality: 'Grinders FAQ RA EUDR compliance', blend: null })).toBe('grinder faq|');
   });
   it('commercial = normalised quality|normalised blend', () => {
     expect(coffeeKeyFor({ book: 'commercial', quality: 'AB FAQ', blend: null })).toBe('ab faq|');
@@ -296,6 +376,170 @@ describe('/lots routes', () => {
     expect(spec.body.data.every((l: { book: string }) => l.book === 'specialty')).toBe(true);
     expect(spec.body.data.map((l: { ref: string }) => l.ref)).toContain('SL-7336');
     expect((await auth(request(app).get('/lots?book=bogus'))).status).toBe(400);
+  });
+});
+
+// Round 10b: PSS options of one contract are ONE lot (Harriet, 2026-09-23: "the only difference is the suffix
+// alphabet A B C D; we prefer to see them under one group"). The row keeps its lettered ref; the lot is the base.
+describe('PSS lots group by contract (round 10b)', () => {
+  let optA: string;
+  let optB: string;
+
+  it('two typed lettered refs with the same quality → one base lot, lot_sends 2 on both rows', async () => {
+    const a = await auth(request(app).post('/bulk-samples')).send({ quality: 'AB FAQ', client: 'Paulig', sample_type: 'pss', sample_ref: 'SSKE-104929A' });
+    expect(a.status).toBe(201);
+    expect(a.body).toMatchObject({ sample_ref: 'SSKE-104929A', lot_sends: 1, reused_ref: false, option_letter: null });
+    const b = await auth(request(app).post('/bulk-samples')).send({ quality: 'AB-FAQ', client: 'Paulig', sample_type: 'pss', sample_ref: 'sske-104929 b' });
+    expect(b.status).toBe(201);
+    expect(b.body).toMatchObject({ sample_ref: 'SSKE-104929 B', lot_sends: 2, reused_ref: true });
+    optA = a.body.id;
+    optB = b.body.id;
+    expect(await findLot(pool, 'SSKE-104929A')).toMatchObject({ ref: 'SSKE-104929', book: 'commercial', coffee_key: 'ab faq|', quality: 'AB FAQ' });
+    expect(await findLot(pool, 'SSKE-104929')).toMatchObject({ ref: 'SSKE-104929' });
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lots WHERE ref LIKE 'SSKE-104929%'`)).rows[0].n).toBe(1);
+    // The rows themselves, the list route and the view all count the GROUP.
+    expect((await auth(request(app).get(`/bulk-samples/${optA}`))).body.lot_sends).toBe(2);
+    const list = await auth(request(app).get('/bulk-samples?ref=SSKE-104929A'));
+    expect(list.body.total).toBe(1);                 // ?ref= still finds exactly the typed option
+    expect(list.body.data[0].lot_sends).toBe(2);
+    const { rows } = await pool.query(`SELECT lot_sends FROM all_samples_v WHERE id = $1`, [optB]);
+    expect(rows[0].lot_sends).toBe(2);
+  });
+
+  it('GET /lots/:ref takes the base or any option; sends carry option_letter derived from the ref when the column is empty', async () => {
+    for (const path of ['/lots/SSKE-104929', '/lots/SSKE-104929B', '/lots/sske%20104929%20a']) {
+      const r = await auth(request(app).get(path));
+      expect(r.status, path).toBe(200);
+      expect(r.body.lot.ref).toBe('SSKE-104929');
+      expect(r.body.sends).toHaveLength(2);
+      expect(r.body.sends.map((s: { option_letter: string | null }) => s.option_letter).sort()).toEqual(['A', 'B']);
+      expect(r.body.sends.map((s: { ref: string }) => s.ref).sort()).toEqual(['SSKE-104929 B', 'SSKE-104929A']);
+    }
+  });
+
+  it('resolve: a typed option of an existing group is reuse (never conflict) and keeps the typed ref; the reason names the options', async () => {
+    const r = await auth(request(app).post('/lots/resolve')).send({ book: 'commercial', ref: 'SSKE-104929C', quality: 'AB FAQ', blend: null, sample_type: 'pss' });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ action: 'reuse', ref: 'SSKE-104929C' });
+    expect(r.body.lot.ref).toBe('SSKE-104929');
+    expect(r.body.sends).toHaveLength(2);
+    expect(r.body.sends[0].option_letter).toMatch(/^[AB]$/);
+    expect(r.body.reason).toContain('SSKE-104929');
+    expect(r.body.reason).toMatch(/options A, B/);
+    // A different quality text is a note, not a block — the contract is the identity of a PSS group.
+    const other = await resolveLot(pool, { book: 'commercial', ref: 'SSKE-104929C', quality: 'Grinders', blend: null });
+    expect(other.action).toBe('reuse');
+    expect(other.reason).toMatch(/Grinders/);
+    expect(other.reason).toMatch(/AB FAQ/);
+    // The bare base with no lot → new; a bare base whose lot exists → reuse of the group.
+    expect(await resolveLot(pool, { book: 'commercial', ref: 'SSKE-777777', quality: 'AB FAQ', blend: null })).toMatchObject({ action: 'new', ref: 'SSKE-777777', lot: null });
+    expect(await resolveLot(pool, { book: 'commercial', ref: 'SSKE-104929', quality: 'AB FAQ', blend: null })).toMatchObject({ action: 'reuse', ref: 'SSKE-104929' });
+    // Non-PSS refs keep the strict rule.
+    expect((await resolveLot(pool, { book: 'commercial', ref: 'TYPE-973', quality: 'PB', blend: null })).action).toBe('conflict');
+  });
+
+  it('the create never 409s on an SSKE option with a different quality text; lot_sends counts the group', async () => {
+    const c = await auth(request(app).post('/bulk-samples')).send({ quality: 'Grinders', client: 'Paulig', sample_type: 'pss', sample_ref: 'SSKE-104929C' });
+    expect(c.status).toBe(201);
+    expect(c.body).toMatchObject({ sample_ref: 'SSKE-104929C', lot_sends: 3, reused_ref: true });
+    await auth(request(app).delete(`/bulk-samples/${c.body.id}`));
+    expect(await findLot(pool, 'SSKE-104929')).not.toBeNull();
+    expect((await liveSends(pool, 'SSKE-104929', { limit: 20 })).map((s) => s.id).sort()).toEqual([optA, optB].sort());
+  });
+
+  it('GET /lots: the group row carries options (distinct, A→Z) and contract_client; ?q= on an option finds the group', async () => {
+    const byOption = await auth(request(app).get('/lots?book=commercial&q=SSKE-104929A'));
+    expect(byOption.status).toBe(200);
+    expect(byOption.body.data.map((l: { ref: string }) => l.ref)).toEqual(['SSKE-104929']);
+    expect(byOption.body.data[0]).toMatchObject({ options: ['A', 'B'], contract_client: null, sends: 2 });
+    const all = await auth(request(app).get('/lots?pageSize=100'));
+    const t973 = all.body.data.find((l: { ref: string }) => l.ref === 'TYPE-973');
+    expect(t973.options).toEqual([]);
+    expect(t973.contract_client).toBeNull();
+  });
+
+  it('a contract-derived draw registers the base lot with the contract quality; the 021 letter index still 409s a duplicate letter', async () => {
+    const c = await auth(request(app).post('/contracts')).send({ contract_number: 'SSKE-556001', client_name: 'Zoegas', quality: 'AA FAQ', pss_expected: 2, shipment_date: '2027-02-15', create_pss: true });
+    expect(c.status).toBe(201);
+    const lot = await findLot(pool, 'SSKE-556001');
+    expect(lot).toMatchObject({ ref: 'SSKE-556001', book: 'commercial', quality: 'AA FAQ', coffee_key: 'aa faq|', created_by: 'test' });
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lots WHERE ref LIKE 'SSKE-556001%'`)).rows[0].n).toBe(1);
+    const g = await auth(request(app).get('/lots/SSKE-556001A'));
+    expect(g.body.sends.map((s: { option_letter: string; ref: string }) => [s.option_letter, s.ref]).sort()).toEqual([['A', 'SSKE-556001A'], ['B', 'SSKE-556001B']]);
+    const row = await auth(request(app).get('/lots?book=commercial&q=SSKE-556001'));
+    expect(row.body.data[0]).toMatchObject({ ref: 'SSKE-556001', options: ['A', 'B'], contract_client: 'Zoegas' });
+    // Same contract, same letter, by hand → the unique index (021) refuses it and nothing is written.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await expect(drawPss(client, { contractId: c.body.id, containerNo: 1, actor: 'test', optionLetter: 'A' })).rejects.toMatchObject({ code: '23505', constraint: 'bulk_samples_contract_option_idx' });
+      await client.query('ROLLBACK');
+    } finally { client.release(); }
+  });
+
+  it('a PSS contract group is never proposed by coffee: a type sample of the same quality gets its own ref', async () => {
+    // SSKE-556001 (above) names AA FAQ, but its refs are contract-derived and belong to Zoegas' PSS only.
+    expect(await findLotByCoffee(pool, 'commercial', 'aa faq|')).toSatisfy((l: { ref: string } | null) => l === null || !/^SSKE-/.test(l.ref));
+    const r = await resolveLot(pool, { book: 'commercial', quality: 'AA FAQ', blend: null, sample_type: 'type' });
+    expect(r.ref ?? '').not.toMatch(/^SSKE-/);
+  });
+
+  it('a lettered typed ref with NO option_letter column shows its letter (legacy rows: 522 in prod)', async () => {
+    await pool.query(`INSERT INTO bulk_samples (sample_ref, quality, client, sample_type_norm, status) VALUES ('SSKE 95986 D', 'GRINDER FAQ RFA', 'Ahold', 'pss', 'delivered')`);
+    await registerLot(pool, { ref: 'SSKE-95986D', book: 'commercial', quality: 'GRINDER FAQ RFA' });
+    const r = await auth(request(app).get('/lots/SSKE-95986'));
+    expect(r.status).toBe(200);
+    expect(r.body.sends).toHaveLength(1);
+    expect(r.body.sends[0]).toMatchObject({ ref: 'SSKE 95986 D', option_letter: 'D' });
+    const list = await auth(request(app).get('/lots?q=SSKE-95986D'));
+    expect(list.body.data[0]).toMatchObject({ ref: 'SSKE-95986', options: ['D'] });
+  });
+});
+
+describe('migration 024: PSS lots re-keyed by contract, keys softened, conflicts rebuilt', () => {
+  it('lettered lots collapse into one base lot keeping the oldest coffee; sends are found via lot_ref; replay is idempotent', async () => {
+    // Legacy-shaped: three options of one contract, two spellings of the ref, no option_letter, one duplicate letter.
+    await pool.query(
+      `INSERT INTO bulk_samples (sample_ref, quality, client, sample_type_norm, status, created_at) VALUES
+         ('SSKE-101798 A', 'Grinders',        'Ahold', 'pss', 'delivered', now() - interval '30 days'),
+         ('SSKE-101798B',  'Grinders RA',     'Ahold', 'pss', 'delivered', now() - interval '20 days'),
+         ('SSKE-101798 C', 'Grinders FAQ RA EUDR compliance', 'Ahold', 'pss', 'dispatched', now() - interval '10 days'),
+         ('SSKE-101798 C', 'Grinders',        'Ahold', 'pss', 'dispatched', now() - interval '9 days')`);
+    // Pre-024 state: one lettered lot per option (what 023 built in prod), the oldest first.
+    await pool.query(
+      `INSERT INTO lots (ref, book, coffee_key, quality, first_issued_at, created_by) VALUES
+         ('SSKE-101798 A', 'commercial', 'grinders|',     'Grinders',    now() - interval '30 days', 'migration:023'),
+         ('SSKE-101798B',  'commercial', 'grinders ra|',  'Grinders RA', now() - interval '20 days', 'migration:023'),
+         ('SSKE-101798 C', 'commercial', 'grinders faq ra eudr compliance|', 'Grinders FAQ RA EUDR compliance', now() - interval '10 days', 'migration:023')
+       ON CONFLICT (ref) DO NOTHING`);
+    // A pre-softening key on a plain lot gets recomputed too.
+    await pool.query(`INSERT INTO bulk_samples (sample_ref, quality, client, sample_type_norm, status) VALUES ('TYPE-9864', 'AB-FAQ', 'JDE', 'type', 'dispatched')`);
+    await pool.query(`INSERT INTO lots (ref, book, coffee_key, quality, created_by) VALUES ('TYPE-9864', 'commercial', 'ab-faq|', 'AB-FAQ', 'migration:023') ON CONFLICT (ref) DO NOTHING`);
+
+    const files = await reapplyMigrationsFrom('023');
+    expect(files.slice(0, 2)).toEqual(['023_lots_and_orders.sql', '024_pss_lots_by_contract.sql']);
+
+    const { rows: lots } = await pool.query(`SELECT * FROM lots WHERE ref LIKE 'SSKE-101798%' ORDER BY ref`);
+    expect(lots).toHaveLength(1);
+    expect(lots[0]).toMatchObject({ ref: 'SSKE-101798', book: 'commercial', quality: 'Grinders', coffee_key: 'grinder|' });
+    expect(await findLot(pool, 'TYPE-9864')).toMatchObject({ coffee_key: 'ab faq|' });
+    const sends = await liveSends(pool, 'SSKE-101798B', { limit: 20 });
+    expect(sends).toHaveLength(4);
+    expect(sends.map((s) => s.option_letter).sort()).toEqual(['A', 'B', 'C', 'C']);
+    expect(await groupOptionLetters(pool, 'SSKE-101798 C')).toEqual(['A', 'B', 'C']);
+    const group = await auth(request(app).get('/lots?q=SSKE-101798'));
+    expect(group.body.data.map((l: { ref: string }) => l.ref)).toEqual(['SSKE-101798']);
+    expect(group.body.data[0]).toMatchObject({ options: ['A', 'B', 'C'], sends: 4 });
+    // PSS groups never appear in lot_conflicts: the contract, not the quality text, is their identity.
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lot_conflicts WHERE ref LIKE 'SSKE-101798%'`)).rows[0].n).toBe(0);
+    // Softened keys: 'AA FAQ' rows on TYPE-9113 still conflict with its 'AB FAQ' lot; 'ab faq.' does not.
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lot_conflicts WHERE ref = 'TYPE-9113' AND coffee_key = 'aa faq|'`)).rows[0].n).toBeGreaterThanOrEqual(1);
+
+    const before = await pool.query(`SELECT ref, coffee_key FROM lots ORDER BY ref`);
+    const conflictsBefore = await pool.query(`SELECT ref, sample_id FROM lot_conflicts ORDER BY ref, sample_id`);
+    await reapplyMigrationsFrom('023');
+    expect((await pool.query(`SELECT ref, coffee_key FROM lots ORDER BY ref`)).rows).toEqual(before.rows);
+    expect((await pool.query(`SELECT ref, sample_id FROM lot_conflicts ORDER BY ref, sample_id`)).rows).toEqual(conflictsBefore.rows);
   });
 });
 
