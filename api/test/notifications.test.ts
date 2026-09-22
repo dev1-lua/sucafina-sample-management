@@ -146,7 +146,7 @@ describe('POST /notifications/mark', () => {
 
 // Migration 013: proactive-notification outbox (feedback #29/#30).
 describe('notifications outbox', () => {
-  type OutboxItem = { outbox_id: string; sample_id: string; event: string; recipient: string | null };
+  type OutboxItem = { outbox_id: string; sample_id: string; event: string; recipient: string | null; recipients: { name: string; email: string | null }[] };
   const itemsFor = async (sampleId: string) => {
     const pending = await auth(request(app).get('/notifications/outbox-pending'));
     return (pending.body.items as OutboxItem[]).filter((i) => i.sample_id === sampleId);

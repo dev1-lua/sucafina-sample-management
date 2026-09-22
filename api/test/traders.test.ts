@@ -46,7 +46,7 @@ describe('traders', () => {
   });
 
   it('patch clears an email with null', async () => {
-    const created = await auth(request(app).post('/traders')).send({ name: 'Clearable', email: 'x@y.com' });
+    const created = await auth(request(app).post('/traders')).send({ name: 'Clearable', email: 'clearable@sucafina.com' });
     const res = await auth(request(app).patch(`/traders/${created.body.id}`)).send({ email: null });
     expect(res.status).toBe(200);
     expect(res.body.email).toBeNull();
@@ -68,5 +68,37 @@ describe('traders', () => {
     const all = await auth(request(app).get('/traders?all=1'));
     const ghost = all.body.data.find((t: { name: string }) => t.name === 'Ghost');
     expect(ghost.active).toBe(false);
+  });
+});
+
+// Round 10 (contracts §9): the roster is colleagues only — customers had landed on it via the intake
+// loop-in question (RC7). The API now refuses an external email outright.
+describe('traders: roster domain rule', () => {
+  const MSG = 'only @sucafina.com addresses are allowed on the team roster';
+
+  it('POST rejects a non-@sucafina.com email with 400 and the contract message', async () => {
+    const res = await auth(request(app).post('/traders')).send({ name: 'Minette Rosen', email: 'minette.rosen@se.nestle.com' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe(MSG);
+    const list = await auth(request(app).get('/traders?all=1'));
+    expect(list.body.data.some((t: { name: string }) => t.name === 'Minette Rosen')).toBe(false);
+  });
+
+  it('PATCH rejects a non-@sucafina.com email; the row is untouched', async () => {
+    const created = await auth(request(app).post('/traders')).send({ name: 'Domain Guard', email: 'domain.guard@sucafina.com' });
+    expect(created.status).toBe(201);
+    const res = await auth(request(app).patch(`/traders/${created.body.id}`)).send({ email: 'domain.guard@gmail.com', role: 'qc' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe(MSG);
+    const after = await auth(request(app).get('/traders'));
+    expect(after.body.data.find((t: { id: string }) => t.id === created.body.id)).toMatchObject({ email: 'domain.guard@sucafina.com', role: 'trader' });
+  });
+
+  it('null email and @sucafina.com (any case, sub-domain) are still allowed', async () => {
+    expect((await auth(request(app).post('/traders')).send({ name: 'No Email', email: null })).status).toBe(201);
+    expect((await auth(request(app).post('/traders')).send({ name: 'Upper Case', email: 'Upper.Case@SUCAFINA.COM' })).status).toBe(201);
+    expect((await auth(request(app).post('/traders')).send({ name: 'Sub Domain', email: 'sub@ke.sucafina.com' })).status).toBe(201);
+    const created = await auth(request(app).post('/traders')).send({ name: 'Nullable', email: 'nullable@sucafina.com' });
+    expect((await auth(request(app).patch(`/traders/${created.body.id}`)).send({ email: null })).status).toBe(200);
   });
 });

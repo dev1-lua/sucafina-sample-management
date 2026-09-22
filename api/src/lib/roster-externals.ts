@@ -8,6 +8,9 @@ import type { pool as Pool } from '../db.js';
 /** Email domains that count as Sucafina-internal. Mirror of INTERNAL_EMAIL_DOMAINS in the agent. */
 export const INTERNAL_EMAIL_DOMAINS = ['sucafina.com'];
 
+/** The 400 body a create / edit gets for an external address (contracts §9). */
+export const ROSTER_EMAIL_ERROR = `only @${INTERNAL_EMAIL_DOMAINS[0]} addresses are allowed on the team roster`;
+
 export function isInternalEmail(email: string | null | undefined): boolean {
   const e = (email ?? '').trim().toLowerCase();
   const at = e.lastIndexOf('@');

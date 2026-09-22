@@ -18,7 +18,8 @@ describe('roster externals clean-up', () => {
   let tommie: string;
 
   beforeAll(async () => {
-    minette = (await auth(request(app).post('/traders')).send({ name: 'Minette Rosen', email: 'minette.rosen@se.nestle.com', role: 'trader' })).body.id;
+    // Round 10: POST /traders refuses an external email, so the legacy slip is seeded straight into the table.
+    minette = (await pool.query(`INSERT INTO traders (name, email, role, active) VALUES ('Minette Rosen', 'minette.rosen@se.nestle.com', 'trader', true) RETURNING id`)).rows[0].id;
     tommie = (await auth(request(app).post('/traders')).send({ name: 'Tommie Schretlen', email: 'tommie.schretlen@sucafina.com', role: 'trader' })).body.id;
     await auth(request(app).post('/traders')).send({ name: 'Ivo', role: 'trader' }); // no email — must be untouched
     await auth(request(app).post('/traders')).send({ name: 'Dennis', email: 'kenyacof.specialtyqc@sucafina.com', role: 'qc' });
