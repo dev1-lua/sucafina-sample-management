@@ -1,14 +1,16 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 import { issueRef } from './refs.js';
-import { coffeeKeyFor, describeCoffee, normalizeRef, registerLot, type Book, type Coffee, type Lot } from './lots.js';
+import { coffeeKeyFor, describeCoffee, findLotByCoffee, normalizeRef, registerLot, type Book, type Coffee, type Lot } from './lots.js';
 import { enqueueRequestEdited } from './change-alerts.js';
 
 // A5 (round 10): migration 023 flagged, in `lot_conflicts`, every live row whose coffee disagrees with the
 // lot its ref names (the TYPE-113 bug: one ref, two qualities). The lot keeps the ref on the OLDEST coffee;
-// this module re-issues every other row — a fresh counter ref (one per coffee within the group), its own
-// lot, an `edited` event and a request_edited change alert so QC sees the rename. scripts/lot-conflicts.ts
-// is the CLI (dry run by default).
+// this module re-issues every other row — onto the ref of a lot that already names its coffee in this book
+// when there is one, else a fresh counter ref (ONE per coffee across the whole run, not per group: Beyers'
+// and Sarutahiko's AB FAQ rows flagged under TYPE-113 and TYPE-114 are the same coffee) — with an `edited`
+// event and a request_edited change alert so QC sees the rename. scripts/lot-conflicts.ts is the CLI (dry
+// run by default).
 
 export const LOT_CONFLICTS_ACTOR = 'script:lot-conflicts';
 
@@ -71,7 +73,8 @@ export async function listLotConflicts(db: Db, o: { onlyRefs?: string[] } = {}):
   return only ? all.filter((g) => only.has(g.ref)) : all;
 }
 
-export type Reissued = { tab: Tab; id: string; receiver: string | null; from: string; to: string; coffee: string };
+/** `minted` = a fresh counter ref was issued for this coffee; false = moved onto a lot that already named it. */
+export type Reissued = { tab: Tab; id: string; receiver: string | null; from: string; to: string; coffee: string; minted: boolean };
 export type Dropped = { tab: Tab; id: string; ref: string; reason: string };
 export type ApplyReport = { reissued: Reissued[]; dropped: Dropped[] };
 
@@ -83,8 +86,9 @@ function coffeeOf(tab: Tab, row: Record<string, unknown>): Coffee {
 
 /**
  * Re-issue every flagged row that still disagrees with its lot, in ONE transaction. Rows deleted, re-reffed
- * or re-described since detection are dropped (nothing to do). Within one ref, rows naming the same new
- * coffee share the one new ref — the ref names the coffee, not the send.
+ * or re-described since detection are dropped (nothing to do). The ref names the coffee, not the send: a
+ * row goes onto the lot already naming its coffee (any ref but the group's own), and rows naming the same
+ * new coffee share the one new ref across every group of the run.
  */
 export async function applyLotConflicts(db: typeof pool = pool, o: { actor?: string; onlyRefs?: string[] } = {}): Promise<ApplyReport> {
   const actor = o.actor ?? LOT_CONFLICTS_ACTOR;
@@ -92,8 +96,9 @@ export async function applyLotConflicts(db: typeof pool = pool, o: { actor?: str
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+    // book|coffee_key → the ref this run settled on for that coffee (found or minted), shared across groups.
+    const refByCoffee = new Map<string, { ref: string; minted: boolean }>();
     for (const group of await listLotConflicts(client, { onlyRefs: o.onlyRefs })) {
-      const newRefByCoffee = new Map<string, string>();
       const handled: string[] = [];
       for (const c of group.rows) {
         const drop = (reason: string) => { report.dropped.push({ tab: c.tab, id: c.sample_id, ref: c.ref, reason }); handled.push(c.sample_id); };
@@ -108,12 +113,20 @@ export async function applyLotConflicts(db: typeof pool = pool, o: { actor?: str
         const key = coffeeKeyFor(coffee);
         if (key === group.lot.coffee_key) { drop('coffee now matches the lot'); continue; }
 
-        let to = newRefByCoffee.get(key);
-        if (!to) {
-          to = await issueRef(String(prev.sample_type_norm ?? ''), client);
-          await registerLot(client, { ...coffee, ref: to, createdBy: actor });
-          newRefByCoffee.set(key, to);
+        const coffeeId = `${coffee.book}|${key}`;
+        let target = refByCoffee.get(coffeeId);
+        if (!target) {
+          const existing = await findLotByCoffee(client, coffee.book, key);
+          if (existing && existing.ref !== group.ref) {
+            target = { ref: existing.ref, minted: false };
+          } else {
+            const to = await issueRef(String(prev.sample_type_norm ?? ''), client);
+            await registerLot(client, { ...coffee, ref: to, createdBy: actor });
+            target = { ref: to, minted: true };
+          }
+          refByCoffee.set(coffeeId, target);
         }
+        const to = target.ref;
         const from = group.ref;
         const { rows: [row] } = await client.query(`UPDATE ${table} SET ${refCol} = $2, updated_at = now() WHERE id = $1 RETURNING *`, [c.sample_id, to]);
         await client.query(
@@ -121,7 +134,7 @@ export async function applyLotConflicts(db: typeof pool = pool, o: { actor?: str
           [c.tab, c.sample_id, `ref ${from} → ${to}: ${describeCoffee(coffee)} is not the coffee ${from} names (${describeCoffee(group.lot)}) — re-issued by scripts/lot-conflicts.ts`, actor],
         );
         await enqueueRequestEdited(client, c.tab, prev, row, actor, { [refCol]: { from, to } });
-        report.reissued.push({ tab: c.tab, id: c.sample_id, receiver: c.receiver, from, to, coffee: describeCoffee(coffee) });
+        report.reissued.push({ tab: c.tab, id: c.sample_id, receiver: c.receiver, from, to, coffee: describeCoffee(coffee), minted: target.minted });
         handled.push(c.sample_id);
       }
       if (handled.length) await client.query(`DELETE FROM lot_conflicts WHERE ref = $1 AND sample_id = ANY($2::uuid[])`, [group.ref, handled]);

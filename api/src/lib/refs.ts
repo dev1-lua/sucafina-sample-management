@@ -21,9 +21,13 @@ export async function issueRef(sampleType: string, db: Pick<PoolClient, 'query'>
   return `${prefix}-${rows[0].val}`;
 }
 
-/** Mint the next consignment number, e.g. "CN-1000" (counter seeded in migration 008). */
-export async function issueConsignmentNumber(): Promise<string> {
-  const { rows } = await pool.query(
+/**
+ * Mint the next consignment number, e.g. "CN-1000" (counter seeded in migration 008). `db` lets a caller
+ * mint on ITS OWN transaction (scripts/backfill-orders.ts creates every order in one) so a rollback burns
+ * no number; default = the pool, as issueRef.
+ */
+export async function issueConsignmentNumber(db: Pick<PoolClient, 'query'> = pool): Promise<string> {
+  const { rows } = await db.query(
     `UPDATE ref_counters SET next_val = next_val + 1 WHERE prefix = 'CN' RETURNING next_val - 1 AS val`,
   );
   return `CN-${rows[0].val}`;
