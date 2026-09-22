@@ -219,14 +219,15 @@ export async function notifyContactGap(
 export const EMAIL_CHANNEL_READY = true;
 
 /**
- * Kenya Specialty QC desk mailbox — copied on every outgoing email, internal pings and
- * client-facing mail alike (requested 2026-09-03). Attached in `sendEmail`, the one seam
- * every send goes through; status-notifier passes `cc: []` after the first email of an
- * event so the shared mailbox gets one copy per event, not one per recipient.
+ * The Kenya QC mailboxes — Specialty QC and Kenya QC — copied on every outgoing email, internal
+ * pings and client-facing mail alike (Specialty requested 2026-09-03, Kenya QC added round 10).
+ * Attached in `sendEmail`, the one seam every send goes through; status-notifier passes `cc: []`
+ * after the first email of an event (or of a grouped order message) so each mailbox gets one copy
+ * per event, not one per recipient.
  */
-export const NOTIFY_CC = ['kenyacof.specialtyqc@sucafina.com'];
+export const NOTIFY_CC = ['kenyacof.specialtyqc@sucafina.com', 'kenyaqc@sucafina.com'];
 
-/** CC list for one email — never CC the mailbox on mail addressed to itself. */
+/** CC list for one email — never CC a mailbox on mail addressed to itself. */
 export function ccFor(to: string): string[] {
   const lower = to.trim().toLowerCase();
   return NOTIFY_CC.filter((a) => a.toLowerCase() !== lower);

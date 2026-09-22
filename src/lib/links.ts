@@ -42,6 +42,19 @@ export function dashboardUrl(tab: LinkTab, id: string | number, event: LinkEvent
   return `${base}${DASH_PATH[tab]}/${id}?hl=${event}`;
 }
 
+/**
+ * Absolute dashboard URL for a book's Sends list, filtered — `?consignment=CN-1012` (one order's sends)
+ * or `?ref=SL-7336` (every send of one coffee). Same book paths as the row links above.
+ */
+export function bookListUrl(tab: Exclude<LinkTab, 'clients'>, filter: { consignment?: string | null; ref?: string | null }): string {
+  const base = (env('DASHBOARD_BASE_URL') || 'https://sucafina-sample-management.vercel.app').replace(/\/+$/, '');
+  const q = new URLSearchParams();
+  if (filter.consignment) q.set('consignment', filter.consignment);
+  if (filter.ref) q.set('ref', filter.ref);
+  const qs = q.toString();
+  return `${base}${DASH_PATH[tab]}${qs ? `?${qs}` : ''}`;
+}
+
 /** Absolute dashboard URL for one consignment (route /consignments/:id in dashboard-v2). */
 export function consignmentUrl(id: string, event: LinkEvent = 'updated'): string {
   const base = (env('DASHBOARD_BASE_URL') || 'https://sucafina-sample-management.vercel.app').replace(/\/+$/, '');

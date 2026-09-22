@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autoLoopIns, type TraderRow } from './notify';
+import { autoLoopIns, ccFor, NOTIFY_CC, type TraderRow } from './notify';
 
 const row = (id: string, name: string, email: string | null, role: 'trader' | 'qc' = 'trader'): TraderRow =>
   ({ id, name, email, role, active: true });
@@ -55,5 +55,16 @@ describe('autoLoopIns — the Sales Trader and the logger are always in the loop
   it('keeps a matched person without an email (the job reports them as unreachable by name)', () => {
     const r = autoLoopIns(['Omar'], ROSTER);
     expect(r.hits.map((t) => t.name)).toEqual(['Omar']);
+  });
+});
+
+describe('NOTIFY_CC — the QC mailboxes copied on every outgoing email', () => {
+  it('lists both Kenya QC mailboxes', () => {
+    expect(NOTIFY_CC).toEqual(['kenyacof.specialtyqc@sucafina.com', 'kenyaqc@sucafina.com']);
+  });
+
+  it('ccFor never copies a mailbox on mail addressed to itself, keeps the other', () => {
+    expect(ccFor('KenyaQC@sucafina.com')).toEqual(['kenyacof.specialtyqc@sucafina.com']);
+    expect(ccFor('ivo@sucafina.com')).toEqual(['kenyacof.specialtyqc@sucafina.com', 'kenyaqc@sucafina.com']);
   });
 });

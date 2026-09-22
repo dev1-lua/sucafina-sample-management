@@ -2,9 +2,11 @@ import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
 import { autoLoopIns, ccFor, EMAIL_CHANNEL_READY, loadTraders, sendToPerson, type TraderRow } from '../lib/notify';
 import { changeAlertMessage, isChangeAlert, type OutboxItem } from '../lib/change-alerts';
+import { bookListUrl } from '../lib/links';
 
-// Timeline suffix when the QC desk mailbox was CC'd on an event's email (once per event).
-const CC_NOTE = ' · cc Specialty QC mailbox';
+// Timeline suffix when the QC mailboxes (lib/notify NOTIFY_CC) were CC'd on an event's email — once per
+// event, or once per grouped order message.
+const CC_NOTE = ' · QC mailboxes copied';
 
 // Ivo Jr. (feedback #29/#30): the Quality team hears about every sample request the
 // moment it's logged in full, and the people in the loop hear as the sample progresses
@@ -203,26 +205,125 @@ export function trackingMessage(i: OutboxItem): { text: string; subject: string 
   };
 }
 
-function qcMessage(i: OutboxItem): { text: string; subject: string } {
-  const urgent = i.priority === 'urgent' ? ' 🔴 URGENT' : '';
+/** "logged by Gloria for Ivo" */
+function peopleLine(i: OutboxItem): string | null {
   const people = [i.logged_by ? `logged by ${i.logged_by}` : null,
                   i.requested_by && i.requested_by !== i.logged_by ? `for ${i.requested_by}` : null]
     .filter(Boolean).join(' ');
-  // Log-first (2026-09-08): the request is logged before the client's address exists — QC must see the
-  // gap on the ping itself, and who was asked to fill it.
-  const gap = !i.client_address_missing ? null
-    : i.details_requested_from
-      ? `⚠ No delivery address on file for ${i.client_name ?? i.receiver ?? 'the client'} — asked ${i.details_requested_from}` +
-        `${i.details_requested_via ? ` (${i.details_requested_via}` : ' ('}${i.details_requested_at ? `${i.details_requested_via ? ', ' : ''}${String(i.details_requested_at).slice(0, 10)}` : ''}) · chased daily`
-      : `⚠ No delivery address on file for ${i.client_name ?? i.receiver ?? 'the client'} — nobody asked yet${i.details_note ? ` (${i.logged_by ?? 'trader'}: "${i.details_note}")` : ''}`;
+  return people || null;
+}
+
+// Log-first (2026-09-08): the request is logged before the client's address exists — QC must see the
+// gap on the ping itself, and who was asked to fill it.
+function gapLine(i: OutboxItem): string | null {
+  if (!i.client_address_missing) return null;
+  return i.details_requested_from
+    ? `⚠ No delivery address on file for ${i.client_name ?? i.receiver ?? 'the client'} — asked ${i.details_requested_from}` +
+      `${i.details_requested_via ? ` (${i.details_requested_via}` : ' ('}${i.details_requested_at ? `${i.details_requested_via ? ', ' : ''}${String(i.details_requested_at).slice(0, 10)}` : ''}) · chased daily`
+    : `⚠ No delivery address on file for ${i.client_name ?? i.receiver ?? 'the client'} — nobody asked yet${i.details_note ? ` (${i.logged_by ?? 'trader'}: "${i.details_note}")` : ''}`;
+}
+
+/** "2026-09-22" as the Nairobi calendar reads it. */
+function nairobiDate(iso: string | Date): string | null {
+  const p = nairobiParts(iso instanceof Date ? iso.toISOString() : String(iso));
+  return p ? `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}` : null;
+}
+
+/** The client row was born with this request (payload flag), or was created today by the Nairobi calendar. */
+function isNewClient(i: OutboxItem, now: Date): boolean {
+  if (i.payload?.client_created === true) return true;
+  const created = i.client_created_at ? nairobiDate(i.client_created_at) : null;
+  return !!created && created === nairobiDate(now);
+}
+
+/** "Client: EDMAX — Jane · jane@edmax.co.ke · +254 …", flagged 🆕 when the client is new today (contracts §8). */
+function clientLine(i: OutboxItem, now: Date): string | null {
+  const name = i.client_name ?? i.receiver;
+  if (!name) return null;
+  const flag = isNewClient(i, now) ? '🆕 NEW CLIENT (added today) ' : '';
+  return `${flag}Client: ${name} — ${i.client_contact ?? '—'} · ${i.client_email ?? 'no email on file'} · ${i.client_phone ?? '—'}`;
+}
+
+/** "Type: type · Country: Kenya" */
+function typeLine(i: OutboxItem): string | null {
+  if (!i.sample_type_norm && !i.country) return null;
+  return `Type: ${i.sample_type_norm ?? '—'} · Country: ${i.country ?? '—'}`;
+}
+
+/** The single-sample QC ping: today's text plus the client / type lines. Exported for the unit tests. */
+export function qcMessage(i: OutboxItem, opts: { now?: Date } = {}): { text: string; subject: string } {
+  const now = opts.now ?? new Date();
+  const urgent = i.priority === 'urgent' ? ' 🔴 URGENT' : '';
+  const gap = gapLine(i);
   // A PSS drawn to replace one the client rejected is not a new request — say so up front, so QC reads
   // it as the follow-up it is (migration 020).
   const repl = i.payload?.replacement_of ? `REPLACEMENT PSS (for ${i.payload.replacement_of}) — ` : '';
+  const lines = [describe(i), peopleLine(i), clientLine(i, now), typeLine(i), gap].filter(Boolean);
   return {
-    text: `${repl}New sample request${urgent}:\n- ${describe(i)}${people ? `\n- ${people}` : ''}${gap ? `\n- ${gap}` : ''}`,
+    text: `${repl}New sample request${urgent}:\n${lines.map((l) => `- ${l}`).join('\n')}`,
     subject: `${repl}New sample request${urgent ? ' (URGENT)' : ''}: ${i.ref ?? i.title ?? ''}${gap ? ' — address pending' : ''}`,
   };
 }
+
+/** The order a `created` row belongs to: its consignment, else the request (logger + client). Null = never grouped. */
+function orderKey(i: OutboxItem): string | null {
+  const cn = i.payload?.consignment_id ?? i.consignment_id ?? i.payload?.consignment_number ?? i.consignment_number;
+  if (cn) return `cn:${cn}`;
+  const client = i.client_id ?? i.client_name;
+  if (!client) return null;
+  return `req:${i.logged_by ?? ''}|${client}`;
+}
+
+/**
+ * One request to one client = ONE QC ping (round 10): the pending `created` rows of this run grouped by
+ * order — `payload.consignment_id`, falling back to logger + client when the sends were not grouped into
+ * a consignment. Rows that cannot be keyed stay on their own. Order of first appearance is kept.
+ */
+export function groupCreated(items: OutboxItem[]): OutboxItem[][] {
+  const groups: OutboxItem[][] = [];
+  const byKey = new Map<string, OutboxItem[]>();
+  for (const i of items) {
+    const key = orderKey(i);
+    if (!key) { groups.push([i]); continue; }
+    let g = byKey.get(key);
+    if (!g) { g = []; byKey.set(key, g); groups.push(g); }
+    g.push(i);
+  }
+  return groups;
+}
+
+/**
+ * The grouped "new order" ping — one message for the 3 samples of CN-1012 instead of three. Subject
+ * "New sample request (3): CN-1012 · EDMAX". Exported for the unit tests.
+ */
+export function qcOrderMessage(items: OutboxItem[], opts: { now?: Date } = {}): { text: string; subject: string } {
+  const now = opts.now ?? new Date();
+  const first = items[0]!;
+  const cn = first.payload?.consignment_number ?? first.consignment_number ?? null;
+  const client = first.client_name ?? first.receiver ?? 'the client';
+  const anyUrgent = items.some((i) => i.priority === 'urgent');
+  const urgent = anyUrgent ? ' 🔴 URGENT' : '';
+  const n = items.length;
+  const header = cn ? `New order ${cn} for ${client}${urgent} — ${n} samples:` : `New sample request (${n}) for ${client}${urgent} — ${n} samples:`;
+  // The gap is per client, so one line covers the order — the row that names who was asked wins.
+  const gapRow = items.find((i) => i.client_address_missing && i.details_requested_from) ?? items.find((i) => i.client_address_missing);
+  const gap = gapRow ? gapLine(gapRow) : null;
+  const link = cn && first.tab in BOOK_PATH ? bookListUrl(first.tab as 'specialty' | 'bulk' | 'forwarding', { consignment: cn }) : null;
+  const lines = [
+    ...items.map((i) => `${describe(i)}${i.priority === 'urgent' ? ' 🔴' : ''}`),
+    peopleLine(first),
+    clientLine(first, now),
+    typeLine(first),
+    gap,
+    link,
+  ].filter(Boolean);
+  return {
+    text: `${header}\n${lines.map((l) => `- ${l}`).join('\n')}`,
+    subject: `New sample request (${n})${anyUrgent ? ' (URGENT)' : ''}: ${cn ? `${cn} · ` : ''}${client}${gap ? ' — address pending' : ''}`,
+  };
+}
+
+const BOOK_PATH = { specialty: true, bulk: true, forwarding: true } as const;
 
 async function mark(id: string, via: 'teams' | 'email' | 'skipped', detail: string | null) {
   await apiFetch('/notifications/outbox-mark', {
@@ -287,7 +388,18 @@ export const statusNotifierJob = new LuaJob({
       }
     }
 
-    for (const item of rest) {
+    // Round 10: a request of several coffees to one client is ONE order and ONE QC ping — the pending
+    // `created` rows are grouped by order (groupCreated) and go out as one message; every other event is
+    // its own unit. All rows of a unit share one send, one via/detail, one CC.
+    const createdRows = rest.filter((i) => i.event === 'created');
+    const units: OutboxItem[][] = [...groupCreated(createdRows), ...rest.filter((i) => i.event !== 'created').map((i) => [i])];
+
+    for (const unit of units) {
+      const item = unit[0]!;
+      const label = unit.length > 1 ? `${unit.length} rows (${unit.map((i) => i.ref).join(', ')})` : String(item.ref);
+      const markAll = async (via: 'teams' | 'email' | 'skipped', detail: string | null) => {
+        for (const i of unit) await mark(i.outbox_id, via, detail);
+      };
       try {
         const ev = item.event;
         // Recipients = QC (when the event is QC-routed or QC+loop) plus the people in the loop
@@ -305,8 +417,7 @@ export const statusNotifierJob = new LuaJob({
         ]);
         if (!recipients.length) {
           const missed = auto.unresolved.length ? `; ${auto.unresolved.join(' / ')}` : '';
-          await mark(
-            item.outbox_id,
+          await markAll(
             'skipped',
             !wantsLoop
               ? 'no Quality-team members with an email on file'
@@ -314,22 +425,22 @@ export const statusNotifierJob = new LuaJob({
                 ? `no one in the loop for ${item.client_name ?? 'this sample'}: client has no account manager and no loop-in contacts${missed}`
                 : `no Quality-team members and no one in the loop for ${item.client_name ?? 'this sample'}${missed}`,
           );
-          skipped += 1;
+          skipped += unit.length;
           continue;
         }
         const reachable = recipients.filter((r) => r.email);
         if (!reachable.length) {
-          await mark(item.outbox_id, 'skipped', `in the loop but no email on file: ${recipients.map((r) => r.name).join(', ')}`);
-          skipped += 1;
+          await markAll('skipped', `in the loop but no email on file: ${recipients.map((r) => r.name).join(', ')}`);
+          skipped += unit.length;
           continue;
         }
         const { text, subject } =
-          ev === 'created' ? qcMessage(item)
+          ev === 'created' ? (unit.length > 1 ? qcOrderMessage(unit) : qcMessage(item))
             : ev === 'delivered' || ev === 'tracking_exception' ? trackingMessage(item)
               : PSS_EVENTS.has(ev) ? pssMessage(item)
                 : traderMessage(item);
         const delivered: Array<{ name: string; via: 'teams' | 'email' }> = [];
-        // The QC desk mailbox is CC'd once per event — on the first email that goes out,
+        // The QC mailboxes are CC'd once per unit — on the first email that goes out,
         // not on every recipient's copy.
         let ccSent = false;
         for (const r of reachable) {
@@ -342,25 +453,25 @@ export const statusNotifierJob = new LuaJob({
             // Nobody warm on Teams and no email channel to fall back to — mark
             // skipped (visible, retried up to the 5-attempt cap) rather than
             // retrying forever or falsely claiming delivery.
-            await mark(item.outbox_id, 'skipped', `${reachable.map((r) => r.name).join(', ')} cold on Teams, email channel not wired`);
-            skipped += 1;
+            await markAll('skipped', `${reachable.map((r) => r.name).join(', ')} cold on Teams, email channel not wired`);
+            skipped += unit.length;
             continue;
           }
           // Every send failed — leave unmarked so the next run retries.
-          failed += 1;
-          console.error(`status-notifier: ${ev} ping failed for all recipients (${item.ref})`);
+          failed += unit.length;
+          console.error(`status-notifier: ${ev} ping failed for all recipients (${label})`);
           continue;
         }
         const anyTeams = delivered.some((d) => d.via === 'teams');
         const detail = delivered.map((d) => `${d.name} (${d.via})`).join(', ') + (ccSent ? CC_NOTE : '');
-        await mark(item.outbox_id, anyTeams ? 'teams' : 'email', detail);
-        sent += 1;
-        console.log(`status-notifier: ${ev} ping for ${item.ref} → ${detail}`);
+        await markAll(anyTeams ? 'teams' : 'email', detail);
+        sent += unit.length;
+        console.log(`status-notifier: ${ev} ping for ${label} → ${detail}`);
       } catch (e) {
-        // Mark failed after a send, or an unexpected error — logged loudly; the row
-        // stays pending, so worst case is one duplicate ping next run.
-        failed += 1;
-        console.error(`status-notifier: MARK/processing failed for ${item.tab}/${item.sample_id} ${item.event}`, e);
+        // Mark failed after a send, or an unexpected error — logged loudly; the rows
+        // stay pending, so worst case is one duplicate ping next run.
+        failed += unit.length;
+        console.error(`status-notifier: MARK/processing failed for ${item.tab}/${item.sample_id} ${item.event} (${label})`, e);
       }
     }
     return { success: true, pending: items.length, sent, skipped, failures: failed };

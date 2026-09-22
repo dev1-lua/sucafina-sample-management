@@ -25,6 +25,18 @@ export type OutboxItem = {
   created_at: string;
   /** Who is kept in the loop (migration 014): the client's account manager + per-sample loop-ins. */
   recipients: { id: string; name: string; email: string | null }[];
+  /** Round 10 (contracts §8): the QC "new order" ping names the client's contact and groups by order. */
+  client_id?: string | null;
+  client_email?: string | null;
+  client_contact?: string | null;
+  client_phone?: string | null;
+  client_created_at?: string | null;
+  country?: string | null;
+  sample_type_norm?: string | null;
+  consignment_id?: string | null;
+  consignment_number?: string | null;
+  /** Live sends of this ref, this one included — a ref names the coffee. */
+  lot_sends?: number | null;
   /** Log-first (migration 016): the client has no delivery address on file (+ who was asked). */
   client_address_missing?: boolean;
   /** AWB on file while the row is still requested/preparing — the courier has not collected it yet. */
@@ -70,6 +82,10 @@ export type OutboxItem = {
     actor?: string | null;
     /** A PSS drawn to replace a rejected one carries the ref it replaces. */
     replacement_of?: string | null;
+    /** Round 10 (contracts §8): the client row was created by this request; the order the send belongs to. */
+    client_created?: boolean;
+    consignment_id?: string | null;
+    consignment_number?: string | null;
   } | null;
   actor?: string | null;
 };
