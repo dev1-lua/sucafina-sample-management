@@ -335,3 +335,52 @@ describe('notifications outbox', () => {
     expect(missing.status).toBe(404);
   });
 });
+
+// Round 10 (contracts §8): the QC "new sample" ping groups by order and says who the client is.
+describe('outbox-pending round-10 fields', () => {
+  type Item = Record<string, unknown> & { payload: Record<string, unknown> | null };
+  const itemFor = async (sampleId: string, event = 'created') => {
+    const pending = await auth(request(app).get('/notifications/outbox-pending'));
+    return (pending.body.items as Item[]).find((i) => i.sample_id === sampleId && i.event === event)!;
+  };
+
+  it('carries the client contact, country, sample type, order and lot_sends; client_created on the client\'s first sample', async () => {
+    const c = await auth(request(app).post('/clients')).send({
+      name: 'Fresh Roasters', country: 'Belgium', contact: { attention_to: 'Ann', email: 'ann@fresh.example', phone: '+32 1' },
+    });
+    const clientId = c.body.id as string;
+    const order = await auth(request(app).post('/consignments')).send({ client_id: clientId });
+    const s = await auth(request(app).post('/bulk-samples')).send({
+      quality: 'AB FAQ', client: 'Fresh Roasters', client_id: clientId, sample_type: 'type', country: 'Belgium', consignment_id: order.body.id,
+    });
+    expect(s.status).toBe(201);
+    const item = await itemFor(s.body.id);
+    expect(item).toMatchObject({
+      client_email: 'ann@fresh.example', client_contact: 'Ann', client_phone: '+32 1', country: 'Belgium',
+      sample_type_norm: 'type', consignment_id: order.body.id, consignment_number: order.body.number, lot_sends: 1,
+      client_name: 'Fresh Roasters',
+    });
+    expect(typeof item.client_created_at).toBe('string');
+    expect(item.payload).toMatchObject({ client_created: true, consignment_id: order.body.id, consignment_number: order.body.number });
+
+    // The client's second sample is not a "client created" ping.
+    const s2 = await auth(request(app).post('/specialty-samples')).send({ description: 'Nyeri AA', receiver_company: 'Fresh Roasters', client_id: clientId });
+    const item2 = await itemFor(s2.body.id);
+    expect(item2.payload).toBeNull();
+    expect(item2).toMatchObject({ client_email: 'ann@fresh.example', consignment_id: null, consignment_number: null, lot_sends: 1 });
+  });
+
+  it('a client that existed before the request is never client_created; no contact → nulls', async () => {
+    const clientId = await makeClient('Old Roasters');
+    await pool.query(`UPDATE clients SET created_at = now() - interval '1 day' WHERE id = $1`, [clientId]);
+    const s = await auth(request(app).post('/bulk-samples')).send({ quality: 'PB', client: 'Old Roasters', client_id: clientId });
+    const item = await itemFor(s.body.id);
+    expect(item.payload).toBeNull();
+    expect(item).toMatchObject({ client_email: null, client_contact: null, client_phone: null, consignment_id: null });
+    // Entity arms keep the same column shape.
+    await auth(request(app).delete(`/clients/${clientId}`));
+    const del = await itemFor(clientId, 'deleted');
+    expect(del).toBeTruthy();
+    expect(del).toMatchObject({ tab: 'client', lot_sends: null, consignment_number: null });
+  });
+});
