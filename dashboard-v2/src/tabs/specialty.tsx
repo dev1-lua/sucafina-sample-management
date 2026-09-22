@@ -1,5 +1,6 @@
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
+import { LotRefCell, OrderLinkCell } from '@/components/LotRefCell';
 import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
@@ -41,7 +42,9 @@ export const specialtyConfig: TabConfig = {
   defaultSort: { sort: 'created_at', order: 'desc' },
   columns: [
     { key: 'date', header: 'Date', sortKey: 'date_on' },
-    { key: 'ref', header: 'Ref', sortKey: 'ref' },
+    // Round 10: the ref names the coffee; a `×N` pill flags a re-send and jumps to the Coffees view.
+    { key: 'ref', header: 'Ref', sortKey: 'ref', render: (r) => <LotRefCell row={r} basePath="/samples" /> },
+    { key: 'consignment_number', header: 'Order', width: 110, render: (r) => <OrderLinkCell row={r} /> },
     { key: 'outturn', header: 'Outturn', sortKey: 'outturn', defaultHidden: true },
     // Gloria's slips (migration 022): the stock lot the label prints, e.g. "15/5670" or "DS".
     { key: 'stocklot', header: 'Stocklot', sortKey: 'stocklot', defaultHidden: true },
@@ -99,6 +102,9 @@ export const specialtyConfig: TabConfig = {
     { key: 'courier_norm', label: 'Courier', type: 'enum', options: COURIERS, multi: true },
     { key: 'result_norm', label: 'Result', type: 'enum', options: RESULTS, multi: true },
     { key: 'location', label: 'Location', type: 'enum', options: LOCATIONS, multi: true },
+    // Round 10: exact ref / order filters — also the two keys mirrored in the URL for agent deep-links.
+    { key: 'ref', label: 'Ref', type: 'text' },
+    { key: 'consignment', label: 'Order', type: 'text' },
     { key: 'country', label: 'Country', type: 'text' },
     { key: 'shipment_month', label: 'Shipment Month', type: 'text' },
     { key: 'date_range', label: 'Date', type: 'date' },

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
+import { LotRefCell, OrderLinkCell } from '@/components/LotRefCell';
 import { formatQty, formatLocation } from '@/lib/format';
 import { PssDueCell } from './contracts';
 import type { TabConfig } from './registry';
@@ -46,7 +47,9 @@ export const bulkConfig: TabConfig = {
   defaultSort: { sort: 'created_at', order: 'desc' },
   columns: [
     { key: 'date', header: 'Date', sortKey: 'date_on' },
-    { key: 'sample_ref', header: 'Sample Ref', sortKey: 'sample_ref' },
+    // Round 10: the ref names the coffee; a `×N` pill flags a re-send and jumps to the Coffees view.
+    { key: 'sample_ref', header: 'Sample Ref', sortKey: 'sample_ref', render: (r) => <LotRefCell row={r} basePath="/bulk" /> },
+    { key: 'consignment_number', header: 'Order', width: 110, render: (r) => <OrderLinkCell row={r} /> },
     { key: 'bags', header: 'Bags', defaultHidden: true },
     { key: 'quality', header: 'Quality', sortKey: 'quality' },
     // Feedback ④/⑦/⑩/⑪ (migration 007): blend + location visible; shipment month + contract number
@@ -113,6 +116,9 @@ export const bulkConfig: TabConfig = {
     { key: 'courier_norm', label: 'Courier', type: 'enum', options: COURIERS, multi: true },
     { key: 'result_norm', label: 'Result', type: 'enum', options: RESULTS, multi: true },
     { key: 'location', label: 'Location', type: 'enum', options: LOCATIONS, multi: true },
+    // Round 10: exact ref / order filters — also the two keys mirrored in the URL for agent deep-links.
+    { key: 'ref', label: 'Ref', type: 'text' },
+    { key: 'consignment', label: 'Order', type: 'text' },
     { key: 'country', label: 'Country', type: 'text' },
     { key: 'shipment_month', label: 'Shipment Month', type: 'text' },
     { key: 'date_range', label: 'Date', type: 'date' },
