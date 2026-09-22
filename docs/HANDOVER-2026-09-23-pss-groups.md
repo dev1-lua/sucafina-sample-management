@@ -89,9 +89,16 @@ tells the model the lettered options are one contract group.
 6. **Close** (1 min). The conflict list: "With the sheet's spelling forgiven (AB-FAQ = AB FAQ, Grinder = Grinders) only N refs
    still carry two coffees — here they are; tell us which to split." Then the still-open items in §7.
 
-## 6. Verification on main
+## 6. Verification on main (23 Sep, HEAD after the fix wave)
 
-TBD — test counts, typecheck, compile, build, review rulings.
+| Layer | Result |
+|---|---|
+| API | `npm test` 446 passed (39 files; was 415 on 22 Sep), `npm run typecheck` clean |
+| Agent | `npm test` 156 passed (16 files; was 133), `lua compile --ci` 51 primitives (8 skills / 35 tools / 4 jobs / 2 pre / 1 post) |
+| Dashboard | `npm test` 149 passed (30 files; was 141), `tsc --noEmit` clean, `vite build` OK |
+| Dev DB (seeded, 023 + 024) | lots 1770 → 1376 (502 lettered SSKE lots → 215 contract groups, none lettered left); lot_conflicts 55 refs → 45 — every remaining one is a different outturn or grade (the AB-FAQ / Grinder / TYPE SAMPLE noise is gone); replaying 023→024 twice changes nothing |
+| Orders backfill (dev DB, `--since 2026-08-01`) | 24 orders from 175 rows, 24 placeholder-AWB rows skipped, second `--apply` a no-op; without the floor the sheet yields 317 orders back to 2023 |
+| Review | one whole-branch review (bd0da45..HEAD): 0 Critical, 5 Important — all fixed (see §8) — then a scoped re-review of the fix commits: all closed, no new Critical/Important, verdict ready to merge |
 
 ## 7. Still owed by Sucafina (carried from round 10)
 
@@ -102,6 +109,28 @@ TBD — test counts, typecheck, compile, build, review rulings.
 - Ivo's go for the pre-1-Aug purge (`scripts/purge-before.ts`, after a backup).
 - Sucafina logo file for the labels; one real SOL export for the PSS import mapping; both QC mailboxes or one.
 
-## 8. Known follow-ups / parked review findings
+## 8. Known follow-ups / parked review findings (one whole-branch review, 23 Sep; rulings below)
 
-TBD — from the combined review.
+Fixed in this round (Important): all-noise qualities (`Kenya`, `Washed`, `Arabica`…) no longer collapse onto one empty coffee
+key; a typed lettered SSKE ref keeps its own letter when the row auto-links to the contract; a group-chat ask no longer
+suppresses the Teams DM of a colleague who is not in that chat; the agent's ref normaliser now matches the API's (the sheet's
+`SSKE 95986 D` joins its contract group instead of minting `SSKE-95986-D`); the dashboard accepts the same spelling; the backfill
+re-checks each row inside its transaction; "where is SSKE-104929?" answers per option.
+
+Parked (Minor, with the ruling):
+- `%` glued to a word (`grinders%`) normalises differently in TS vs SQL — unrealistic input; revisit if a real quality carries it.
+- `drawPss` counter fallback `SSKE-<counter><letter>` can file an option under another contract's digits; only reachable when the
+  derived ref is already taken. Leave until a real collision shows up in the dry run.
+- backfill-orders: a client+AWB group with SOME rows already in an order gets a second order for the rest (rows are never
+  re-attached). Acceptable for a one-shot backfill; the dry run shows it.
+- Order ping link opens the first member's book only; a two-book order links to one book. `outbox-pending` LIMIT 100 could split a
+  very large order across two runs. Both cosmetic at current volumes.
+- lot-conflicts: re-issuing a `pss`-typed flagged row mints a counter `SSKE-` ref that reads like a contract group — apply
+  `--ref` only to SL/TYPE refs; PSS groups are excluded from the conflict list anyway.
+- Design note: `/` always splits a blend (`AA/AB` is a blend, `AB/FAQ` is two parts); the brief's "in-token `/` → space" was not
+  built because it would have merged real blends. Tests pin the split.
+- After the fixes (re-review, Minor): a row whose ref IS the bare `SSKE-<digits>` (typed base with an option letter) is found by the exact
+  status lookup first, so "where is SSKE-556101?" answers that one row, not the whole group; and the raw-text fallback of the coffee
+  key keeps punctuation (`Kenya.` ≠ `Kenya`) — a false non-merge only.
+- Legacy data: rows whose outturn matches but grade is blank (`03KF0013` vs `03KF0013 AB`) still count as different coffees —
+  a blank grade is not "any grade". QC decides per ref via `--ref`.
