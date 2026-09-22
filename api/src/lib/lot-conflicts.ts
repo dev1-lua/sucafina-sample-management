@@ -39,8 +39,12 @@ export type ConflictRow = {
 
 export type ConflictGroup = { ref: string; lot: Lot | null; rows: ConflictRow[] };
 
-/** `lot_conflicts` grouped by ref, each with the lot on file and the rows' current state. */
-export async function listLotConflicts(db: Db): Promise<ConflictGroup[]> {
+/**
+ * `lot_conflicts` grouped by ref, each with the lot on file and the rows' current state.
+ * `onlyRefs` narrows a run to named refs (normalised) — fix TYPE-113 today, leave the legacy noise alone.
+ */
+export async function listLotConflicts(db: Db, o: { onlyRefs?: string[] } = {}): Promise<ConflictGroup[]> {
+  const only = o.onlyRefs?.length ? new Set(o.onlyRefs.map(normalizeRef)) : null;
   const { rows } = await db.query(
     `SELECT lc.ref, lc.book, lc.tab, lc.sample_id, lc.coffee_key, lc.quality, lc.outturn, lc.grade, lc.detected_at,
             COALESCE(cur.live, false) AS live, cur.receiver, cur.status, cur.date_on,
@@ -63,7 +67,8 @@ export async function listLotConflicts(db: Db): Promise<ConflictGroup[]> {
     g.rows.push(r);
     groups.set(r.ref, g);
   }
-  return [...groups.values()];
+  const all = [...groups.values()];
+  return only ? all.filter((g) => only.has(g.ref)) : all;
 }
 
 export type Reissued = { tab: Tab; id: string; receiver: string | null; from: string; to: string; coffee: string };
@@ -81,13 +86,13 @@ function coffeeOf(tab: Tab, row: Record<string, unknown>): Coffee {
  * or re-described since detection are dropped (nothing to do). Within one ref, rows naming the same new
  * coffee share the one new ref — the ref names the coffee, not the send.
  */
-export async function applyLotConflicts(db: typeof pool = pool, o: { actor?: string } = {}): Promise<ApplyReport> {
+export async function applyLotConflicts(db: typeof pool = pool, o: { actor?: string; onlyRefs?: string[] } = {}): Promise<ApplyReport> {
   const actor = o.actor ?? LOT_CONFLICTS_ACTOR;
   const report: ApplyReport = { reissued: [], dropped: [] };
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    for (const group of await listLotConflicts(client)) {
+    for (const group of await listLotConflicts(client, { onlyRefs: o.onlyRefs })) {
       const newRefByCoffee = new Map<string, string>();
       const handled: string[] = [];
       for (const c of group.rows) {

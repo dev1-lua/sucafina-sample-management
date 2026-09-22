@@ -364,6 +364,14 @@ describe('scripts/lot-conflicts (A5)', () => {
     expect((await pool.query(`SELECT count(*)::int AS n FROM lot_conflicts WHERE ref = 'TYPE-9113'`)).rows[0].n).toBe(3);
   });
 
+  it('--ref narrows both the dry run and the apply to the named refs (normalised)', async () => {
+    expect((await listLotConflicts(pool, { onlyRefs: ['type - 9113'] })).map((g) => g.ref)).toEqual(['TYPE-9113']);
+    expect(await listLotConflicts(pool, { onlyRefs: ['SL-9999'] })).toEqual([]);
+    const report = await applyLotConflicts(pool, { onlyRefs: ['SL-9999'] });
+    expect(report).toEqual({ reissued: [], dropped: [] });
+    expect((await pool.query(`SELECT count(*)::int AS n FROM lot_conflicts WHERE ref = 'TYPE-9113'`)).rows[0].n).toBe(3);
+  });
+
   it('--apply keeps the ref on the oldest coffee, re-issues the others (one new ref per coffee) with an event + QC change alert, then clears the conflicts', async () => {
     const before = (await pool.query(`SELECT next_val FROM ref_counters WHERE prefix = 'TYPE'`)).rows[0].next_val as number;
     const report = await applyLotConflicts(pool);

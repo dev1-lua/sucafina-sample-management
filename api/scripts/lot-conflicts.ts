@@ -3,15 +3,19 @@
 // a fresh counter ref (one per coffee), its own lot, an `edited` event and a request_edited alert for QC.
 // Dry run:  npx tsx scripts/lot-conflicts.ts
 // Apply:    npx tsx scripts/lot-conflicts.ts --apply
+// Some refs only (dry or apply):  --ref TYPE-113,TYPE-114
 // Runs against DATABASE_URL (on the VPS: docker compose … exec -T api npx tsx scripts/lot-conflicts.ts --apply).
 import { pool } from '../src/db.js';
 import { describeCoffee } from '../src/lib/lots.js';
 import { applyLotConflicts, listLotConflicts } from '../src/lib/lot-conflicts.js';
 
 const apply = process.argv.includes('--apply');
+const refIdx = process.argv.indexOf('--ref');
+const refArg = refIdx >= 0 ? process.argv[refIdx + 1] : process.argv.find((a) => a.startsWith('--ref='))?.slice(6);
+const onlyRefs = refArg ? refArg.split(',').map((r) => r.trim()).filter(Boolean) : undefined;
 const short = (id: string) => id.slice(0, 8);
 
-const groups = await listLotConflicts(pool);
+const groups = await listLotConflicts(pool, { onlyRefs });
 if (!groups.length) {
   console.log('lot_conflicts: empty — nothing to do');
 } else {
@@ -28,7 +32,7 @@ if (!groups.length) {
   if (!apply) {
     console.log('re-run with --apply to re-issue these refs (one transaction; QC is alerted per row)');
   } else {
-    const report = await applyLotConflicts(pool);
+    const report = await applyLotConflicts(pool, { onlyRefs });
     for (const r of report.reissued) console.log(`  re-issued ${r.tab} ${short(r.id)} ${r.receiver ?? '?'}: ${r.from} → ${r.to} (${r.coffee})`);
     for (const d of report.dropped) console.log(`  dropped   ${d.tab} ${short(d.id)} ${d.ref}: ${d.reason}`);
     console.log(`re-issued ${report.reissued.length} row(s), dropped ${report.dropped.length} stale conflict row(s)`);
