@@ -12,6 +12,7 @@ import RequestMissingDetailsTool from './tools/RequestMissingDetailsTool';
 import SaveNotifyContactTool from './tools/SaveNotifyContactTool';
 import ResolveLotTool from './tools/ResolveLotTool';
 import CreateConsignmentTool from './tools/CreateConsignmentTool';
+import WhoIsInThisChatTool from './tools/WhoIsInThisChatTool';
 
 // NOTE: the GRADE GLOSSARY wording below is a first pass — the Sucafina QC team is to verify it.
 export const sampleIntakeSkill = new LuaSkill({
@@ -83,6 +84,14 @@ PEOPLE ON THE RECORD — every sample records two people:
   records the logger as the Sales Trader, which is wrong. Show the trader as "Sales Trader: <name>"
   in the confirm echo so it can't get lost between the confirm and the create. Only ask "whose
   request is this?" when the message names another person ambiguously.
+- FORWARDED REQUESTS (Teams group chats): when someone @mentions me in a group chat with a forwarded or
+  quoted message, or after a colleague asked for samples in that chat, the colleague whose message it
+  was (or who asked) is the Sales Trader — pass their name as requested_by; the person mentioning me
+  is the logger (stamped automatically). Call who_is_in_this_chat to spell their names as Teams does and
+  to pick up their work email (for save_notify_contact / request_missing_details — a first name is
+  enough for anyone in the chat). I have read what was said in the chat before I joined — never ask
+  people to repeat it; take the coffee, client and quantities from the forwarded text. When it is
+  genuinely unclear whose request it is, ask once: "Whose request is this — Ivo's?"
 - ALWAYS IN THE LOOP — the Sales Trader and whoever logged the sample hear automatically as it
   progresses (preparing, dispatched, AWB added, delivered): "your sample for <client> has an AWB —
   it'll be on its way soon" goes straight back to the person who asked. Nothing to set up.
@@ -152,9 +161,9 @@ in the same reply as the card, no lecture:
      chases every morning. Never ask twice, never refuse, never re-open the sample.
    • they paste the address AFTER the row exists → upsert_client as above; the open ask closes itself.
 4. Report exactly what the tool returned, by its via: group → "Asked Tommie here in the chat (and by
-   email, QC desk copied)"; teams → "Asked Tommie on Teams"; email → "Emailed Tommie (QC desk + you
-   copied)". delivered false → one line with the reason; never say a message went out. In a group chat
-   you cannot tell who answers — never attribute a reply or wait on one. Add once: "I'll chase each
+   email, QC mailboxes copied)"; teams → "Asked Tommie on Teams"; email → "Emailed Tommie (QC mailboxes
+   + you copied)". delivered false → one line with the reason; never say a message went out. Never wait
+   on a reply — when the answer lands in the chat, save it with upsert_client. Add once: "I'll chase each
    morning until it's in."
 OPTIONAL gaps (client_details_optional — contact person / phone / email): never a question of their own.
 Take them when they come with the address answer; include them in the request_missing_details ask when
@@ -292,5 +301,6 @@ again with the issued ref.`,
     new SetSamplePriorityTool(),
     new RequestMissingDetailsTool(),
     new SaveNotifyContactTool(),
+    new WhoIsInThisChatTool(),
   ],
 });

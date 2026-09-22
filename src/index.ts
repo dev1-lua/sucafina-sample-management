@@ -81,7 +81,10 @@ export const BLOCKED_PLATFORM_TOOLS = [
   'googlecalendar_create_calendar_event', 'googlecalendar_update_calendar_event',
   'googlecalendar_remove_calendar_event',
 ];
-// v56: also flip GROUP_ASKS_ENABLED to true in src/lib/conversation.ts (the group-aware ask).
+// Round 10 (lua-cli ≥ 3.36): GROUP_ASKS_ENABLED is true in src/lib/conversation.ts — the runtime hands the
+// group chat and its participants over on Lua.request.conversation, and request_missing_details posts
+// into that chat. The governance guard below stays PARKED (do NOT enable it here): its own version,
+// sandbox-soaked first, per the note above.
 
 const agent = new LuaAgent({
   name: 'Sample-management-agent',
