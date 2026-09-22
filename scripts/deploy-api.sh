@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the API to the Contabo VPS: apply migrations 011–022 (all idempotent / one-shot guarded), rebuild containers.
+# Deploy the API to the Contabo VPS: apply migrations 011–023 (all idempotent / one-shot guarded), rebuild containers.
 # Assumes sucafina-deploy.tar.gz has already been rsync'd to root@156.67.105.74:~/ and extracted
 # (re-extracts anyway; harmless).
 #
@@ -14,6 +14,10 @@ set -euo pipefail
 cd /opt/sucafina
 tar xzf ~/sucafina-deploy.tar.gz
 DC="docker compose -f docker-compose.prod.yml --env-file .env.prod"
+echo "== backup before migrations (round 10 adds lots + order columns and backfills lots)"
+mkdir -p /opt/sucafina/backups
+$DC exec -T postgres pg_dump -U sucafina sucafina | gzip > "/opt/sucafina/backups/sucafina-$(date +%Y%m%d-%H%M%S).sql.gz"
+ls -la /opt/sucafina/backups | tail -2
 echo "== migration 011 (idempotent)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/011_priority.sql
 echo "== migration 012 (client merge event types)"
@@ -38,6 +42,8 @@ echo "== migration 021 (PSS lettered options + contract-derived SSKE refs + grou
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/021_pss_options_and_group_asks.sql
 echo "== migration 022 (specialty stocklot for the sample slip)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/022_label_slip_fields.sql
+echo "== migration 023 (lots: ref = coffee, lot_conflicts, order columns on consignments, view lot_sends/consignment_number)"
+$DC exec -T postgres psql -U sucafina sucafina < api/migrations/023_lots_and_orders.sql
 echo "== rebuild"
 $DC up -d --build
 $DC ps
