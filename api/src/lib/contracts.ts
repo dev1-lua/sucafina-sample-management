@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import { HttpError } from '../errors.js';
 import { issueRef } from './refs.js';
 import { enqueueOutbox } from './notify-outbox.js';
+import { registerLot } from './lots.js';
 
 // Contracts + pre-shipment samples (migration 020, reshaped by 021 — Harriet, round 6 + her answers of
 // 2026-09-10). A contract owes N lettered PSS OPTIONS (A, B, C… — "CK wants 2 options of 500 g", "JDE a
@@ -345,6 +346,9 @@ export async function drawPss(
      o.requestedBy ?? null, o.loggedBy ?? null],
   );
   const row = rows[0];
+  // Round 10b: the options of one contract are ONE lot — its base SSKE-<digits>, the contract's quality
+  // (registerLot keys an SSKE option on its base and never overwrites an existing group).
+  await registerLot(client, { ref: sampleRef, book: 'commercial', quality: contract.quality, blend: null, createdBy: o.actor });
   await client.query(
     `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('bulk', $1, 'created', $2, $3)`,
     [row.id, `PSS ${sampleRef} — option ${letter} (slot ${o.containerNo}) for contract ${contract.contract_number}`, o.actor],

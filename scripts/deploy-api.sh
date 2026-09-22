@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the API to the Contabo VPS: apply migrations 011–023 (all idempotent / one-shot guarded), rebuild containers.
+# Deploy the API to the Contabo VPS: apply migrations 011–024 (all idempotent / one-shot guarded), rebuild containers.
 # Assumes sucafina-deploy.tar.gz has already been rsync'd to root@156.67.105.74:~/ and extracted
 # (re-extracts anyway; harmless).
 #
@@ -45,6 +45,8 @@ echo "== migration 022 (specialty stocklot for the sample slip)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/022_label_slip_fields.sql
 echo "== migration 023 (lots: ref = coffee, lot_conflicts, order columns on consignments, view lot_sends/consignment_number)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/023_lots_and_orders.sql
+echo "== migration 024 (PSS lots group by contract: lot_ref/ref_option_letter, softer normalize_quality, keys + lot_conflicts rebuilt, view lot_sends by lot_ref)"
+$DC exec -T postgres psql -U sucafina sucafina < api/migrations/024_pss_lots_by_contract.sql
 echo "== rebuild"
 $DC up -d --build
 $DC ps

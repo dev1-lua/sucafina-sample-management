@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 import { issueRef } from './refs.js';
-import { coffeeKeyFor, describeCoffee, normalizeRef, registerLot, type Book, type Coffee, type Lot } from './lots.js';
+import { coffeeKeyFor, describeCoffee, lotRefFor, registerLot, type Book, type Coffee, type Lot } from './lots.js';
 import { enqueueRequestEdited } from './change-alerts.js';
 
 // A5 (round 10): migration 023 flagged, in `lot_conflicts`, every live row whose coffee disagrees with the
@@ -40,11 +40,11 @@ export type ConflictRow = {
 export type ConflictGroup = { ref: string; lot: Lot | null; rows: ConflictRow[] };
 
 /**
- * `lot_conflicts` grouped by ref, each with the lot on file and the rows' current state.
+ * `lot_conflicts` grouped by lot ref (lot_ref: an SSKE option keys on its contract), each with the lot on file and the rows' current state.
  * `onlyRefs` narrows a run to named refs (normalised) — fix TYPE-113 today, leave the legacy noise alone.
  */
 export async function listLotConflicts(db: Db, o: { onlyRefs?: string[] } = {}): Promise<ConflictGroup[]> {
-  const only = o.onlyRefs?.length ? new Set(o.onlyRefs.map(normalizeRef)) : null;
+  const only = o.onlyRefs?.length ? new Set(o.onlyRefs.map(lotRefFor)) : null;
   const { rows } = await db.query(
     `SELECT lc.ref, lc.book, lc.tab, lc.sample_id, lc.coffee_key, lc.quality, lc.outturn, lc.grade, lc.detected_at,
             COALESCE(cur.live, false) AS live, cur.receiver, cur.status, cur.date_on,
@@ -102,7 +102,7 @@ export async function applyLotConflicts(db: typeof pool = pool, o: { actor?: str
         const refCol = REF_COL[c.tab];
         const { rows: [prev] } = await client.query(`SELECT * FROM ${table} WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [c.sample_id]);
         if (!prev) { drop('row deleted since detection'); continue; }
-        if (normalizeRef(prev[refCol] as string) !== group.ref) { drop(`ref changed since detection (now ${prev[refCol]})`); continue; }
+        if (lotRefFor(prev[refCol] as string) !== group.ref) { drop(`ref changed since detection (now ${prev[refCol]})`); continue; }
         if (!group.lot) { drop('no lot on file for this ref any more'); continue; }
         const coffee = coffeeOf(c.tab, prev);
         const key = coffeeKeyFor(coffee);
