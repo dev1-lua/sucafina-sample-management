@@ -16,6 +16,8 @@ import { consignments } from './routes/consignments.js';
 import { notifications } from './routes/notifications.js';
 import { contracts } from './routes/contracts.js';
 import { imports } from './routes/imports.js';
+import { lots } from './routes/lots.js';
+import { samplesResolve } from './routes/samples-resolve.js';
 
 export const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -33,7 +35,10 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.use(requireApiKey);
 app.use('/clients', clients);
+// /samples/resolve must precede the legacy samples router, whose /:id would swallow it.
+app.use('/samples', samplesResolve);
 app.use('/samples', samples);
+app.use('/lots', lots);
 app.use('/stats', stats);
 app.use('/tracking', tracking);
 app.use('/chaser', chaser);

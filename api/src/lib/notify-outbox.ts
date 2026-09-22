@@ -48,6 +48,38 @@ export async function enqueueOutbox(
 }
 
 /**
+ * The `created` ping's payload (round 10, contracts §8): `client_created: true` when the client row was
+ * created by this request, and the order (`consignment_id` / `consignment_number`) when the send was
+ * created with one. Null when neither applies (the pre-round-10 shape).
+ *
+ * Whether the client is new is known only agent-side (client-guard: POST /clients, then the sample) — the
+ * API never creates a client inside a sample create. So it is DERIVED here: the client row is younger than
+ * ten minutes AND this is its first live sample in any book. Both are checked on the insert's own
+ * transaction, so the row just written is the only one the client has.
+ */
+export async function createdPayload(
+  client: PoolClient,
+  row: Record<string, unknown>,
+  consignment: { id: string; number: string } | null,
+): Promise<Record<string, unknown> | null> {
+  const payload: Record<string, unknown> = {};
+  if (row.client_id) {
+    const { rows } = await client.query(
+      `SELECT (c.created_at >= now() - interval '10 minutes')
+              AND NOT EXISTS (SELECT 1 FROM all_samples_v v WHERE v.client_id = c.id AND v.deleted_at IS NULL AND v.id <> $2) AS fresh
+         FROM clients c WHERE c.id = $1`,
+      [row.client_id, row.id],
+    );
+    if (rows[0]?.fresh) payload.client_created = true;
+  }
+  if (consignment) {
+    payload.consignment_id = consignment.id;
+    payload.consignment_number = consignment.number;
+  }
+  return Object.keys(payload).length ? payload : null;
+}
+
+/**
  * Shared PATCH-side enqueue for the three sample routers: queues the transitions Ivo
  * asked for. The dispatched ping carries the AWB, so an awb_added is never sent alongside
  * it: suppressed when the same call is the dispatch, and SUPERSEDED (closed with a reason,

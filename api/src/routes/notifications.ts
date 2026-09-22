@@ -5,6 +5,7 @@ import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
 import { runWithEvent } from '../lib/mutate.js';
 import { awaitingCollectionExpr, openSamplesFor } from '../lib/detail-requests.js';
+import { lotSendsColumn } from '../lib/lots.js';
 
 export const notifications = Router();
 
@@ -113,6 +114,13 @@ notifications.post('/mark', h(async (req, res) => {
 // DMs the Quality team ('created') or the row's sales trader (status events), then
 // POSTs /outbox-mark. attempts < 5 keeps unresolvable recipients from clogging the
 // queue forever — a skipped row ages out after 5 job passes.
+// Round 10 (contracts §8): the sample arms say who the client is (first contact on file), the country,
+// the sample type, the order and how many sends share the ref. Non-sample arms carry NULLs for these.
+const ROUND10_NULLS = `
+           NULL::text AS client_email, NULL::text AS client_contact, NULL::text AS client_phone, NULL::timestamptz AS client_created_at,
+           NULL::text AS country, NULL::text AS sample_type_norm, NULL::uuid AS consignment_id, NULL::text AS consignment_number,
+           NULL::int AS lot_sends`;
+
 // Non-sample entities (migration 017): a deleted client / consignment announces itself with the same
 // column shape as the sample arms (NULL where a field has no meaning) so the job needs one item type.
 const entityArm = (tab: string, table: string, ref: string) => `
@@ -123,7 +131,7 @@ const entityArm = (tab: string, table: string, ref: string) => `
            NULL::text AS requested_by, NULL::text AS logged_by, ${tab === 'client' ? 'e.name' : 'NULL::text'} AS client_name, o.created_at,
            false AS client_address_missing, NULL::text AS details_requested_from, NULL::timestamptz AS details_requested_at,
            NULL::text AS details_requested_via, NULL::text AS details_note, false AS awaiting_collection,
-           '[]'::json AS recipients
+           '[]'::json AS recipients, ${ROUND10_NULLS}
       FROM notifications_outbox o
       JOIN ${table} e ON e.id = o.sample_id
      WHERE o.tab = '${tab}' AND o.sent_at IS NULL AND o.attempts < 5`;
@@ -142,7 +150,7 @@ const contractArm = `
              SELECT json_agg(json_build_object('id', tr.id, 'name', tr.name, 'email', tr.email) ORDER BY tr.name)
                FROM traders tr
               WHERE tr.active AND tr.id = c.account_owner_id
-           ), '[]'::json) AS recipients
+           ), '[]'::json) AS recipients, ${ROUND10_NULLS}
       FROM notifications_outbox o
       -- a deleted contract still surfaces for its own 'deleted' alert
       JOIN contracts e ON e.id = o.sample_id AND (e.deleted_at IS NULL OR o.event = 'deleted')
@@ -150,7 +158,9 @@ const contractArm = `
      WHERE o.tab = 'contract' AND o.sent_at IS NULL AND o.attempts < 5`;
 
 notifications.get('/outbox-pending', h(async (_req, res) => {
-  const arm = (tab: string, table: string, ref: string, title: string, receiver: string) => `
+  // `country`: the sample's own on specialty / bulk; forwarding has none, so the client's.
+  // `sample_type_norm`: forwarding has none.
+  const arm = (tab: string, table: string, ref: string, title: string, receiver: string, o: { country: string; sampleType: string }) => `
     SELECT o.id AS outbox_id, o.tab, o.sample_id, o.event, o.recipient, o.attempts,
            o.dedupe_key, o.payload, o.actor,
            t.${ref} AS ref, t.${title} AS title, t.${receiver} AS receiver,
@@ -169,19 +179,27 @@ notifications.get('/outbox-pending', h(async (_req, res) => {
              SELECT json_agg(json_build_object('id', tr.id, 'name', tr.name, 'email', tr.email) ORDER BY tr.name)
                FROM traders tr
               WHERE tr.active AND (tr.id = c.account_owner_id OR tr.id = ANY (t.notify_trader_ids))
-           ), '[]'::json) AS recipients
+           ), '[]'::json) AS recipients,
+           -- Round 10 (contracts §8): the client's first contact on file, the order and the lot.
+           ct.email AS client_email, ct.attention_to AS client_contact, ct.phone AS client_phone, c.created_at AS client_created_at,
+           ${o.country} AS country, ${o.sampleType} AS sample_type_norm, t.consignment_id, cn.number AS consignment_number,
+           ${lotSendsColumn('t', ref, table)}
       FROM notifications_outbox o
       -- a deleted sample still surfaces for its own 'deleted' alert (migration 017)
       JOIN ${table} t ON t.id = o.sample_id AND (t.deleted_at IS NULL OR o.event = 'deleted')
       LEFT JOIN clients c ON c.id = t.client_id AND c.deleted_at IS NULL
+      LEFT JOIN LATERAL (
+        SELECT email, attention_to, phone FROM client_contacts WHERE client_id = c.id ORDER BY created_at LIMIT 1
+      ) ct ON true
+      LEFT JOIN consignments cn ON cn.id = t.consignment_id
       LEFT JOIN client_detail_requests r ON r.client_id = t.client_id AND r.resolved_at IS NULL
      WHERE o.tab = '${tab}' AND o.sent_at IS NULL AND o.attempts < 5`;
   const { rows } = await pool.query(`
-    ${arm('specialty', 'specialty_samples', 'ref', 'description', 'receiver_company')}
+    ${arm('specialty', 'specialty_samples', 'ref', 'description', 'receiver_company', { country: 't.country', sampleType: 't.sample_type_norm' })}
     UNION ALL
-    ${arm('bulk', 'bulk_samples', 'sample_ref', 'quality', 'client')}
+    ${arm('bulk', 'bulk_samples', 'sample_ref', 'quality', 'client', { country: 't.country', sampleType: 't.sample_type_norm' })}
     UNION ALL
-    ${arm('forwarding', 'forwarding_samples', 'sample_ref', 'coffee_quality', 'receiver_company')}
+    ${arm('forwarding', 'forwarding_samples', 'sample_ref', 'coffee_quality', 'receiver_company', { country: 'c.country', sampleType: 'NULL::text' })}
     UNION ALL
     ${entityArm('client', 'clients', 'name')}
     UNION ALL

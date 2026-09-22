@@ -5,12 +5,17 @@ import { HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
-import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
+import { createdPayload, enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
 import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
+import { consignmentNumberColumn, lotSendsColumn, normalizeRef } from '../lib/lots.js';
+import { assertConsignment, consignmentWhere } from '../lib/consignments.js';
 
 export const forwardingSamples = Router();
+
+// Round 10: how many live rows share this row's ref, and the order (CN number) it belongs to.
+const LOT_COLUMNS = `${lotSendsColumn('forwarding_samples', 'sample_ref', 'forwarding_samples')}, ${consignmentNumberColumn('forwarding_samples')}`;
 
 const STATUSES = ['requested','preparing','dispatched','delivered','cancelled'] as const; // no results_in
 const COURIERS = ['dhl','fedex','ups','rider','hand_delivery','client_pickup','wells_fargo','other'] as const;
@@ -43,6 +48,8 @@ const createSchema = z.object({
   priority: z.enum(['normal', 'urgent']).nullish(),
   // Migration 013 (feedback #28): who typed the request into the bot (agent auto-stamps).
   logged_by: z.string().nullish(),
+  // Migration 023 (round 10): the order this row belongs to. 400 when it doesn't exist or is deleted.
+  consignment_id: z.string().uuid().nullish(),
 });
 
 const patchSchema = z.object({
@@ -105,8 +112,11 @@ forwardingSamples.get('/', h(async (req, res) => {
   if (req.query.address_missing === 'true') f.where.push('client_address_missing(client_id)');
   // AWB on file, not yet collected by the courier (lifecycle sketch 2026-09-14).
   if (req.query.awaiting_collection === 'true') f.where.push(AWAITING_COLLECTION_WHERE);
+  // Round 10: every row of one ref (?ref=, exact after normalisation) / of one order (?consignment=).
+  if (req.query.ref) f.add(`normalize_ref(sample_ref) = ?`, normalizeRef(String(req.query.ref)));
+  if (req.query.consignment) consignmentWhere(f, String(req.query.consignment));
   const result = await buildList(
-    { table: 'forwarding_samples', extraSelect: gapColumns('forwarding_samples'), sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb','requested_by','logged_by'] },
+    { table: 'forwarding_samples', extraSelect: `${gapColumns('forwarding_samples')}, ${LOT_COLUMNS}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb','requested_by','logged_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -115,7 +125,8 @@ forwardingSamples.get('/', h(async (req, res) => {
 forwardingSamples.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
   const { rows } = await pool.query(
-    `SELECT t.*, ${gapColumns('t')}, c.number AS consignment_number, c.location AS consignment_location
+    `SELECT t.*, ${gapColumns('t')}, ${lotSendsColumn('t', 'sample_ref', 'forwarding_samples')},
+            c.number AS consignment_number, c.location AS consignment_location
        FROM forwarding_samples t LEFT JOIN consignments c ON c.id = t.consignment_id
       WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'forwarding sample not found');
@@ -126,14 +137,15 @@ forwardingSamples.post('/', h(async (req, res) => {
   const body = parseBody(createSchema, req.body);
   const actor = actorFrom(req);
   const status = body.awb || body.courier_norm ? 'dispatched' : 'requested';
+  const consignment = body.consignment_id ? await assertConsignment(pool, body.consignment_id) : null;
   const row = await runWithEvent(
     // date + date_on default to today in Nairobi time when no explicit date is given; $14 overrides.
     `INSERT INTO forwarding_samples
        (sender, origin, sample_ref, coffee_quality, receiver_company, id_number, awb, courier_norm,
-        qty, qty_grams, client_id, phyto_cert, location, requested_by, stock_grams, priority, logged_by, date, date_on, status, dispatched_on)
+        qty, qty_grams, client_id, phyto_cert, location, requested_by, stock_grams, priority, logged_by, consignment_id, date, date_on, status, dispatched_on)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
              COALESCE($12, (SELECT default_phyto_cert FROM clients WHERE id = $11::uuid)),
-             $15,$16,$17,COALESCE($18,'normal'),$19,
+             $15,$16,$17,COALESCE($18,'normal'),$19,$20::uuid,
              COALESCE($14, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($14::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              $13::sample_status_t,
@@ -145,12 +157,15 @@ forwardingSamples.post('/', h(async (req, res) => {
      body.id_number ?? null, body.awb ?? null, body.courier_norm ?? null, body.qty ?? null,
      body.qty_grams ?? null, body.client_id ?? null, body.phyto_cert ?? null, status, body.date ?? null,
      body.location ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null],
+     body.logged_by ?? null, consignment?.id ?? null],
     { entityType: 'forwarding', type: 'created', note: `${body.sample_ref} from ${body.origin} → ${body.receiver_company}`, actor },
     // Feedback #29/#30: Quality is pinged for every request added in full; rows born
     // dispatched (AWB/courier at create) also ping their sales trader straight away.
     async (client, row) => {
-      await enqueueOutbox(client, { tab: 'forwarding', sampleId: String(row.id), event: 'created', recipient: 'qc' });
+      await enqueueOutbox(client, {
+        tab: 'forwarding', sampleId: String(row.id), event: 'created', recipient: 'qc',
+        payload: await createdPayload(client, row, consignment),
+      });
       if (status === 'dispatched' && body.requested_by) {
         await enqueueOutbox(client, { tab: 'forwarding', sampleId: String(row.id), event: 'dispatched', recipient: body.requested_by });
       }
@@ -159,14 +174,17 @@ forwardingSamples.post('/', h(async (req, res) => {
   res.status(201).json(row);
 }));
 
-forwardingSamples.patch('/:id', h(async (req, res) => {
-  const id = parseId(req.params.id);
-  const body = parseBody(patchSchema, req.body);
-  const actor = actorFrom(req);
+export type ForwardingPatch = z.infer<typeof patchSchema>;
+
+/**
+ * The per-row PATCH write (one event, status/outbox pings). Exported so an order's dispatch
+ * (POST /consignments/:id/dispatch, round 10) applies exactly this to every member.
+ */
+export async function patchForwardingSample(id: string, body: ForwardingPatch, actor: string): Promise<Record<string, unknown>> {
   const cur = await pool.query(`SELECT * FROM forwarding_samples WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!cur.rows[0]) throw new HttpError(404, 'forwarding sample not found');
   const prev = cur.rows[0];
-  if (Object.keys(body).length === 0) return res.json(prev);
+  if (Object.keys(body).length === 0) return prev;
   const nextStatus = body.status ?? null; // NEVER results_in
 
   const eventType =
@@ -225,7 +243,11 @@ forwardingSamples.patch('/:id', h(async (req, res) => {
     },
   );
   if (!row) throw new HttpError(404, 'forwarding sample not found');
-  res.json(row);
+  return row;
+}
+
+forwardingSamples.patch('/:id', h(async (req, res) => {
+  res.json(await patchForwardingSample(parseId(req.params.id), parseBody(patchSchema, req.body), actorFrom(req)));
 }));
 
 forwardingSamples.delete('/:id', h(async (req, res) => {

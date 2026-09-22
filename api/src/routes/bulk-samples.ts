@@ -6,11 +6,13 @@ import { actorFrom } from '../auth.js';
 import { issueRef, releaseRefIfLatest } from '../lib/refs.js';
 import { buildList, makeFilters } from '../lib/list.js';
 import { runWithEvent, entityEvents } from '../lib/mutate.js';
-import { enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
+import { createdPayload, enqueueOutbox, enqueueStatusEvents } from '../lib/notify-outbox.js';
 import { parseId, assertIn } from '../lib/validate.js';
 import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
 import { maybeDrawReplacement, recomputeContractStatus, resolveContractLink } from '../lib/contracts.js';
+import { attachLot, consignmentNumberColumn, countLotSends, lotSendsColumn, normalizeRef, resolveLot, type Coffee } from '../lib/lots.js';
+import { assertConsignment, consignmentWhere } from '../lib/consignments.js';
 
 export const bulkSamples = Router();
 
@@ -24,6 +26,8 @@ const SORTABLE = ['date_on','delivery_on','qty_grams','moisture_pct','water_acti
 // Contracts + PSS (migration 020): the 45-day deadline lives on the contract, so the book borrows it as
 // a SELECT alias — legal in ORDER BY (hence the SORTABLE entry), never in WHERE (hence the EXISTS filters).
 const PSS_DUE_SELECT = `(SELECT c.pss_due_date FROM contracts c WHERE c.id = bulk_samples.contract_id) AS pss_due_date`;
+// Round 10: how many live sends share this row's ref, and the order (CN number) it belongs to.
+const LOT_COLUMNS = `${lotSendsColumn('bulk_samples', 'sample_ref', 'bulk_samples')}, ${consignmentNumberColumn('bulk_samples')}`;
 
 // `sample_type`/`courier_norm` are free text (migration 004) so operators can enter
 // values outside COURIERS/SAMPLE_TYPES; those arrays are UI suggestions only.
@@ -71,6 +75,8 @@ const createSchema = z.object({
   // contract_number, both are resolved below.
   contract_id: z.string().uuid().nullish(),
   container_no: z.number().int().min(1).nullish(),
+  // Migration 023 (round 10): the order this send belongs to. 400 when it doesn't exist or is deleted.
+  consignment_id: z.string().uuid().nullish(),
 });
 
 const patchSchema = z.object({
@@ -174,8 +180,11 @@ bulkSamples.get('/', h(async (req, res) => {
     if (!/^-?\d+$/.test(raw)) throw new HttpError(400, 'invalid pss_due_within');
     f.add(`EXISTS (SELECT 1 FROM contracts c WHERE c.id = bulk_samples.contract_id AND c.deleted_at IS NULL AND c.pss_due_date <= current_date + ?::int)`, Number(raw));
   }
+  // Round 10: every send of one coffee (?ref=, exact after normalisation) / of one order (?consignment=).
+  if (req.query.ref) f.add(`normalize_ref(sample_ref) = ?`, normalizeRef(String(req.query.ref)));
+  if (req.query.consignment) consignmentWhere(f, String(req.query.consignment));
   const result = await buildList(
-    { table: 'bulk_samples', extraSelect: `${gapColumns('bulk_samples')}, ${PSS_DUE_SELECT}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by','logged_by'] },
+    { table: 'bulk_samples', extraSelect: `${gapColumns('bulk_samples')}, ${PSS_DUE_SELECT}, ${LOT_COLUMNS}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by','logged_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -184,7 +193,8 @@ bulkSamples.get('/', h(async (req, res) => {
 bulkSamples.get('/:id', h(async (req, res) => {
   const id = parseId(req.params.id);
   const { rows } = await pool.query(
-    `SELECT t.*, ${gapColumns('t')}, c.number AS consignment_number, c.location AS consignment_location
+    `SELECT t.*, ${gapColumns('t')}, ${lotSendsColumn('t', 'sample_ref', 'bulk_samples')},
+            c.number AS consignment_number, c.location AS consignment_location
        FROM bulk_samples t LEFT JOIN consignments c ON c.id = t.consignment_id
       WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new HttpError(404, 'bulk sample not found');
@@ -213,7 +223,19 @@ bulkSamples.post('/', h(async (req, res) => {
     optionLetter = link.option_letter;
     linkedRef = link.ref;
   }
-  const sampleRef = body.sample_ref ?? linkedRef ?? (await issueRef(body.sample_type));
+  // Round 10: the ref names the COFFEE (quality + blend). A typed ref is normalised and checked against its
+  // lot before anything is written: same coffee → a re-send on the same ref; different coffee → 409 (the
+  // TYPE-113 bug). No typed ref → the counter mints one (even when this coffee already has a ref — the
+  // agent's confirm step decides whether to reuse; see POST /lots/resolve).
+  const coffee: Coffee = { book: 'commercial', quality: body.quality, blend: body.blend ?? null };
+  const typedRef = normalizeRef(body.sample_ref) || null;
+  if (typedRef) {
+    const r = await resolveLot(pool, { ...coffee, ref: typedRef });
+    if (r.action === 'conflict') return res.status(409).json({ error: 'ref_conflict', ref: typedRef, lot: r.lot, sends: r.sends });
+  }
+  const consignment = body.consignment_id ? await assertConsignment(pool, body.consignment_id) : null;
+  const sampleRef = typedRef ?? linkedRef ?? (await issueRef(body.sample_type));
+  let reusedRef = false;
   const row = await runWithEvent(
     // date + date_on default to today in Nairobi time when no explicit date is given; $21 overrides.
     `INSERT INTO bulk_samples
@@ -221,10 +243,10 @@ bulkSamples.post('/', h(async (req, res) => {
         courier_norm, qty, qty_grams, moisture, water_activity, moisture_pct, water_activity_num,
         comments, crop_year, client_id, phyto_cert,
         blend, rejection_reason, shipment_month, contract_number, location, strategy, highlights,
-        requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, date, date_on, status)
+        requested_by, stock_grams, priority, logged_by, contract_id, container_no, option_letter, consignment_id, date, date_on, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
              COALESCE($20, (SELECT default_phyto_cert FROM clients WHERE id = $19::uuid)),
-             $21,$22,$23,$24,$25,$26,$27,$29,$30,COALESCE($31,'normal'),$32,$33::uuid,$34,$35,
+             $21,$22,$23,$24,$25,$26,$27,$29,$30,COALESCE($31,'normal'),$32,$33::uuid,$34,$35,$36::uuid,
              COALESCE($28, to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD')),
              COALESCE($28::date, (now() AT TIME ZONE 'Africa/Nairobi')::date),
              'requested')
@@ -237,25 +259,33 @@ bulkSamples.post('/', h(async (req, res) => {
      body.blend ?? null, body.rejection_reason ?? null, body.shipment_month ?? null, body.contract_number ?? null, body.location ?? null,
      body.strategy ?? null, body.highlights ?? null,
      body.date ?? null, body.requested_by ?? null, body.stock_grams ?? null, body.priority ?? null,
-     body.logged_by ?? null, contractId, containerNo, optionLetter],
+     body.logged_by ?? null, contractId, containerNo, optionLetter, consignment?.id ?? null],
     { entityType: 'bulk', type: 'created', note: `${body.quality} for ${body.client}`, actor },
     // Feedback #29: Quality is pinged for every request added in full (create implies the intake gates passed).
     async (client, row) => {
-      await enqueueOutbox(client, { tab: 'bulk', sampleId: String(row.id), event: 'created', recipient: 'qc' });
+      // The lot rides the insert's transaction: a rolled-back create claims nothing.
+      reusedRef = (await attachLot(client, { ...coffee, ref: sampleRef, typed: !!typedRef, createdBy: actor })).reused;
+      await enqueueOutbox(client, {
+        tab: 'bulk', sampleId: String(row.id), event: 'created', recipient: 'qc',
+        payload: await createdPayload(client, row, consignment),
+      });
       if (row.contract_id) await recomputeContractStatus(client, String(row.contract_id), actor);
     },
   );
-  res.status(201).json(row);
+  res.status(201).json({ ...row, lot_sends: await countLotSends(pool, 'bulk_samples', 'sample_ref', sampleRef), reused_ref: reusedRef });
 }));
 
-bulkSamples.patch('/:id', h(async (req, res) => {
-  const id = parseId(req.params.id);
-  const body = parseBody(patchSchema, req.body);
-  const actor = actorFrom(req);
+export type BulkPatch = z.infer<typeof patchSchema>;
+
+/**
+ * The per-sample PATCH write (one event, status/outbox pings, contract hooks). Exported so an order's
+ * dispatch (POST /consignments/:id/dispatch, round 10) applies exactly this to every member.
+ */
+export async function patchBulkSample(id: string, body: BulkPatch, actor: string): Promise<Record<string, unknown>> {
   const cur = await pool.query(`SELECT * FROM bulk_samples WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!cur.rows[0]) throw new HttpError(404, 'bulk sample not found');
   const prev = cur.rows[0];
-  if (Object.keys(body).length === 0) return res.json(prev);
+  if (Object.keys(body).length === 0) return prev;
   const nextStatus = body.result_norm ? 'results_in' : body.status ?? null;
 
   const eventType =
@@ -337,7 +367,11 @@ bulkSamples.patch('/:id', h(async (req, res) => {
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');
   // extraWrites returns void, so the replacement's ref reaches the caller through the closure.
-  res.json({ ...row, replacement_ref: out.drawn?.sample_ref ?? null });
+  return { ...row, replacement_ref: out.drawn?.sample_ref ?? null };
+}
+
+bulkSamples.patch('/:id', h(async (req, res) => {
+  res.json(await patchBulkSample(parseId(req.params.id), parseBody(patchSchema, req.body), actorFrom(req)));
 }));
 
 bulkSamples.delete('/:id', h(async (req, res) => {

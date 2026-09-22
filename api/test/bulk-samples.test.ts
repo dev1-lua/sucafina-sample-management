@@ -69,9 +69,18 @@ describe('bulk-samples', () => {
     expect(type.body.sample_ref).toMatch(/^TYPE-\d+$/);
     const offer = await auth(request(app).post('/bulk-samples')).send({ quality: 'C', client: 'Paulig', sample_type: 'offer' });
     expect(offer.body.sample_ref).toMatch(/^SL-\d+$/);
-    // An explicitly supplied ref is preserved untouched.
+    // An explicitly supplied ref is preserved untouched — and (round 10) registers its lot.
     const explicit = await auth(request(app).post('/bulk-samples')).send({ quality: 'PB', client: 'Paulig', sample_type: 'offer', sample_ref: 'CUSTOM-1' });
     expect(explicit.body.sample_ref).toBe('CUSTOM-1');
+    expect(explicit.body).toMatchObject({ lot_sends: 1, reused_ref: false });
+    const { rows: lots } = await pool.query(`SELECT * FROM lots WHERE ref = 'CUSTOM-1'`);
+    expect(lots[0]).toMatchObject({ book: 'commercial', coffee_key: 'pb|' });
+    // A typed counter-shaped ref moves the counter past it: the next auto-issue never collides.
+    const { rows: [{ next_val }] } = await pool.query(`SELECT next_val FROM ref_counters WHERE prefix = 'TYPE'`);
+    const ahead = await auth(request(app).post('/bulk-samples')).send({ quality: 'AA', client: 'Paulig', sample_type: 'type', sample_ref: `TYPE-${next_val + 5}` });
+    expect(ahead.body.sample_ref).toBe(`TYPE-${next_val + 5}`);
+    const next = await auth(request(app).post('/bulk-samples')).send({ quality: 'AA', client: 'Paulig', sample_type: 'type' });
+    expect(next.body.sample_ref).toBe(`TYPE-${next_val + 6}`);
   });
 
   it('roundtrips blend / rejection_reason / shipment_month / contract_number / location (migration 007)', async () => {

@@ -41,15 +41,20 @@ export function diffRequestFields(
   return changes;
 }
 
-/** After a sample PATCH: queue `request_edited` (one row per edit) unless nothing changed or QC did it. */
+/**
+ * After a sample PATCH: queue `request_edited` (one row per edit) unless nothing changed or QC did it.
+ * `extra` adds changes the field diff cannot see — scripts/lot-conflicts.ts reports a ref rename this way
+ * (the ref is not a REQUEST_FIELD: it is issued, not edited, on the dashboard).
+ */
 export async function enqueueRequestEdited(
   client: PoolClient,
   tab: SampleTab,
   prev: Record<string, unknown>,
   row: Record<string, unknown>,
   actor: string,
+  extra: Record<string, FieldChange> = {},
 ): Promise<boolean> {
-  const changes = diffRequestFields(tab, prev, row);
+  const changes = { ...diffRequestFields(tab, prev, row), ...extra };
   if (!Object.keys(changes).length) return false;
   if (await isQcActor(actor)) return false;
   await enqueueOutbox(client, {
