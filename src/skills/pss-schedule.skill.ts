@@ -16,7 +16,8 @@ Use for the SOL PSS schedule, contracts, PSS options and pre-shipment samples: "
 HOW PSS WORK (Harriet, Sept 2026) — a contract owes N lettered OPTIONS (A, B, C…) of X g each, per quality.
 The size is client-specific (Nespresso 1 kg, Zoegas 600 g, JDE 300 g, CK 500 g — the tools default from the
 contract or the client's last PSS; never assume 1 kg yourself). The ref is contract-derived: SSKE-<contract
-digits> + the option letter (SSKE-104929A). Say "option", never "container", when talking about a PSS.
+digits> + the option letter (SSKE-104929A); the Coffees view groups a contract's options under SSKE-<contract
+digits>. Say "option", never "container", when talking about a PSS.
 Reminders (14 / 7 / 0 days before due, weekly while overdue) go to the Quality team only.
 
 IMPORTING THE SCHEDULE

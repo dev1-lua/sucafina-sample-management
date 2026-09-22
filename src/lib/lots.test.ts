@@ -50,6 +50,36 @@ describe('lotSay — the line the model echoes', () => {
   });
 });
 
+describe('lotSay — a PSS ref is one contract group (round 10b)', () => {
+  const pss = (letter: string | null, receiver = 'Nespresso', date_on = '2026-09-01') => ({ ...send(receiver, date_on), option_letter: letter });
+  const pssLot = lot({ ref: 'SSKE-104929', quality: 'AB FAQ' });
+
+  it('reuse with a typed letter: names the options on file and the typed one', () => {
+    const res: LotResolution = { action: 'reuse', ref: 'SSKE-104929', lot: pssLot, sends: [pss('B'), pss('A', 'Nespresso', '2026-08-20')], reason: '' };
+    expect(lotSay(res, { book: 'commercial', ref: 'SSKE-104929C', quality: 'AB FAQ' })).toBe('SSKE-104929 has options A, B; this will be C');
+  });
+
+  it('reuse without a typed letter: the next letter after the highest on file', () => {
+    const res: LotResolution = { action: 'reuse', ref: 'SSKE-104929', lot: pssLot, sends: [pss('A')], reason: '' };
+    expect(lotSay(res, { book: 'commercial', ref: 'SSKE-104929', quality: 'AB FAQ' })).toBe('SSKE-104929 has option A; this will be B');
+    expect(lotSay(res, { book: 'commercial', quality: 'AB FAQ' })).toBe('SSKE-104929 has option A; this will be B');
+  });
+
+  it('letters are distinct and sorted whatever order the sends come in; the base is read off a lettered ref too', () => {
+    const res: LotResolution = { action: 'reuse', ref: 'SSKE-104929B', lot: null, sends: [pss('B'), pss('A'), pss('B', 'Nespresso', '2026-08-01')], reason: '' };
+    expect(lotSay(res, { book: 'commercial', ref: 'SSKE-104929B', quality: 'AB FAQ' })).toBe('SSKE-104929 has options A, B; this will be B');
+  });
+
+  it('no letters on the sends: today\'s reuse line', () => {
+    const res: LotResolution = { action: 'reuse', ref: 'SSKE-104929', lot: pssLot, sends: [pss(null, 'Nespresso', '2026-09-01')], reason: '' };
+    expect(lotSay(res, { book: 'commercial', ref: 'SSKE-104929C', quality: 'AB FAQ' })).toBe('Ref: SSKE-104929 (same coffee — 2nd send, last to Nespresso 1 Sep)');
+  });
+
+  it('new for a typed base ref keeps the free line', () => {
+    expect(lotSay({ action: 'new', ref: 'SSKE-104929', lot: null, sends: [], reason: '' }, { book: 'commercial', ref: 'SSKE-104929', quality: 'AB FAQ' })).toBe("SSKE-104929 is free — I'll use it");
+  });
+});
+
 describe('refConflict — the 409 the create routes answer (contracts §4)', () => {
   it('recognises status 409 + error ref_conflict and hands back the body', () => {
     const err = Object.assign(new Error('Sample API error 409'), { status: 409, body: { error: 'ref_conflict', ref: 'TYPE-113', lot: lot({}), sends: [] } });

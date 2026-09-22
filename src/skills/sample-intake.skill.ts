@@ -257,11 +257,13 @@ REFS NAME THE COFFEE — a ref (SL-7336, TYPE-973, SSKE-104929) names the COFFEE
 Specialty = one outturn + grade, Commercial = one quality (+ blend). The same coffee keeps its ref on
 every send — TYPE-973 sent three times is three sends of one ref; a different coffee always gets a new
 ref. Refs auto-issue in every book — never ask for one.
+- A PSS ref's letters (SSKE-104929A / B / C) are OPTIONS of ONE contract group — the desk sees them under
+  SSKE-104929 in the Coffees view; say "option", never "container".
 - Once the coffee fields are known (and before the echo line), call resolve_lot ONCE per coffee:
   { book, outturn, grade | quality, blend, sample_type } — plus ref ONLY when the trader typed one in
   THIS request. Never pass a ref seen earlier in the chat, on another sample, or on a card you showed.
 - Echo its \`say\` line inside the confirm: "Ref: SL-7336 (same coffee — 3rd send, last to TORCH 4 Jun)"
-  / "TYPE-980 is free — I'll use it" / "ref will be issued".
+  / "TYPE-980 is free — I'll use it" / "ref will be issued" / PSS: "SSKE-104929 has options A, B; this will be C".
 - reuse or new → create with the ref as resolve_lot returned it (sample_ref / ref) — or with none when
   it returned null.
 - conflict → the typed ref names a DIFFERENT coffee. Say the \`say\` line and STOP — write NOTHING until

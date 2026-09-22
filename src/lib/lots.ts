@@ -1,4 +1,5 @@
 import { shortDay } from './resolve-sample';
+import { lotRefFor, normalizeRef } from './normalize';
 
 // A ref names the COFFEE (round 10): SL-7336 is one outturn+grade, TYPE-973 one type sample — the same
 // ref goes on every send of that coffee; a different coffee gets a new ref. `POST /lots/resolve`
@@ -27,6 +28,8 @@ export type LotSend = {
   qty_grams?: number | null;
   courier_norm?: string | null;
   awb?: string | null;
+  /** PSS only: the option letter this send is (SSKE-104929C → "C"); null elsewhere. */
+  option_letter?: string | null;
 };
 
 export type LotResolution = {
@@ -67,6 +70,7 @@ export function coffeeLabel(c: CoffeeInput): string {
 /**
  * The line the model echoes inside the confirm:
  *   reuse    → "Ref: SL-7336 (same coffee — 3rd send, last to TORCH 4 Jun)"
+ *              PSS group → "SSKE-104929 has options A, B; this will be C"
  *   conflict → "TYPE-113 is AB FAQ (sent to Joh Johanson 24 Jun). This is C FAQ — a different coffee, so it
  *               gets a new ref. OK, or did you mean AB FAQ?"
  *   new      → "TYPE-980 is free — I'll use it" (typed) · "ref will be issued"
@@ -74,6 +78,8 @@ export function coffeeLabel(c: CoffeeInput): string {
 export function lotSay(res: LotResolution, typed: CoffeeInput): string {
   const last = res.sends[0];
   if (res.action === 'reuse') {
+    const pss = pssGroupSay(res, typed);
+    if (pss) return pss;
     const nth = ordinal(res.sends.length + 1);
     const tail = last ? `, last to ${last.receiver ?? '?'} ${shortDay(last.date_on)}` : '';
     return `Ref: ${res.ref ?? res.lot?.ref ?? '?'} (same coffee — ${nth} send${tail})`;
@@ -84,6 +90,27 @@ export function lotSay(res: LotResolution, typed: CoffeeInput): string {
     return `${res.ref ?? typed.ref ?? '?'} is ${existing}${sent}. This is ${coffeeLabel(typed)} — a different coffee, so it gets a new ref. OK, or did you mean ${existing}?`;
   }
   return res.ref ? `${res.ref} is free — I'll use it` : 'ref will be issued';
+}
+
+const PSS_BASE = /^SSKE-\d+$/;
+const PSS_LETTER = /^SSKE-\d+([A-Z])$/;
+
+/**
+ * A PSS ref's options are one contract group (round 10b): a reuse of `SSKE-104929` reads
+ *   "SSKE-104929 has options A, B; this will be C"
+ * where the letters are the group's live options and "this will be" is the letter the trader typed, else the
+ * next one after the highest. Null when the ref is not a PSS group or no send carries a letter (→ plain reuse).
+ */
+function pssGroupSay(res: LotResolution, typed: CoffeeInput): string | null {
+  const base = lotRefFor(res.ref ?? res.lot?.ref);
+  if (!base || !PSS_BASE.test(base)) return null;
+  const letters = [...new Set(res.sends.map((s) => (s.option_letter ?? '').trim().toUpperCase()).filter(Boolean))].sort();
+  if (letters.length === 0) return null;
+  const typedLetter = normalizeRef(typed.ref)?.match(PSS_LETTER)?.[1] ?? normalizeRef(res.ref)?.match(PSS_LETTER)?.[1];
+  const highest = letters[letters.length - 1];
+  const next = typedLetter ?? (highest < 'Z' ? String.fromCharCode(highest.charCodeAt(0) + 1) : null);
+  if (!next) return null;
+  return `${base} has ${letters.length === 1 ? 'option' : 'options'} ${letters.join(', ')}; this will be ${next}`;
 }
 
 /** The create routes' 409 (contracts §4): `{ error: 'ref_conflict', ref, lot, sends }` — else null. */

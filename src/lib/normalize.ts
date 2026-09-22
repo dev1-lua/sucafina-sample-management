@@ -194,6 +194,16 @@ export function normalizeRef(raw?: string | null): string | undefined {
   return s.replace(/[\s-]+/g, '-');
 }
 
+/**
+ * The lot a ref groups under (round 10b, Harriet): a PSS ref `SSKE-<contract digits><option letter>` is one
+ * OPTION of a contract, and all of a contract's options are one group — so `lotRefFor("SSKE-104929C") ===
+ * "SSKE-104929"`. Every other ref is its normalised self. Mirrors the API's `lotRefFor` / SQL `lot_ref`.
+ */
+export function lotRefFor(raw?: string | null): string | undefined {
+  const ref = normalizeRef(raw);
+  return ref?.replace(/^(SSKE-\d+)[A-Z]$/, '$1');
+}
+
 // ---- AWB (data-dictionary §9 rule 1) -------------------------------------
 
 /** Store as text, digits only — strips everything non-digit, keeps as string to preserve leading zeros. */

@@ -7,7 +7,7 @@ import { lotSay, type LotResolution } from '../../lib/lots';
 export default class ResolveLotTool implements LuaTool {
   name = 'resolve_lot';
   description =
-    'Which ref this coffee gets, BEFORE the create — a ref names the COFFEE (Specialty: outturn + grade; Commercial: quality + blend) and is reused on every send of it. Call once per coffee as soon as its fields are known, with the ref only if the trader typed one in THIS request. Reads only. Returns action reuse (same coffee sent before — the ref comes back, with its earlier sends), new (a fresh ref — the typed one is free, or the desk will issue one) or conflict (the typed ref already names a DIFFERENT coffee — nothing may be written until the trader answers), plus `say`, the line to echo inside the confirm.';
+    'Which ref this coffee gets, BEFORE the create — a ref names the COFFEE (Specialty: outturn + grade; Commercial: quality + blend) and is reused on every send of it. Call once per coffee as soon as its fields are known, with the ref only if the trader typed one in THIS request. Reads only. Returns action reuse (same coffee sent before — the ref comes back, with its earlier sends), new (a fresh ref — the typed one is free, or the desk will issue one) or conflict (the typed ref already names a DIFFERENT coffee — nothing may be written until the trader answers), plus `say`, the line to echo inside the confirm. A PSS ref SSKE-<contract digits><letter> resolves to its contract group (all its lettered options).';
 
   inputSchema = z.object({
     book: z.enum(['specialty', 'commercial']).describe("Which book the sample goes in: 'specialty' or 'commercial' (the Commercial book, internally 'bulk')."),
