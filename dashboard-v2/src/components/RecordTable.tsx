@@ -3,11 +3,13 @@ import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
+  getExpandedRowModel,
   useReactTable,
+  type ExpandedState,
   type VisibilityState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { IconChevronUp, IconChevronDown, IconSelector } from '@tabler/icons-react';
+import { IconChevronUp, IconChevronDown, IconChevronRight, IconSelector } from '@tabler/icons-react';
 
 import { useRecords } from '@/lib/query';
 import { cn } from '@/lib/cn';
@@ -23,6 +25,8 @@ const SKELETON_ROWS = 8;
 // unreadable slivers (the AWB-column bug); when the total exceeds the viewport the
 // scroll container pans horizontally, like Twenty's spreadsheet grid.
 const DEFAULT_COL_WIDTH = 150;
+// The leading chevron column of an expandable table (round 10, Coffees view).
+const EXPAND_COL_WIDTH = 36;
 
 /** Header sort affordance. Every sortable column shows a faint up/down hint so it
  * reads as sortable at a glance; the active column shows a solid single chevron in
@@ -39,6 +43,21 @@ function SortIndicator({ active, order }: { active: boolean; order?: 'asc' | 'de
 
 type RowData = Record<string, unknown>;
 
+/**
+ * Parent → child rows (round 10, the Coffees view). The caller owns the expanded set and
+ * supplies each parent's children (loaded on expand — the table never fetches them);
+ * children render as ONE full-width cell per row so every row, parent or child, keeps the
+ * fixed ROW_HEIGHT the virtualizer estimates with. Deep detail stays in the side panel.
+ */
+export type ExpandableConfig = {
+  expanded: Record<string, boolean>; // parent row id → expanded (controlled)
+  onExpandedChange: (next: Record<string, boolean>) => void;
+  getSubRows: (row: RowData) => RowData[]; // children to nest under a parent right now ([] while collapsed)
+  renderSubRow: (sub: RowData, parent: RowData) => React.ReactNode; // the child row's single-cell content
+  onSubRowClick?: (sub: RowData, parent: RowData) => void;
+  expandLabel?: (row: RowData) => string; // accessible name of the chevron, e.g. "Expand SL-7336"
+};
+
 export type RecordTableProps = {
   endpoint: string;
   columns: ColumnDef[];
@@ -54,6 +73,10 @@ export type RecordTableProps = {
   sortable?: boolean;
   // Sort applied on first render (null => the API's own default). Header clicks override it.
   initialSort?: SortState;
+  // Round 10: nest child rows under each parent (see ExpandableConfig).
+  expandable?: ExpandableConfig;
+  // Footer count wording; defaults to "N record(s)".
+  countLabel?: (total: number) => string;
 };
 
 const columnHelper = createColumnHelper<RowData>();
@@ -77,7 +100,7 @@ function displayValue(value: unknown): React.ReactNode {
   return String(value);
 }
 
-export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true, initialSort = null }: RecordTableProps) {
+export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true, initialSort = null, expandable, countLabel }: RecordTableProps) {
   const [sort, setSort] = React.useState<SortState>(initialSort);
   const [page, setPage] = React.useState(1);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -134,12 +157,36 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
     [columns],
   );
 
+  // Expandable: attach each parent's current children as `subRows` so TanStack's expanded
+  // row model flattens them into the row list (one fixed-height row each).
+  const getSubRows = expandable?.getSubRows;
+  const data = React.useMemo(
+    () => (getSubRows ? rows.map((r) => ({ ...r, subRows: getSubRows(r) })) : rows),
+    [rows, getSubRows],
+  );
+  const onExpandedChange = expandable?.onExpandedChange;
+  const handleExpandedChange = React.useCallback(
+    (updater: ExpandedState | ((prev: ExpandedState) => ExpandedState)) => {
+      if (!onExpandedChange) return;
+      const prev: ExpandedState = expandable?.expanded ?? {};
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      // `true` (expand-all) is never produced by our chevrons; keep the record shape.
+      onExpandedChange(next === true ? {} : next);
+    },
+    [onExpandedChange, expandable?.expanded],
+  );
+
   const table = useReactTable({
-    data: rows,
+    data,
     columns: tableColumns,
     getCoreRowModel: getCoreRowModel(),
-    getRowId: (row) => String(row.id),
-    state: { columnVisibility: columnVisibility ?? {} },
+    getExpandedRowModel: getExpandedRowModel(),
+    getSubRows: expandable ? (row) => (row as RowData & { subRows?: RowData[] }).subRows : undefined,
+    getRowCanExpand: expandable ? (row) => row.depth === 0 : () => false,
+    // Children get a parent-scoped id so the same send can never collide with a parent id.
+    getRowId: (row, index, parent) => (parent ? `${parent.id}:${String(row.id ?? index)}` : String(row.id)),
+    state: { columnVisibility: columnVisibility ?? {}, expanded: expandable?.expanded ?? {} },
+    onExpandedChange: handleExpandedChange,
   });
 
   const tableRows = table.getRowModel().rows;
@@ -183,8 +230,9 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
     });
   }
 
-  const colCount = visibleColumns.length;
-  const tableWidth = visibleColumns.reduce((sum, c) => sum + (c.width ?? DEFAULT_COL_WIDTH), 0);
+  const colCount = visibleColumns.length + (expandable ? 1 : 0);
+  const tableWidth =
+    visibleColumns.reduce((sum, c) => sum + (c.width ?? DEFAULT_COL_WIDTH), 0) + (expandable ? EXPAND_COL_WIDTH : 0);
   const isLoading = query.isLoading;
   const isEmpty = !isLoading && !query.isError && rows.length === 0;
 
@@ -201,6 +249,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
           <TableHeader className="sticky top-0 z-10 bg-background">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="hover:bg-transparent">
+                {expandable && <TableHead style={{ width: EXPAND_COL_WIDTH }} aria-label="Expand" />}
                 {headerGroup.headers.map((header) => {
                   const col = colByKey.get(header.column.id)!;
                   const isSortable = !!col.sortKey && sortable;
@@ -242,6 +291,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
             {isLoading &&
               Array.from({ length: SKELETON_ROWS }).map((_, i) => (
                 <TableRow key={`skeleton-${i}`} className="hover:bg-transparent">
+                  {expandable && <TableCell />}
                   {visibleColumns.map((col) => (
                     <TableCell key={col.key}>
                       <Skeleton className="h-4 w-full" />
@@ -275,12 +325,45 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
                 )}
                 {virtualItems.map((virtualItem) => {
                   const row = tableRows[virtualItem.index]!;
+                  if (expandable && row.depth > 0) {
+                    const parent = row.getParentRow()!.original;
+                    return (
+                      <TableRow
+                        key={row.id}
+                        className={cn('bg-muted/30', expandable.onSubRowClick && 'cursor-pointer')}
+                        onClick={expandable.onSubRowClick ? () => expandable.onSubRowClick!(row.original, parent) : undefined}
+                      >
+                        <TableCell colSpan={colCount} className="py-0">
+                          {expandable.renderSubRow(row.original, parent)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
                   return (
                     <TableRow
                       key={row.id}
                       className={cn('cursor-pointer', row.id === flashId && 'animate-row-flash')}
                       onClick={() => onRowClick(row.original)}
                     >
+                      {expandable && (
+                        <TableCell style={{ width: EXPAND_COL_WIDTH }} className="px-1 py-0">
+                          <button
+                            type="button"
+                            aria-expanded={row.getIsExpanded()}
+                            aria-label={expandable.expandLabel?.(row.original) ?? 'Expand'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              row.toggleExpanded();
+                            }}
+                            className="inline-flex size-7 items-center justify-center rounded-[4px] text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <IconChevronRight
+                              className={cn('size-4 transition-transform duration-150', row.getIsExpanded() && 'rotate-90')}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        </TableCell>
+                      )}
                       {row.getVisibleCells().map((cell) => {
                         const col = colByKey.get(cell.column.id)!;
                         return (
@@ -308,9 +391,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>
-          {total} record{total === 1 ? '' : 's'}
-        </span>
+        <span>{countLabel ? countLabel(total) : `${total} record${total === 1 ? '' : 's'}`}</span>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
