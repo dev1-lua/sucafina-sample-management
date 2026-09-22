@@ -145,6 +145,9 @@ describe('scripts/backfill-orders', () => {
     const parlor = report.groups.find((g) => g.client_id === parlorId)!;
     const cn = await pool.query(`SELECT * FROM consignments WHERE number = $1`, [parlor.number]);
     expect(cn.rows[0]).toMatchObject({ client_id: parlorId, requested_by: 'Ivo', logged_by: null, status: 'open', location: null, notes: `backfilled from AWB ${AWB}` });
+    expect(parlor.client_matched_by_name).toBe(false);
+    // The order is dated by its earliest send, not by the day the script ran, so the Orders list sorts by the real date.
+    expect((await pool.query(`SELECT created_at::date AS d FROM consignments WHERE id = $1`, [cn.rows[0].id])).rows[0].d).toBe('2026-09-02');
     const got = await auth(request(app).get(`/consignments/${cn.rows[0].id}`));
     expect(got.status).toBe(200);
     expect(got.body.member_count).toBe(4);
@@ -158,6 +161,8 @@ describe('scripts/backfill-orders', () => {
     const blue = report.groups.find((g) => g.client_id === null)!;
     const cn2 = await pool.query(`SELECT * FROM consignments WHERE number = $1`, [blue.number]);
     expect(cn2.rows[0]).toMatchObject({ client_id: null, requested_by: null, logged_by: null, notes: 'backfilled from AWB 5551234' });
+    expect(blue.client_matched_by_name).toBe(false); // no client called Blue Bottle on file
+    expect((await pool.query(`SELECT created_at::date AS d FROM consignments WHERE id = $1`, [cn2.rows[0].id])).rows[0].d).toBe(blue.date_from);
     const got2 = await auth(request(app).get(`/consignments/${cn2.rows[0].id}`));
     expect(got2.body.members.map((m: { id: string }) => m.id).sort()).toEqual([...specIds].sort());
     expect(got2.body.derived_status).toBe('delivered');
@@ -198,5 +203,45 @@ describe('scripts/backfill-orders', () => {
     expect(await count(`bulk_samples WHERE sample_ref IN ('TYPE-401','TYPE-402','TYPE-403','TYPE-404') AND consignment_id IS NOT NULL`)).toBe(0);
     // Without a floor the 2023 box is still there to be picked up.
     expect((await backfillOrders(pool, { apply: false })).groups.map((g) => g.awb)).toEqual(['2023000001']);
+  });
+
+  it('a group with no client_id is linked to the ONE live client whose normalised name matches the receiver text; ambiguous or merged clients do not link', async () => {
+    const saru = (await auth(request(app).post('/clients')).send({ name: 'Sarutahiko Coffee Co.', country: 'Japan' })).body.id;
+    // Two live clients normalising to "paulig" → ambiguous → no link.
+    await auth(request(app).post('/clients')).send({ name: 'Paulig Oy', country: 'Finland' });
+    await auth(request(app).post('/clients')).send({ name: 'Paulig', country: 'Finland' });
+    // A merged (soft-deleted) client is never picked.
+    const gone = (await auth(request(app).post('/clients')).send({ name: 'Gone Roasters', country: 'Kenya' })).body.id;
+    await pool.query(`UPDATE clients SET deleted_at = now() WHERE id = $1`, [gone]);
+    await pool.query(
+      `INSERT INTO bulk_samples (sample_ref, quality, client, client_id, awb, status, date_on) VALUES
+         ('TYPE-501', 'AB FAQ', ' sarutahiko coffee',   NULL, '7770001234', 'delivered', '2026-09-08'),
+         ('TYPE-502', 'AA FAQ', 'SARUTAHIKO COFFEE CO', NULL, '7770001234', 'delivered', '2026-09-06'),
+         ('TYPE-503', 'PB',     'Sarutahiko Coffee Co.', $1,  '7770001234', 'delivered', '2026-09-07'),
+         ('TYPE-504', 'AB FAQ', 'Paulig',               NULL, '6660001234', 'delivered', '2026-09-06'),
+         ('TYPE-505', 'AA FAQ', 'Paulig',               NULL, '6660001234', 'delivered', '2026-09-06'),
+         ('TYPE-506', 'AB FAQ', 'Gone Roasters',        NULL, '5550009999', 'delivered', '2026-09-06'),
+         ('TYPE-507', 'AA FAQ', 'gone roasters',        NULL, '5550009999', 'delivered', '2026-09-06')`,
+      [saru]);
+
+    const { groups } = await findOrderGroups(pool, { since: '2026-09-01' });
+    const byAwb = (awb: string) => groups.find((g) => g.awb === awb)!;
+    // Name-matched rows join the row that already carried the id: one order of three, labelled with the client's name.
+    expect(byAwb('7770001234')).toMatchObject({ client_id: saru, client: 'Sarutahiko Coffee Co.', client_matched_by_name: true, date_from: '2026-09-06', date_to: '2026-09-08' });
+    expect(byAwb('7770001234').rows).toHaveLength(3);
+    expect(byAwb('6660001234')).toMatchObject({ client_id: null, client: 'Paulig', client_matched_by_name: false });
+    expect(byAwb('5550009999')).toMatchObject({ client_id: null, client: 'Gone Roasters', client_matched_by_name: false });
+
+    const report = await backfillOrders(pool, { apply: true, since: '2026-09-01' });
+    expect(report.groups.map((g) => g.awb).sort()).toEqual(['5550009999', '6660001234', '7770001234']);
+    const cn = (await pool.query(`SELECT c.*, c.created_at::date AS d FROM consignments c WHERE number = $1`, [byAwb('7770001234').number ?? report.groups.find((g) => g.awb === '7770001234')!.number])).rows[0];
+    expect(cn).toMatchObject({ client_id: saru, d: '2026-09-06' });
+    const got = await auth(request(app).get(`/consignments/${cn.id}`));
+    expect(got.body.client_name).toBe('Sarutahiko Coffee Co.');
+    expect(got.body.member_count).toBe(3);
+    for (const awb of ['6660001234', '5550009999']) {
+      const row = (await pool.query(`SELECT client_id FROM consignments WHERE number = $1`, [report.groups.find((g) => g.awb === awb)!.number])).rows[0];
+      expect(row.client_id).toBeNull();
+    }
   });
 });

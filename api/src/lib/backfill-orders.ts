@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 import { issueConsignmentNumber } from './refs.js';
 import { attachSamples, type Tab } from './consignments.js';
+import { normalizeClientName } from './client-merge.js';
 
 // Round 10b, task 3: rows logged before round 10 have no order (the dashboard's Order column reads "—"),
 // e.g. Parlor Coffee's three coffees of 2026-09-02 that shared DHL AWB 8309842892. Rows that went out
@@ -9,9 +10,12 @@ import { attachSamples, type Tab } from './consignments.js';
 // CLI (dry run by default); the whole apply is one transaction and a second apply is a no-op because every
 // row it touched now carries a consignment_id.
 //
-// A "client" is the row's client_id; when that is null, the receiver text (receiver_company / client),
-// compared case-insensitively, and then only WITHIN one table. Two books share one order only on a
-// client_id + AWB match (one consignment may hold members of several books — attachSamples).
+// A "client" is the row's client_id. Legacy rows mostly carry receiver TEXT and no id, so a row whose text
+// normalises (normalizeClientName, as the PSS importer) to exactly ONE live client's name takes that id
+// first — merged clients are soft-deleted and never picked; an ambiguous or unknown name stays null. Rows
+// still without an id group on the receiver text, case-insensitively, and then only WITHIN one table. Two
+// books share one order only on a client_id + AWB match (one consignment may hold members of several
+// books — attachSamples). The order is dated (created_at) by its earliest send, not the day the script ran.
 //
 // The legacy sheet carries placeholder AWBs — "HD" (hand delivery) on 26 Connect Coffee rows, "n/a", "-" …
 // Grouping on those would make bogus 26-member orders, so an AWB only counts when it holds four digits in a
@@ -31,6 +35,8 @@ export type OrderGroup = {
   client_id: string | null;
   /** clients.name via client_id, else the receiver text as written on the first row. */
   client: string;
+  /** Some row's client_id came from its receiver text matching one live client's name. */
+  client_matched_by_name: boolean;
   rows: GroupRow[];
   /** Taken from the rows when every row agrees (non-empty and identical), else null. */
   requested_by: string | null;
@@ -53,6 +59,7 @@ export const isRealAwb = (awb: string): boolean => /\d{4}/.test(awb);
 type LiveRow = {
   tab: Book; id: string; ref: string | null; awb: string; client_id: string | null; receiver: string | null;
   client_name: string | null; requested_by: string | null; logged_by: string | null; date: string | null;
+  matched_by_name?: boolean;
 };
 
 const LIVE_UNATTACHED_SQL = `
@@ -73,6 +80,18 @@ const LIVE_UNATTACHED_SQL = `
     LEFT JOIN clients cl ON cl.id = live.client_id
    ORDER BY live.awb, live.created_at, live.ref, live.id`;
 
+/** normalised name → the live clients carrying it; a receiver text links only when exactly one does. */
+async function liveClientsByNorm(db: Q): Promise<Map<string, { id: string; name: string }[]>> {
+  const { rows } = await db.query(`SELECT id, name FROM clients WHERE deleted_at IS NULL`);
+  const map = new Map<string, { id: string; name: string }[]>();
+  for (const r of rows as { id: string; name: string }[]) {
+    const norm = normalizeClientName(r.name);
+    if (!norm) continue;
+    map.set(norm, [...(map.get(norm) ?? []), { id: String(r.id), name: r.name }]);
+  }
+  return map;
+}
+
 const agreed = (values: Array<string | null>): string | null => {
   const set = new Set(values.map((v) => (v ?? '').trim()));
   if (set.size !== 1) return null;
@@ -87,10 +106,15 @@ export async function findOrderGroups(db: Q, o: { since?: string | null } = {}):
   const since = o.since ?? null;
   if (since !== null && !DATE_RE.test(since)) throw new Error(`since must be YYYY-MM-DD, got "${since}"`);
   const { rows } = await db.query(LIVE_UNATTACHED_SQL, [since]);
+  const clientsByNorm = rows.some((r) => !r.client_id) ? await liveClientsByNorm(db) : new Map();
   let placeholders = 0;
   const byKey = new Map<string, LiveRow[]>();
   for (const r of rows as LiveRow[]) {
     if (!isRealAwb(r.awb)) { placeholders += 1; continue; }
+    if (!r.client_id) {
+      const hits = clientsByNorm.get(normalizeClientName(r.receiver ?? '')) ?? [];
+      if (hits.length === 1) { r.client_id = hits[0].id; r.client_name = hits[0].name; r.matched_by_name = true; }
+    }
     const awbKey = r.awb.toUpperCase();
     const key = r.client_id
       ? `${awbKey}|id:${r.client_id}`
@@ -106,6 +130,7 @@ export async function findOrderGroups(db: Q, o: { since?: string | null } = {}):
       awb: first.awb,
       client_id: first.client_id,
       client: (first.client_name ?? '').trim() || (first.receiver ?? '').trim() || '(no client)',
+      client_matched_by_name: members.some((m) => m.matched_by_name === true),
       rows: members.map((m) => ({ tab: m.tab, id: m.id, ref: m.ref, awb: m.awb, date: m.date })),
       requested_by: agreed(members.map((m) => m.requested_by)),
       logged_by: agreed(members.map((m) => m.logged_by)),
@@ -119,8 +144,9 @@ export async function findOrderGroups(db: Q, o: { since?: string | null } = {}):
 
 /**
  * Dry run: the groups, nothing written. Apply: ONE transaction creating, per group, a consignment (status
- * and location as POST /consignments defaults them — open, none), its `created` event and the members'
- * attachment (attachSamples stamps the order on any still-pending created pings too).
+ * and location as POST /consignments defaults them — open, none; created_at = the earliest send's date so
+ * the Orders list dates and sorts it by the real send), its `created` event and the members' attachment
+ * (attachSamples stamps the order on any still-pending created pings too).
  */
 export async function backfillOrders(db: Pool = pool, o: BackfillOptions): Promise<BackfillReport> {
   const actor = o.actor ?? BACKFILL_ORDERS_ACTOR;
@@ -139,9 +165,9 @@ export async function backfillOrders(db: Pool = pool, o: BackfillOptions): Promi
     for (const g of candidates.groups) {
       const number = await issueConsignmentNumber(client);
       const { rows: [row] } = await client.query(
-        `INSERT INTO consignments (number, location, status, notes, client_id, requested_by, logged_by)
-         VALUES ($1, NULL, 'open', $2, $3::uuid, $4, $5) RETURNING id`,
-        [number, `backfilled from AWB ${g.awb}`, g.client_id, g.requested_by, g.logged_by],
+        `INSERT INTO consignments (number, location, status, notes, client_id, requested_by, logged_by, created_at, updated_at)
+         VALUES ($1, NULL, 'open', $2, $3::uuid, $4, $5, COALESCE($6::date, now()), now()) RETURNING id`,
+        [number, `backfilled from AWB ${g.awb}`, g.client_id, g.requested_by, g.logged_by, g.date_from],
       );
       const id = String(row.id);
       await client.query(

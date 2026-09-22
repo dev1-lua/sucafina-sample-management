@@ -30,7 +30,8 @@ for (const g of report.groups) {
   const books = perTab.map(([t, n]) => `${t} ${n}`).join(', ');
   const span = g.date_from === g.date_to ? (g.date_from ?? '?') : `${g.date_from ?? '?'}..${g.date_to ?? '?'}`;
   const who = [g.requested_by && `asked by ${g.requested_by}`, g.logged_by && `logged by ${g.logged_by}`].filter(Boolean).join(', ');
-  console.log(`  AWB ${g.awb} · ${g.client} · ${g.rows.length} rows (${books}) · ${span}${who ? ` · ${who}` : ''} → ${g.number ?? 'would create'}`);
+  const client = `${g.client}${g.client_matched_by_name ? ' (client matched by name)' : g.client_id ? '' : ' (no client on file)'}`;
+  console.log(`  AWB ${g.awb} · ${client} · ${g.rows.length} rows (${books}) · ${span}${who ? ` · ${who}` : ''} → ${g.number ?? 'would create'}`);
 }
 console.log(`  skipped ${report.placeholders} row(s) whose AWB is a placeholder (fewer than four digits)`);
 if (report.applied) console.log(`created ${report.consignments} consignment(s) for ${report.rows} row(s)`);
