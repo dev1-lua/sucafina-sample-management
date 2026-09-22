@@ -6,7 +6,7 @@ import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
 import { errorHandler } from '../src/errors.js';
 import { issueRef } from '../src/lib/refs.js';
 import {
-  containerState, contractStatusFrom, containerStates, nextOptionLetters, pssRefFor, pssStageLabel,
+  containerState, contractStatusFrom, containerStates, nextOptionLetters, pssRefFor, pssStageLabel, typedOptionLetter,
   type PssRow, type ContainerState, type ContractStatus,
 } from '../src/lib/contracts.js';
 
@@ -205,6 +205,18 @@ describe('option letters + contract-derived refs (Harriet, 2026-09-10)', () => {
     expect(pssRefFor('CT-2026-14', 'B')).toBe('SSKE-202614B');
     expect(pssRefFor('NO-DIGITS', 'A')).toBeNull();
     expect(pssRefFor(null, 'A')).toBeNull();
+  });
+
+  // Fix wave (review): a typed lettered SSKE ref must not end up with the contract's next free letter in its column.
+  it('typedOptionLetter: the typed letter wins on its own contract, foreign digits link no letter, no letter keeps the free one', () => {
+    const link = { option_letter: 'B', ref: 'SSKE-104929B' };
+    expect(typedOptionLetter('SSKE-104929C', link)).toBe('C');
+    expect(typedOptionLetter('sske 104929 e', link)).toBe('E');
+    expect(typedOptionLetter('SSKE-104929B', link)).toBe('B');          // the same letter: the 021 index decides
+    expect(typedOptionLetter('SSKE-999999Z', link)).toBeNull();         // another contract's digits
+    expect(typedOptionLetter('SSKE-104929', link)).toBe('B');           // bare base: the free letter stands
+    expect(typedOptionLetter('TYPE-5', link)).toBe('B');
+    expect(typedOptionLetter('SSKE-104929C', { option_letter: 'A', ref: null })).toBeNull(); // contract number without digits
   });
 
   it("pssStageLabel speaks Harriet's status vocabulary", () => {

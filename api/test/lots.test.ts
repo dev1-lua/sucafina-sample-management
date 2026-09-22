@@ -544,6 +544,58 @@ describe('PSS lots group by contract (round 10b)', () => {
     const list = await auth(request(app).get('/lots?q=SSKE-95986D'));
     expect(list.body.data[0]).toMatchObject({ ref: 'SSKE-95986', options: ['D'] });
   });
+
+  // Fix wave (review): a TYPED lettered SSKE ref on a row that auto-links to its contract used to keep the typed
+  // ref but take the contract's next free letter as option_letter — a row saying C whose column said B.
+  it('bulk: a typed SSKE-<digits>E on a contract with A–C live IS option E (not the next free D); the same letter again is a 409; foreign digits do not link a letter', async () => {
+    const c = await auth(request(app).post('/contracts')).send({ contract_number: 'SSKE-556101', client_name: 'Zoegas', quality: 'AA FAQ', pss_expected: 3, shipment_date: '2027-03-15', create_pss: true });
+    expect(c.status).toBe(201);
+    expect((await auth(request(app).get('/lots?q=SSKE-556101'))).body.data[0].options).toEqual(['A', 'B', 'C']);
+    // The contract drew A–C; the desk types E by hand (skipping D — the contract's next free letter must NOT win).
+    const typed = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB SCREEN 17', client: 'Zoegas', sample_type: 'pss', contract_number: 'SSKE-556101', sample_ref: 'sske-556101 e' });
+    expect(typed.status).toBe(201);
+    expect(typed.body).toMatchObject({ sample_ref: 'SSKE-556101 E', option_letter: 'E', contract_id: c.body.id, reused_ref: true, lot_sends: 4 });
+    expect((await auth(request(app).get('/lots?q=SSKE-556101'))).body.data[0]).toMatchObject({ ref: 'SSKE-556101', options: ['A', 'B', 'C', 'E'], contract_client: 'Zoegas' });
+    // The same letter again, by hand: the 021 partial unique index refuses it and nothing is written.
+    const dup = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB SCREEN 17', client: 'Zoegas', sample_type: 'pss', contract_number: 'SSKE-556101', sample_ref: 'SSKE-556101E' });
+    expect(dup.status).toBe(409);
+    expect(dup.body.constraint).toBe('bulk_samples_contract_option_idx');
+    expect((await pool.query(`SELECT count(*)::int AS n FROM bulk_samples WHERE lot_ref(sample_ref) = 'SSKE-556101' AND deleted_at IS NULL`)).rows[0].n).toBe(4);
+    // A typed ref whose digits are another contract's: the row still links, but takes no option letter.
+    const foreign = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB SCREEN 17', client: 'Zoegas', sample_type: 'pss', contract_number: 'SSKE-556101', sample_ref: 'SSKE-999101B' });
+    expect(foreign.status).toBe(201);
+    expect(foreign.body).toMatchObject({ sample_ref: 'SSKE-999101B', option_letter: null, contract_id: c.body.id });
+    expect((await auth(request(app).get('/lots?q=SSKE-556101'))).body.data[0].options).toEqual(['A', 'B', 'C', 'E']);
+    // A typed ref with no letter (the bare contract base) keeps today's behaviour: the contract's next free letter.
+    const bare = await auth(request(app).post('/bulk-samples'))
+      .send({ quality: 'AB SCREEN 17', client: 'Zoegas', sample_type: 'pss', contract_number: 'SSKE-556101', sample_ref: 'SSKE-556101' });
+    expect(bare.status).toBe(201);
+    expect(bare.body).toMatchObject({ sample_ref: 'SSKE-556101', option_letter: 'F', contract_id: c.body.id, reused_ref: true });
+    expect((await auth(request(app).get('/lots?q=SSKE-556101'))).body.data[0].options).toEqual(['A', 'B', 'C', 'E', 'F']);
+  });
+
+  it('specialty: a typed SSKE-<digits>D on a contract with A, B live IS option D (not the next free C); the same letter again is a 409', async () => {
+    const c = await auth(request(app).post('/contracts')).send({ contract_number: 'SSKE-556102', client_name: 'Zoegas', quality: 'Nyeri AA', pss_expected: 3, shipment_date: '2027-03-15' });
+    expect(c.status).toBe(201);
+    const send = (body: Record<string, unknown>) => auth(request(app).post('/specialty-samples'))
+      .send({ description: 'Nyeri AA', receiver_company: 'Zoegas', sample_type_norm: 'pss', contract_number: 'SSKE-556102', ...body });
+    const a = await send({});
+    const b = await send({});
+    expect([a.body, b.body].map((r) => [r.ref, r.option_letter])).toEqual([['SSKE-556102A', 'A'], ['SSKE-556102B', 'B']]);
+    const typed = await send({ ref: 'SSKE-556102D' });
+    expect(typed.status).toBe(201);
+    expect(typed.body).toMatchObject({ ref: 'SSKE-556102D', option_letter: 'D', contract_id: c.body.id, reused_ref: true, lot_sends: 3 });
+    expect((await auth(request(app).get('/lots?q=SSKE-556102'))).body.data[0]).toMatchObject({ ref: 'SSKE-556102', options: ['A', 'B', 'D'], contract_client: 'Zoegas' });
+    const dup = await send({ ref: 'sske-556102 d' });
+    expect(dup.status).toBe(409);
+    expect(dup.body.constraint).toBe('specialty_samples_contract_option_idx');
+    expect((await pool.query(`SELECT count(*)::int AS n FROM specialty_samples WHERE lot_ref(ref) = 'SSKE-556102' AND deleted_at IS NULL`)).rows[0].n).toBe(3);
+    const foreign = await send({ ref: 'SSKE-999102E' });
+    expect(foreign.body).toMatchObject({ ref: 'SSKE-999102E', option_letter: null, contract_id: c.body.id });
+  });
 });
 
 describe('migration 024: PSS lots re-keyed by contract, keys softened, conflicts rebuilt', () => {
