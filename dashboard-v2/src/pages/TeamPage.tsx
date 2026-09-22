@@ -21,6 +21,32 @@ import { useCreateTeamMember, usePatchTeamMember, useTeamRoster, type TeamMember
 const ROLE_LABEL: Record<TeamMember['role'], string> = { trader: 'Sales Trader', qc: 'Quality' };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Round 10 (C): the roster is colleagues only. Customers had landed on it via the loop-in
+// question; their contacts live on the client record instead. Domain match is case-insensitive.
+const SUCAFINA_EMAIL_RE = /^[^\s@]+@sucafina\.com$/i;
+const DOMAIN_ERROR = "Team emails must be @sucafina.com — a client's contact goes on the client record";
+
+/** Inline validation message for a typed email, or null when it can be saved. */
+function emailError(email: string): string | null {
+  if (!email) return null;
+  if (!EMAIL_RE.test(email)) return 'Not a valid email';
+  if (!SUCAFINA_EMAIL_RE.test(email)) return DOMAIN_ERROR;
+  return null;
+}
+
+/** The API's own message on a 400 (`{ "error": "..." }`, e.g. the roster domain rule), else a generic one. */
+function saveErrorMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message : '';
+  if (message.startsWith('400:')) {
+    try {
+      const parsed = JSON.parse(message.slice(4).trim()) as { error?: unknown };
+      if (typeof parsed.error === 'string' && parsed.error) return parsed.error;
+    } catch {
+      // not JSON — fall through to the generic message
+    }
+  }
+  return 'Save failed — try again';
+}
 
 /** Commit-on-blur/Enter email cell (the DetailDrawer InlineEditField contract). */
 function EmailCell({ member }: { member: TeamMember }) {
@@ -33,14 +59,15 @@ function EmailCell({ member }: { member: TeamMember }) {
   const commit = () => {
     const next = value.trim();
     if (next === initial) return;
-    if (next && !EMAIL_RE.test(next)) {
-      setError('Not a valid email');
+    const invalid = emailError(next);
+    if (invalid) {
+      setError(invalid);
       return;
     }
     setError('');
     patch.mutate(
       { id: member.id, body: { email: next || null } },
-      { onError: () => setError('Save failed — try again') },
+      { onError: (err) => setError(saveErrorMessage(err)) },
     );
   };
 
@@ -120,13 +147,14 @@ function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
       setError('Name is required');
       return;
     }
-    if (e && !EMAIL_RE.test(e)) {
-      setError('Not a valid email');
+    const invalid = emailError(e);
+    if (invalid) {
+      setError(invalid);
       return;
     }
     create.mutate(
       { name: n, email: e || null, role },
-      { onSuccess: () => onOpenChange(false), onError: () => setError('Save failed — try again') },
+      { onSuccess: () => onOpenChange(false), onError: (err) => setError(saveErrorMessage(err)) },
     );
   };
 

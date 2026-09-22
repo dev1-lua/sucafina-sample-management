@@ -77,6 +77,50 @@ it('rejects an invalid email without calling the API', async () => {
   expect(spy.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false);
 });
 
+// Round 10 (C): the roster is colleagues only — a client's contact belongs on the client record.
+const DOMAIN_ERROR = 'Team emails must be @sucafina.com — a client\'s contact goes on the client record';
+
+it('rejects a non-@sucafina.com email inline (case-insensitive domain) without calling the API', async () => {
+  const spy = stubFetch();
+  renderPage();
+  const input = await screen.findByLabelText('Email for Ivo');
+  await userEvent.type(input, 'ivo@paulig.fi');
+  await userEvent.tab();
+  expect(await screen.findByText(DOMAIN_ERROR)).toBeInTheDocument();
+  expect(spy.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false);
+
+  await userEvent.clear(input);
+  await userEvent.type(input, 'Ivo@SUCAFINA.COM');
+  await userEvent.tab();
+  await waitFor(() => expect(spy.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true));
+});
+
+it('the Add-person dialog applies the same domain rule', async () => {
+  const spy = stubFetch();
+  renderPage();
+  await screen.findByText('Harriet');
+  await userEvent.click(screen.getByRole('button', { name: /add person/i }));
+  await userEvent.type(screen.getByPlaceholderText('Muki'), 'Brian');
+  await userEvent.type(screen.getByPlaceholderText('muki@sucafina.com'), 'brian@gmail.com');
+  await userEvent.click(screen.getByRole('button', { name: 'Add person' }));
+  expect(await screen.findByText(DOMAIN_ERROR)).toBeInTheDocument();
+  expect(spy.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
+it("surfaces the API's 400 message when the server rejects the email", async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+    if (init?.method === 'PATCH') {
+      return new Response(JSON.stringify({ error: 'only @sucafina.com addresses are allowed on the team roster' }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ data: ROSTER, total: ROSTER.length }), { status: 200 });
+  });
+  renderPage();
+  const input = await screen.findByLabelText('Email for Ivo');
+  await userEvent.type(input, 'ivo@sucafina.com');
+  await userEvent.tab();
+  expect(await screen.findByText('only @sucafina.com addresses are allowed on the team roster')).toBeInTheDocument();
+});
+
 it('adds a person through the dialog via POST', async () => {
   const spy = stubFetch();
   renderPage();
