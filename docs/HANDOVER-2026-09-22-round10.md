@@ -10,12 +10,12 @@ API first (the dashboard and the agent call endpoints that only exist after migr
 
 `scripts/deploy-api.sh` now takes a `pg_dump` backup into `/opt/sucafina/backups/` before replaying migrations 011–023. Migration 023 creates `lots` (one row per ref = one coffee), backfills it from the oldest live row per ref, lists refs whose rows carry different coffees in `lot_conflicts`, adds `client_id/requested_by/logged_by` to consignments, and rebuilds `all_samples_v` with `lot_sends` + `consignment_number`.
 
-After the deploy, review the conflict list before applying it (on the dev seed it flagged 55 refs, mostly legacy junk refs like `DS` and `13/6247`; the apply re-issues every non-oldest row a fresh counter ref and tells QC old → new):
+After the deploy, review the conflict list before applying it. **Prod dry run (22 Sep) flagged 60 refs; nearly all are legacy sheet noise** (`AB-FAQ` vs `AB FAQ`, `Grinder` vs `Grinders`, `TYPE SAMPLE B` vs `ARABICA SAMPLE B`, outturn typos) and must NOT be applied wholesale. Apply only the two real ones with `--ref`:
 
 ```bash
 ssh root@156.67.105.74 'cd /opt/sucafina && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api npx tsx scripts/lot-conflicts.ts'
-# once QC has seen the list (or you have pruned junk refs by hand):
-ssh root@156.67.105.74 'cd /opt/sucafina && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api npx tsx scripts/lot-conflicts.ts --apply'
+# the two real clashes (Beyers AB FAQ on TYPE-113, Sarutahiko AB FAQ on TYPE-114) get fresh TYPE refs; QC gets a change alert each:
+ssh root@156.67.105.74 'cd /opt/sucafina && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api npx tsx scripts/lot-conflicts.ts --ref TYPE-113,TYPE-114 --apply < /dev/null'
 ```
 
 Smoke checks (replace KEY):
