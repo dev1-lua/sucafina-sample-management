@@ -319,21 +319,33 @@ export type Consignment = {
   notes: string | null; member_count: number; created_at: string;
 };
 
-// Add/remove member samples on a consignment. Add resolves a ref via /search first (the API's
-// membership endpoint takes {tab, ids}); both invalidate the consignment detail + list on settle.
+// A send found by ref (contracts §5): the same ref can name several sends, so the caller
+// picks which one when more than one comes back.
+export type SampleCandidate = {
+  tab: string; id: string; ref: string; title: string | null; receiver: string | null; status: string | null;
+  date_on: string | null; consignment_number: string | null; awb: string | null; courier_norm: string | null;
+};
+/** GET /samples/resolve?ref= — exact (normalised) ref match, live rows, newest first; [] when none. */
+export function resolveSampleRef(ref: string): Promise<SampleCandidate[]> {
+  return api<{ ref: string; candidates: SampleCandidate[] }>(`/samples/resolve?ref=${encodeURIComponent(ref)}`).then((r) => r.candidates);
+}
+
+/** Membership and dispatch writes touch the sample rows too (consignment_number, status) — refresh everything. */
+function invalidateConsignment(qc: QueryClient, id: string) {
+  qc.invalidateQueries({ queryKey: ['/consignments', 'detail', id] });
+  qc.invalidateQueries({ queryKey: ['/consignments', 'list'] });
+  for (const endpoint of SAMPLE_ENDPOINTS) qc.invalidateQueries({ queryKey: [endpoint] });
+  qc.invalidateQueries({ queryKey: [LOTS_ENDPOINT] });
+}
+
+// Add/remove member samples on a consignment (the API's membership endpoint takes {tab, ids}).
+// Resolving a typed ref to a send is the page's job (resolveSampleRef + a picker when ambiguous).
 export function useConsignmentMembers(id: string) {
   const qc = useQueryClient();
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['/consignments', 'detail', id] });
-    qc.invalidateQueries({ queryKey: ['/consignments', 'list'] });
-  };
+  const invalidate = () => invalidateConsignment(qc, id);
   const add = useMutation({
-    mutationFn: async (ref: string) => {
-      const res = await api<{ data: SearchHit[] }>(`/search?q=${encodeURIComponent(ref)}&pageSize=1`);
-      const hit = res.data[0];
-      if (!hit) throw new Error(`No sample matching "${ref}"`);
-      return api(`/consignments/${id}/samples`, { method: 'POST', body: JSON.stringify({ tab: hit.tab, ids: [hit.id] }) });
-    },
+    mutationFn: (m: { tab: string; id: string }) =>
+      api(`/consignments/${id}/samples`, { method: 'POST', body: JSON.stringify({ tab: m.tab, ids: [m.id] }) }),
     onSettled: invalidate,
   });
   const remove = useMutation({
@@ -342,6 +354,16 @@ export function useConsignmentMembers(id: string) {
     onSettled: invalidate,
   });
   return { add, remove };
+}
+
+/** POST /consignments/:id/dispatch — the per-sample dispatch write applied to every live member. */
+export function useDispatchConsignment(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { courier: string; awb: string; dispatched_on?: string }) =>
+      api<{ updated: number }>(`/consignments/${id}/dispatch`, { method: 'POST', body: JSON.stringify(body) }),
+    onSettled: () => invalidateConsignment(qc, id),
+  });
 }
 
 // --- Contracts + PSS (migration 020) ------------------------------------------------
