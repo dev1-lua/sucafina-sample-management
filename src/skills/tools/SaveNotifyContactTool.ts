@@ -43,7 +43,8 @@ export default class SaveNotifyContactTool implements LuaTool {
       .string()
       .optional()
       .describe('Sample ref to add this person to, e.g. "TYPE-1020" — for "keep X in the loop on this one".'),
-    tab: z.enum(TABS).optional().describe('Book of the sample, when known (disambiguates duplicate refs).'),
+    tab: z.enum(TABS).optional().describe('Book of the sample, when known.'),
+    receiver: z.string().optional().describe('Receiver / client name to pick the right send when the ref has several.'),
   });
 
   async execute(input: z.infer<typeof this.inputSchema>) {
@@ -62,7 +63,7 @@ export default class SaveNotifyContactTool implements LuaTool {
     if (email && !isInternalEmail(email)) {
       const target = input.client
         ? await this.resolveClient(input.client)
-        : await this.clientOfSample(input.sample_ref!, input.tab);
+        : await this.clientOfSample(input.sample_ref!, input.tab, input.receiver);
       if (!target) {
         return {
           saved: false,
@@ -100,7 +101,7 @@ export default class SaveNotifyContactTool implements LuaTool {
     // 3) Sample → extra loop-in (this one sample only).
     let attachedSample: { tab: string; id: string; ref: string } | null = null;
     if (input.sample_ref) {
-      const { tab, id } = await resolveSampleByRef(input.sample_ref, input.tab);
+      const { tab, id } = await resolveSampleByRef(input.sample_ref, { tab: input.tab, receiver: input.receiver });
       const row = await apiFetch(`${sampleEndpoint(tab)}/${id}`);
       const current: string[] = Array.isArray(row.notify_trader_ids) ? row.notify_trader_ids : [];
       if (!current.includes(person.id)) {
@@ -144,8 +145,8 @@ export default class SaveNotifyContactTool implements LuaTool {
     throw new Error(`Several clients match "${q}": ${hits.map((r) => r.name).join('; ')}. Ask which one, then retry with the exact name.`);
   }
 
-  private async clientOfSample(ref: string, tab?: (typeof TABS)[number]): Promise<{ id: string; name: string; created?: boolean } | null> {
-    const { tab: t, id } = await resolveSampleByRef(ref, tab);
+  private async clientOfSample(ref: string, tab?: (typeof TABS)[number], receiver?: string): Promise<{ id: string; name: string; created?: boolean } | null> {
+    const { tab: t, id } = await resolveSampleByRef(ref, { tab, receiver });
     const row = await apiFetch(`${sampleEndpoint(t)}/${id}`);
     if (!row.client_id) return null;
     const c = await apiFetch(`/clients/${row.client_id}`);

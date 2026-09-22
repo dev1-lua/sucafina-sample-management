@@ -1,4 +1,6 @@
 import { apiFetch } from '../../lib/api';
+import { resolveSampleByRef } from '../../lib/resolve-sample';
+import type { Tab } from '../../lib/normalize';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,23 +20,29 @@ export async function resolveConsignment(ref: string): Promise<{ id: string; num
   return hit ? { id: hit.id, number: hit.number } : null;
 }
 
-export type ResolvedSample = { tab: 'specialty' | 'bulk' | 'forwarding'; id: string; ref: string };
+export type ResolvedSample = { tab: Tab; id: string; ref: string };
 
-/** Resolve a list of sample refs/AWBs/text to {tab, id} via the cross-book search endpoint. */
-export async function resolveSamples(refs: string[]): Promise<{ found: ResolvedSample[]; missing: string[] }> {
+/**
+ * Resolve a list of sample refs to {tab, id} through the one resolver (a ref names the coffee and may
+ * have several sends — `receiver` narrows; an ambiguous ref comes back in `missing` with the
+ * "which receiver?" reason rather than the first row the search happened to return).
+ */
+export async function resolveSamples(refs: string[], opts: { receiver?: string } = {}): Promise<{ found: ResolvedSample[]; missing: Array<{ ref: string; reason: string }> }> {
   const found: ResolvedSample[] = [];
-  const missing: string[] = [];
+  const missing: Array<{ ref: string; reason: string }> = [];
   for (const r of refs) {
-    const res = await apiFetch(`/search?q=${encodeURIComponent(r)}&pageSize=1`);
-    const hit = res.data?.[0];
-    if (hit) found.push({ tab: hit.tab, id: hit.id, ref: hit.ref ?? r });
-    else missing.push(r);
+    try {
+      const hit = await resolveSampleByRef(r, opts);
+      found.push({ tab: hit.tab, id: hit.id, ref: hit.ref });
+    } catch (e) {
+      missing.push({ ref: r, reason: (e as Error)?.message ?? String(e) });
+    }
   }
   return { found, missing };
 }
 
 /** POST resolved samples to a consignment, one request per book (the API takes one tab at a time). */
-export async function attachSamples(consignmentId: string, samples: ResolvedSample[]): Promise<number> {
+export async function attachSamples(consignmentId: string, samples: Array<{ tab: Tab; id: string }>): Promise<number> {
   let added = 0;
   for (const tab of ['specialty', 'bulk', 'forwarding'] as const) {
     const ids = samples.filter((s) => s.tab === tab).map((s) => s.id);

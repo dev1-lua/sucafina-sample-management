@@ -46,7 +46,8 @@ export default class RequestMissingDetailsTool implements LuaTool {
 
   inputSchema = z.object({
     sample_ref: z.string().min(1).describe('The sample just logged, e.g. "TYPE-113" — its client is who the details are for.'),
-    tab: z.enum(TABS).optional().describe('Book of the sample, when known (disambiguates duplicate refs).'),
+    tab: z.enum(TABS).optional().describe('Book of the sample, when known.'),
+    receiver: z.string().optional().describe('Receiver / client name to pick the right send when the ref has several.'),
     to_email: z.string().email().optional().describe('Work email of the colleague who has the details (wins over to_name; a new colleague is added to the roster).'),
     to_name: z.string().optional().describe('Name of the colleague who has the details, e.g. "Tommie" — roster short name or full name.'),
     missing: z.array(z.string().min(1)).min(1).describe('Exactly what to ask for, e.g. ["full street address", "contact person", "phone"].'),
@@ -67,7 +68,7 @@ export default class RequestMissingDetailsTool implements LuaTool {
 
   async execute(input: z.infer<typeof this.inputSchema>) {
     // 1. The sample and its client.
-    const { tab, id } = await resolveSampleByRef(input.sample_ref, input.tab);
+    const { tab, id } = await resolveSampleByRef(input.sample_ref, { tab: input.tab, receiver: input.receiver });
     const row = await apiFetch(`${sampleEndpoint(tab)}/${id}`);
     if (!row.client_id) {
       throw new Error(`${input.sample_ref} has no client linked — re-run the create with client_id, or add the client with upsert_client first.`);

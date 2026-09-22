@@ -26,7 +26,12 @@ Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking 
   short question listing the candidates by ref (and tab, if it's ambiguous which book).
 - One AWB can cover several rows at once (e.g. a batch of Type samples, or several Forwarding
   parcels under one waybill) — pass every matching {tab, id} in a single record_dispatch call so
-  they share the same courier + AWB.
+  they share the same courier + AWB. An item can also be given as {ref, receiver?}: a ref names the
+  COFFEE and may have several sends, so add the receiver when QC said which one ("SL-7336 to TORCH");
+  if the tool answers "which receiver?", ask that one question.
+- A whole ORDER going out together ("CN-1012 went out with DHL 1234"): record_dispatch { consignment:
+  "CN-1012", courier, awb } — every live sample in it is marked dispatched with that courier + AWB in
+  one call; the tool reports how many rows it updated.
 - PHYTO CHECK before it goes out: find_open_samples returns each row's country + phyto_cert. If the
   shipment is leaving Kenya (destination/receiver abroad — every Forwarding parcel qualifies) and
   phyto_cert is empty, ask ONE short question before recording: "Does this shipment need a

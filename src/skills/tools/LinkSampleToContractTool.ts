@@ -13,6 +13,7 @@ export default class LinkSampleToContractTool implements LuaTool {
 
   inputSchema = z.object({
     ref: z.string().min(1).describe('Sample ref, e.g. "SSKE-108291".'),
+    receiver: z.string().optional().describe('Receiver / client name to pick the right send when the ref has several.'),
     contract_number: z.string().min(1).describe('Contract number, e.g. "CT-2026-14".'),
     container_no: z.number().int().min(1).optional().describe('Option slot (1..N) this sample fills; omitted, the first free slot is used.'),
   });
@@ -26,7 +27,7 @@ export default class LinkSampleToContractTool implements LuaTool {
     }
 
     // Forwarding parcels have no PSS step, so the sample must resolve to Specialty or Commercial.
-    const sample = await resolveSampleByRef(input.ref);
+    const sample = await resolveSampleByRef(input.ref, { receiver: input.receiver });
     if (sample.tab !== 'specialty' && sample.tab !== 'bulk') {
       return { linked: false, message: `${input.ref.trim()} is a Forwarding parcel — only Specialty and Commercial samples can be a PSS option.` };
     }
@@ -41,6 +42,7 @@ export default class LinkSampleToContractTool implements LuaTool {
       tab: sample.tab,
       contract_number: contract.contract_number,
       slot: res.container_no,
+      ...(sample.note ? { note: sample.note } : {}),
       url: contractsUrl(String(contract.id)),
     };
   }

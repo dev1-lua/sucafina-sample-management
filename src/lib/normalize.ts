@@ -181,6 +181,19 @@ export function extractPssNote(raw?: string | null): string | undefined {
   return `PSS — ${bits.join(', ')}`;
 }
 
+// ---- Sample ref (round 10 contracts: Ref normalisation) -------------------
+
+/**
+ * `normalizeRef("type - 980") === "TYPE-980"`: trim, upper-case, collapse any run of spaces/dashes between
+ * the prefix and the number to a single `-`. The API applies the same rule on every inbound ref, so a ref
+ * typed either way lands on the same lot. Empty input → undefined.
+ */
+export function normalizeRef(raw?: string | null): string | undefined {
+  const s = (raw ?? '').trim().toUpperCase();
+  if (!s) return undefined;
+  return s.replace(/[\s-]+/g, '-');
+}
+
 // ---- AWB (data-dictionary §9 rule 1) -------------------------------------
 
 /** Store as text, digits only — strips everything non-digit, keeps as string to preserve leading zeros. */

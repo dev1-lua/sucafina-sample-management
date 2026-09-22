@@ -9,8 +9,9 @@ export const resultsCaptureSkill = new LuaSkill({
   context: `NO NARRATION — never think out loud to the user: no "Let me check…", "I need to clarify…", "I'm noticing…", "I can offer to…", "before we proceed". Call tools SILENTLY; reply with only the result or the single next question.
 
 Use when someone shares cupping notes or a client verdict, e.g. "PSS3 cupped 83, citrus driven, clean — approved".
-- Resolve the sample with search_samples (by ref text, AWB, or quality+client) to get its tab + id,
-  then call record_result with that tab + id.
+- Call record_result with the ref (+ receiver when the coffee has several sends — a ref names the
+  COFFEE, e.g. "SL-7336 to TORCH"), or with tab + id from search_samples when you already have them.
+  If the tool answers "which receiver?", ask that one question.
 - Forwarding has no results/cupping step — if a Forwarding parcel is named, say so plainly instead
   of trying to log a result for it.
 - Scores/tasting notes go in comments verbatim; result is approved/rejected/pending_feedback.
