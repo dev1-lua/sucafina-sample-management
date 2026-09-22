@@ -123,6 +123,9 @@ export function sampleLabelData(row: Record<string, unknown>, now: Date = new Da
     { label: 'Option', value: isPss ? str(row, 'option_letter') ?? str(row, 'container_no') : null },
   ];
   const client = str(row, 'client') ?? str(row, 'receiver_company') ?? str(row, 'receiver');
+  // Round 10: one ref is reused for every send of the same coffee, so the slip's last line — right above
+  // the barcode — names who THIS bag goes to; two bags with the same ref stay distinguishable.
+  const deliverTo = { label: 'Deliver to', value: str(row, 'receiver_company') ?? str(row, 'receiver') ?? client };
 
   if (book === 'specialty') {
     const grade = str(row, 'grade');
@@ -136,7 +139,7 @@ export function sampleLabelData(row: Record<string, unknown>, now: Date = new Da
     return {
       code,
       kind: `Specialty sample${pss}`,
-      lines: [...what, ...present([{ label: 'Screen', value: grade }, { label: 'Crop', value: cropOf(row, now) }, ...contract])],
+      lines: [...what, ...present([{ label: 'Screen', value: grade }, { label: 'Crop', value: cropOf(row, now) }, ...contract, deliverTo])],
     };
   }
   if (book === 'forwarding') {
@@ -154,8 +157,9 @@ export function sampleLabelData(row: Record<string, unknown>, now: Date = new Da
       ...contract,
       { label: 'Quality', value: str(row, 'quality') },
       { label: 'Shipment', value: str(row, 'shipment_month') },
-      { label: 'Client', value: client },
       { label: 'Crop', value: cropOf(row, now) },
+      // The former "Client" line, now saying what it is for (the receiver of this bag) and printed last.
+      deliverTo,
     ]),
   };
 }
