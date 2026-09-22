@@ -398,3 +398,56 @@ export function useSearch(q: string) {
     enabled: q.trim().length > 0,
   });
 }
+
+// --- Lot resolve + order creation (round 10, create dialog) ---------------------------------
+// POST /lots/resolve is a pure read: given the coffee (and a typed ref, if any) it says whether
+// the ref will be reused, freshly issued, or clashes with a lot that names another coffee
+// (contracts §1). The create dialog calls it on blur so the notice shows before saving.
+export type LotResolveRequest = {
+  book: LotBook; ref: string | null;
+  outturn: string | null; grade: string | null; quality: string | null; blend: string | null;
+  sample_type: string | null;
+};
+export type LotResolveResult = {
+  action: 'reuse' | 'new' | 'conflict';
+  ref: string | null;
+  lot: Lot | null;
+  sends: LotSend[];
+  reason?: string;
+};
+export function resolveLot(body: LotResolveRequest): Promise<LotResolveResult> {
+  return api<LotResolveResult>(`${LOTS_ENDPOINT}/resolve`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** The create routes answer 409 `{ error: 'ref_conflict', ref, lot, sends }` when a typed ref names
+ * another coffee (contracts §4); api() folds that into `Error("409: <json>")`. Returns the parsed
+ * conflict, or null for any other failure. */
+export function parseRefConflict(err: unknown): LotResolveResult | null {
+  if (!(err instanceof Error) || !err.message.startsWith('409:')) return null;
+  try {
+    const body = JSON.parse(err.message.slice(4).trim()) as { error?: string; ref?: string; lot?: Lot; sends?: LotSend[] };
+    if (body.error !== 'ref_conflict') return null;
+    return { action: 'conflict', ref: body.ref ?? null, lot: body.lot ?? null, sends: body.sends ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+export type CreateConsignmentInput = {
+  location?: string | null; notes?: string | null; client_id?: string | null;
+  requested_by?: string | null; logged_by?: string | null;
+  samples?: Array<{ tab: string; id: string }>;
+};
+/** POST /consignments — an order, optionally with its samples attached in the same transaction (§6). */
+export function useCreateConsignment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateConsignmentInput) =>
+      api<Consignment>('/consignments', { method: 'POST', body: JSON.stringify(body) }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['/consignments', 'list'] });
+      for (const endpoint of SAMPLE_ENDPOINTS) qc.invalidateQueries({ queryKey: [endpoint] });
+      qc.invalidateQueries({ queryKey: [LOTS_ENDPOINT] });
+    },
+  });
+}
