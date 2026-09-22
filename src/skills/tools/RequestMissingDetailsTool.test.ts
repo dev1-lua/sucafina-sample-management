@@ -39,13 +39,14 @@ function wireApi(posted: any[]) {
   });
 }
 
-function tool(o: { conversation?: Conversation; deliverGroup?: any; deliver?: any } = {}) {
+/** `deliverResult` is what the 1:1 leg reports ('email' by default; 'teams' = a warm DM landed). */
+function tool(o: { conversation?: Conversation; deliverGroup?: any; deliverResult?: 'teams' | 'email' | null } = {}) {
   const groupPosts: any[] = [];
   const mails: any[] = [];
   const t = new RequestMissingDetailsTool({
     conversation: async () => o.conversation ?? GROUP,
     deliverGroup: o.deliverGroup ?? (async (x: any) => { groupPosts.push(x); return true; }),
-    deliver: o.deliver ?? (async (x: any) => { mails.push(x); return 'email' as const; }),
+    deliver: async (x: any) => { mails.push(x); return o.deliverResult === undefined ? ('email' as const) : o.deliverResult; },
     groupAsks: true,
   });
   return { t, groupPosts, mails };
@@ -94,15 +95,41 @@ describe('request_missing_details — the person named is looked up among the pe
     expect(r.reason).toMatch(/not on the roster/);
   });
 
-  it('nobody in the chat by that name → the roster, as before', async () => {
+  it('nobody in the chat by that name → the roster; the ask is NOT posted into a chat they are not in — it goes to them (DM, else email)', async () => {
     const posted: any[] = [];
     wireApi(posted);
     traders.mockResolvedValue([{ id: 'r3', name: 'Muki', email: 'muki@sucafina.com', role: 'trader', active: true }]);
     const { t, groupPosts, mails } = tool();
     const r = await t.execute({ sample_ref: 'TYPE-113', to_name: 'Muki', missing: ['full street address'] });
-    expect(groupPosts[0].text.startsWith('@Muki — ')).toBe(true);
-    expect(mails[0].email).toBe('muki@sucafina.com');
-    expect(r).toMatchObject({ delivered: true, via: 'group' });
+    expect(groupPosts).toHaveLength(0);
+    expect(mails[0]).toMatchObject({ email: 'muki@sucafina.com', emailOnly: false });
+    expect(r).toMatchObject({ delivered: true, via: 'email', to: { name: 'Muki', email: 'muki@sucafina.com' } });
+    expect(r).not.toHaveProperty('group_conversation');
+    expect(posted.find((p) => p[0] === 'detail-requests')?.[1]).toMatchObject({ asked_name: 'Muki', via: 'email' });
+  });
+
+  it('to_email of someone IN this chat → the group post still goes, addressed by their chat display name, and the DM is skipped', async () => {
+    const posted: any[] = [];
+    wireApi(posted);
+    traders.mockResolvedValue([{ id: 'r5', name: 'Tommie', email: 'tommie.schretlen@sucafina.com', role: 'trader', active: true }]);
+    const { t, groupPosts, mails } = tool();
+    const r = await t.execute({ sample_ref: 'TYPE-113', to_email: 'Tommie.Schretlen@sucafina.com', missing: ['full street address'] });
+    expect(groupPosts).toHaveLength(1);
+    expect(groupPosts[0].text.startsWith('@Tommie Schretlen — ')).toBe(true);
+    expect(mails[0]).toMatchObject({ email: 'tommie.schretlen@sucafina.com', emailOnly: true });
+    expect(r).toMatchObject({ delivered: true, via: 'group', also_emailed: true });
+  });
+
+  it('to_email of a colleague who is NOT in this chat → no group post; the 1:1 path (DM, else email) even from a group', async () => {
+    const posted: any[] = [];
+    wireApi(posted);
+    traders.mockResolvedValue([{ id: 'r6', name: 'Omar', email: 'omar@sucafina.com', role: 'trader', active: true }]);
+    const { t, groupPosts, mails } = tool({ deliverResult: 'teams' });
+    const r = await t.execute({ sample_ref: 'TYPE-113', to_email: 'omar@sucafina.com', missing: ['full street address'] });
+    expect(groupPosts).toHaveLength(0);
+    expect(mails[0]).toMatchObject({ email: 'omar@sucafina.com', emailOnly: false });
+    expect(r).toMatchObject({ delivered: true, via: 'teams', to: { name: 'Omar', email: 'omar@sucafina.com' } });
+    expect(r).not.toHaveProperty('group_conversation');
   });
 
   it('in a 1:1 the participants play no part: roster match, Teams DM / email as before', async () => {

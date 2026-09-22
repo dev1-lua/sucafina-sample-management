@@ -44,6 +44,20 @@ export function shortDay(iso: string | null | undefined): string {
 /** "→ TORCH (4 Jun, delivered)" */
 export const describeSend = (s: SampleCandidate) => `→ ${s.receiver ?? '?'} (${shortDay(s.date_on)}, ${s.status ?? '?'})`;
 
+/**
+ * One option of a PSS contract group (round 10b), as "where is SSKE-104929?" lists them:
+ *   "SSKE-104929 · option A → CK Corporation, dispatched 12 Sep (DHL 123)"
+ * The parenthesis carries the courier and AWB when there are any; a send without a letter reads "option ?".
+ */
+export function describeOption(
+  base: string,
+  s: { option_letter: string | null; receiver: string | null; status: string | null; date_on: string | null; courier_norm: string | null; awb: string | null },
+): string {
+  const courier = s.courier_norm ? s.courier_norm.replace(/_/g, ' ').toUpperCase() : null;
+  const via = [courier, s.awb].filter(Boolean).join(' ');
+  return `${base} · option ${s.option_letter ?? '?'} → ${s.receiver ?? '?'}, ${s.status ?? '?'} ${shortDay(s.date_on)}${via ? ` (${via})` : ''}`;
+}
+
 /** Every live send of a ref (newest first), optionally narrowed by tab and/or receiver (ILIKE server-side). */
 export async function resolveSampleCandidates(ref: string, opts: { tab?: Tab; receiver?: string } = {}): Promise<SampleCandidate[]> {
   const wanted = normalizeRef(ref);

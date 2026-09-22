@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./api', () => ({ apiFetch: vi.fn() }));
 import { apiFetch } from './api';
-import { resolveSampleByRef, resolveSampleCandidates } from './resolve-sample';
+import { resolveSampleByRef, resolveSampleCandidates, describeOption } from './resolve-sample';
 
 const api = apiFetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -92,5 +92,20 @@ describe('resolveSampleCandidates', () => {
     api.mockResolvedValueOnce({ ref: 'SL-7336', candidates: [send({}), send({ id: 'id-2' })] });
     const c = await resolveSampleCandidates('SL-7336');
     expect(c.map((s) => s.id)).toEqual(['id-1', 'id-2']);
+  });
+});
+
+describe('describeOption — one PSS option of a contract group, as the status answer lists it', () => {
+  it('base · option → receiver, status date (courier awb)', () => {
+    expect(describeOption('SSKE-104929', { option_letter: 'A', receiver: 'CK Corporation', status: 'dispatched', date_on: '2026-09-12', courier_norm: 'dhl', awb: '123' }))
+      .toBe('SSKE-104929 · option A → CK Corporation, dispatched 12 Sep (DHL 123)');
+  });
+  it('no courier / AWB yet → no parenthesis; a courier alone still shows; no letter → "option ?"', () => {
+    expect(describeOption('SSKE-104929', { option_letter: 'B', receiver: 'CK Corporation', status: 'requested', date_on: '2026-09-15', courier_norm: null, awb: null }))
+      .toBe('SSKE-104929 · option B → CK Corporation, requested 15 Sep');
+    expect(describeOption('SSKE-104929', { option_letter: 'C', receiver: null, status: 'preparing', date_on: null, courier_norm: 'wells_fargo', awb: null }))
+      .toBe('SSKE-104929 · option C → ?, preparing ? (WELLS FARGO)');
+    expect(describeOption('SSKE-104929', { option_letter: null, receiver: 'Paulig', status: 'delivered', date_on: '2026-09-01', courier_norm: null, awb: null }))
+      .toBe('SSKE-104929 · option ? → Paulig, delivered 1 Sep');
   });
 });
