@@ -90,8 +90,9 @@ function displayValue(value: string | null): React.ReactNode {
 
 type SortDir = 'asc' | 'desc';
 
-/** Cross-table (specialty/bulk/forwarding) order history for a client, client-side sortable
- * by order date. The server already returns rows date-sorted desc, so the initial render
+/** Cross-table (specialty/bulk/forwarding) SAMPLE history for a client (one row per send;
+ * the "Samples" card on the client page — orders/consignments live in ClientConsignmentsTable
+ * above it), client-side sortable by order date. The server already returns rows date-sorted desc, so the initial render
  * needs no re-sort — clicking the header just flips direction. */
 export function ClientOrdersTable({ orders }: { orders: ClientOrder[] }) {
   const navigate = useNavigate();
@@ -108,7 +109,7 @@ export function ClientOrdersTable({ orders }: { orders: ClientOrder[] }) {
   }, [orders, sortDir]);
 
   if (orders.length === 0) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">No orders placed by this client yet.</p>;
+    return <p className="py-6 text-center text-sm text-muted-foreground">No samples sent to this client yet.</p>;
   }
 
   function toggleSort() {

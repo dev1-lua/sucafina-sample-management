@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import { ClientConsignmentsTable } from './client-orders-table';
+import { ClientConsignmentsTable, ClientOrdersTable } from './client-orders-table';
 
 const ORDERS = [
   { id: 'c-1', number: 'CN-1012', member_count: 3, derived_status: 'partly_dispatched', requested_by: 'Ivo', created_at: '2026-09-10T08:00:00Z', client_id: 'cl-1', client_name: 'EDMAX' },
@@ -42,4 +42,13 @@ it('says so when the client has no orders', async () => {
   stubFetch([]);
   renderTable();
   expect(await screen.findByText('No orders for this client yet.')).toBeInTheDocument();
+});
+
+it('the per-sample history (now under a "Samples" heading) has a matching empty state', () => {
+  render(
+    <MemoryRouter>
+      <ClientOrdersTable orders={[]} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('No samples sent to this client yet.')).toBeInTheDocument();
 });
