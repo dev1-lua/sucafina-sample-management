@@ -3,7 +3,8 @@
 // options of one contract — SSKE-104929A, SSKE-104929B … — are one group keyed by the contract
 // base SSKE-104929. Every other ref is its own lot, so only SSKE strips a trailing letter.
 
-const PSS_OPTION = /^(SSKE-\d+)[A-Z]$/;
+// The legacy sheet also writes `SSKE 95986 D` (normalizeRef keeps that inner space), so the letter may follow one space.
+const PSS_OPTION = /^(SSKE-\d+) ?[A-Z]$/;
 const PSS_BASE = /^SSKE-\d+$/;
 
 /** "type - 980" → "TYPE-980": trim, upper-case, collapse whitespace, `\s*-\s*` → "-", "PREFIX 980" → "PREFIX-980". */

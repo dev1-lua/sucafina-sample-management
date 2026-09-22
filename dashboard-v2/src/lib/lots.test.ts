@@ -4,6 +4,7 @@ describe('lotRefFor — the lot (group) key of a ref, mirroring api/src/lib/lots
   it('strips one trailing option letter from a PSS ref, upper-casing and trimming first', () => {
     expect(lotRefFor('sske-104929b')).toBe('SSKE-104929');
     expect(lotRefFor('  SSKE-104929A ')).toBe('SSKE-104929');
+    expect(lotRefFor('SSKE 95986 D')).toBe('SSKE-95986'); // the sheet's own spelling, as the API keys it
   });
 
   it('leaves a base PSS ref and every other ref alone', () => {
