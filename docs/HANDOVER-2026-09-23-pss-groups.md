@@ -16,7 +16,11 @@ grades; the conflict clean-up issues one new ref per coffee across all flagged r
   Four of them (CN-1004, 1007, 1009, 1012) carry "asked by Baseagent Agent …" because their rows were logged with the bot as
   requester — check whether those are sandbox QA rows; the order's requester is editable, and deleting an order detaches its rows.
 - Fresh lot-conflicts dry run: **51 refs** (60 on 22 Sep), all a different outturn or grade under one ref; nothing applied.
-- Dashboard: `git push origin main` still to run (main ahead of origin by 21 commits at the time of writing). Agent: Dev deploying.
+- Dashboard: main pushed (181921c) → Vercel build.
+- Agent: `lua push all --force` (skills 1.0.31 / consignments 1.0.21 / pss-schedule 1.0.6, jobs, persona v23, model
+  anthropic/claude-sonnet-5) → `lua deploy all --force` (auto-versions v87–v93) → `lua version create` → **v94 promoted**
+  (previous active v93). **Rollback target for round 10b = v86** (the last version before this round; v87–v93 are partial).
+  Sanity: `lua version diff v86 v94` should show only tool/skill text + the three fixes, model unchanged.
 
 ## 0. Order matters
 
@@ -64,7 +68,7 @@ Coffees view on Specialty AND Commercial: one row per ref, expand for every send
 `SSKE-104929 · <contract client> · options A, B, C`; child rows carry the option letter. `?ref=SSKE-104929A` opens the
 group. Orders view shows the backfilled orders (Parlor Coffee → one CN with three coffees).
 
-## 3. Agent — next version after v86
+## 3. Agent — DONE 23 Sep as v94 (steps kept for the record)
 
 ```bash
 lua compile --ci                 # expect 51 primitives (8 skills / 35 tools / 4 jobs / 2 preprocessors / 1 postprocessor)
