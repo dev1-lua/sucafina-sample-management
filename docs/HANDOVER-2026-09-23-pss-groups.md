@@ -8,6 +8,16 @@ lettered options underneath; the Coffees view does this on the Commercial book a
 round 10 that shared a client and an AWB become orders; the coffee match tolerates the sheet's spelling without merging
 grades; the conflict clean-up issues one new ref per coffee across all flagged refs.
 
+## Deploy log (23 Sep, 12:42 EAT)
+
+- API deployed with 024: backup `sucafina-20260923-124221.sql.gz`; 024 re-keyed 425 lettered SSKE lots into their contract groups
+  (0 lettered lots left), recomputed 185 keys, rebuilt lot_conflicts (69 rows); health OK, `/lots` group rows carry `options`.
+- Orders backfill applied with `--since 2026-08-01`: **15 orders, CN-1004 … CN-1018, 70 rows**; Parlor Coffee = **CN-1014**.
+  Four of them (CN-1004, 1007, 1009, 1012) carry "asked by Baseagent Agent …" because their rows were logged with the bot as
+  requester — check whether those are sandbox QA rows; the order's requester is editable, and deleting an order detaches its rows.
+- Fresh lot-conflicts dry run: **51 refs** (60 on 22 Sep), all a different outturn or grade under one ref; nothing applied.
+- Dashboard: `git push origin main` still to run (main ahead of origin by 21 commits at the time of writing). Agent: Dev deploying.
+
 ## 0. Order matters
 
 API first (migration 024 re-keys the SSKE lots the dashboard and agent read), then dashboard, then agent.
