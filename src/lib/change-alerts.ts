@@ -1,5 +1,6 @@
 // Change alerts to the Quality team (Harriet, round 6 — migration 017): the outbox item shape the
 // status-notifier drains, and the ONE grouped message it sends per run for deletions / request edits.
+import { refWithSendId } from './normalize';
 
 export type OutboxItem = {
   outbox_id: string;
@@ -12,6 +13,8 @@ export type OutboxItem = {
     | string;
   recipient: string | null;
   ref: string | null;
+  /** The row's Send ID (`SS-1234`, round 11) when the outbox row carries it — quoted after the ref. */
+  send_id?: string | null;
   title: string | null;
   receiver: string | null;
   status: string | null;
@@ -134,14 +137,14 @@ function line(i: OutboxItem): string {
     if (i.tab === 'client') return `• DELETED client "${i.ref ?? '?'}"${i.payload?.merged_into_name ? ` (merged into ${i.payload.merged_into_name})` : ''} — ${by}`;
     if (i.tab === 'consignment') return `• DELETED consignment ${i.ref ?? '?'} — ${by}`;
     const bits = [i.title, i.receiver ? `→ ${i.receiver}` : null, i.qty_grams ? `${i.qty_grams}g` : null, BOOK[i.tab]].filter(Boolean).join(' • ');
-    return `• DELETED ${i.ref ?? '(no ref)'} — ${bits} — ${by}`;
+    return `• DELETED ${refWithSendId(i.ref, i.send_id)} — ${bits} — ${by}`;
   }
   const changes = i.payload?.changes ?? {};
   const diff = Object.entries(changes)
     .map(([f, c]) => (f === 'client_id' ? 'client changed' : `${FIELD_LABEL[f] ?? f} ${fmtValue(c.from, f)} → ${fmtValue(c.to, f)}`))
     .join('; ');
   const bits = [i.title, i.receiver ? `→ ${i.receiver}` : null, BOOK[i.tab]].filter(Boolean).join(' • ');
-  return `• EDITED ${i.ref ?? '(no ref)'} — ${bits} — ${diff || 'request changed'} — ${by}`;
+  return `• EDITED ${refWithSendId(i.ref, i.send_id)} — ${bits} — ${diff || 'request changed'} — ${by}`;
 }
 
 /** One grouped QC message for this run's deletions + edits. */

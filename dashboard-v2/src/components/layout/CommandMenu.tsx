@@ -5,6 +5,7 @@ import { IconLoader2 } from '@tabler/icons-react';
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge } from '@/components/StatusBadge';
+import { SendId, sendIdOf } from '@/components/SendId';
 import { useSearch, type SearchHit } from '@/lib/query';
 import { NAV_ITEMS } from './Sidebar';
 
@@ -96,6 +97,8 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
                 )}
                 {hits.map((hit) => (
                   <CommandItem key={`${hit.tab}-${hit.id}`} value={`${hit.tab}-${hit.id}`} onSelect={() => selectHit(hit)}>
+                    {/* Round 11: the send id leads so a hit is never mistaken for the coffee (the ref). */}
+                    {sendIdOf(hit.send_id) && <SendId value={hit.send_id} className="shrink-0 text-muted-foreground" />}
                     <span className="flex-1 truncate">
                       {hit.title ?? hit.ref ?? hit.id}
                       {hit.receiver && <span className="ml-1.5 text-muted-foreground">— {hit.receiver}</span>}

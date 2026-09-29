@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lotRefFor, normalizeRef } from './normalize';
+import { isSendId, lotRefFor, normalizeRef, refWithSendId } from './normalize';
 
 describe('normalizeRef — the same rule as the API (contracts: Ref normalisation)', () => {
   it('upper-cases and collapses spaces around the dash', () => {
@@ -58,5 +58,32 @@ describe('lotRefFor — the lot a ref groups under (round 10b: PSS options share
   it('empty input stays undefined', () => {
     expect(lotRefFor('')).toBeUndefined();
     expect(lotRefFor(null)).toBeUndefined();
+  });
+});
+
+describe('Send ID (round 11): isSendId / lotRefFor / refWithSendId', () => {
+  it('isSendId accepts SS-<n> in any spelling and nothing else', () => {
+    expect(isSendId('SS-1234')).toBe(true);
+    expect(isSendId('ss 1234')).toBe(true);
+    expect(isSendId(' ss-1234 ')).toBe(true);
+    expect(isSendId('SSKE-104929')).toBe(false);
+    expect(isSendId('SSKE-104929C')).toBe(false);
+    expect(isSendId('SL-7336')).toBe(false);
+    expect(isSendId('SS-')).toBe(false);
+    expect(isSendId('')).toBe(false);
+    expect(isSendId(null)).toBe(false);
+  });
+  it('normalizeRef spells it SS-1234 and lotRefFor leaves it untouched (it is not a PSS option)', () => {
+    expect(normalizeRef('ss 1234')).toBe('SS-1234');
+    expect(lotRefFor('SS-1234')).toBe('SS-1234');
+    expect(lotRefFor('ss-1234')).toBe('SS-1234');
+  });
+  it('refWithSendId: "ref (SS-n)", the ref alone, the Send ID alone, then the fallback', () => {
+    expect(refWithSendId('SL-7336', 'SS-1234')).toBe('SL-7336 (SS-1234)');
+    expect(refWithSendId('SL-7336', null)).toBe('SL-7336');
+    expect(refWithSendId('SL-7336', undefined)).toBe('SL-7336');
+    expect(refWithSendId(null, 'SS-1234')).toBe('SS-1234');
+    expect(refWithSendId(null, null)).toBe('(no ref)');
+    expect(refWithSendId('', undefined, 'your sample')).toBe('your sample');
   });
 });

@@ -47,6 +47,8 @@ describe('chaser', () => {
     const res = await auth(request(app).get('/chaser/digest'));
     expect(res.status).toBe(200);
     expect(res.body.buckets.not_dispatched.count).toBe(2);
+    // Round 11: digest items carry the send id so the chaser can quote "ref (SS-n)".
+    expect(res.body.buckets.not_dispatched.items.every((i: { send_id: string }) => /^SS-\d+$/.test(i.send_id))).toBe(true);
     const ev = await pool.query(`SELECT count(*)::int AS n FROM events WHERE type = 'chased'`);
     expect(ev.rows[0].n).toBe(4);
   });

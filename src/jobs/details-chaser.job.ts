@@ -2,6 +2,7 @@ import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
 import { ccFor, isInternalEmail, nameFromEmail, sendToPerson } from '../lib/notify';
 import { dashboardUrl } from '../lib/links';
+import { refWithSendId } from '../lib/normalize';
 
 // LOG FIRST, COMPLETE LATER (Beyers, 2026-09-08): a sample is written before the client's delivery
 // address exists; request_missing_details records who was asked. This job is the "then you chase people
@@ -28,7 +29,7 @@ export type PendingAsk = {
   escalated_at: string | null;
   days_open: number;
   account_manager: { id: string; name: string; email: string | null } | null;
-  samples: Array<{ tab: string; id: string; ref: string | null; title: string | null; qty_grams: number | null; date_on: string | null }>;
+  samples: Array<{ tab: string; id: string; ref: string | null; send_id?: string | null; title: string | null; qty_grams: number | null; date_on: string | null }>;
 };
 
 export type Recipient = { name: string; email: string };
@@ -47,7 +48,7 @@ export function chasePlan(a: PendingAsk): { recipients: Recipient[]; escalate: b
 }
 
 function chaseText(a: PendingAsk, escalate: boolean): { text: string; subject: string } {
-  const refs = a.samples.map((s) => s.ref).filter(Boolean).join(', ') || 'a sample';
+  const refs = a.samples.filter((s) => s.ref || s.send_id).map((s) => refWithSendId(s.ref, s.send_id)).join(', ') || 'a sample';
   const logged = a.samples[0]?.date_on ? ` logged ${a.samples[0].date_on}` : '';
   const by = a.asked_by ? ` by ${a.asked_by}` : '';
   const url = dashboardUrl('clients', a.client_id, 'updated');

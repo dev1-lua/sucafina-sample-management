@@ -21,7 +21,7 @@ import { refConflict, refConflictResult } from '../../lib/lots';
 export default class CreateBulkSampleTool implements LuaTool {
   name = 'create_bulk_sample';
   description =
-    'Create one Commercial-book send (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. Refs auto-issue in every book and NAME THE COFFEE (the same quality + blend keeps its ref on every send): pass `sample_ref` only when the trader typed one in THIS request and resolve_lot returned reuse or new. If the ref names a different coffee the API answers ref_conflict — the tool returns { ref_conflict: true, ref, lot, sends, say } and nothing is written; ask the trader, then retry with the ref (same coffee) or without it (different coffee). Never blocked by client details: an unknown client is added to the book from its name (client_created) and the result lists client_details_missing (street address / country — route them with request_missing_details) and client_details_optional (contact person / phone / email). Returns the row with lot_sends (how many sends this coffee now has — "3rd send") and reused_ref.';
+    'Create one Commercial-book send (offer/type/PSS sample tied to an external client + country; the book formerly called "Bulk"). Hard-requires quality, sample type, and client — the API rejects an incomplete record. Refs auto-issue in every book and NAME THE COFFEE (the same quality + blend keeps its ref on every send): pass `sample_ref` only when the trader typed one in THIS request and resolve_lot returned reuse or new. If the ref names a different coffee the API answers ref_conflict — the tool returns { ref_conflict: true, ref, lot, sends, say } and nothing is written; ask the trader, then retry with the ref (same coffee) or without it (different coffee). Never blocked by client details: an unknown client is added to the book from its name (client_created) and the result lists client_details_missing (street address / country — route them with request_missing_details) and client_details_optional (contact person / phone / email). Returns the row with send_id (SS-1234 — this send\'s own id, unique to the row; quote it on the card), lot_sends (how many sends this coffee now has — "3rd send") and reused_ref.';
 
   inputSchema = z.object({
     quality: z
@@ -167,6 +167,7 @@ export default class CreateBulkSampleTool implements LuaTool {
       created: true,
       tab: 'bulk',
       id: row.id,
+      send_id: row.send_id ?? null,
       date: row.date,
       sample_ref: row.sample_ref,
       // A ref names the coffee: how many live sends it now has (this one included) and whether it was reused.

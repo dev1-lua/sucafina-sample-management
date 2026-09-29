@@ -30,6 +30,7 @@ import { HighlightBanner } from '@/components/HighlightBanner';
 import { useRecordHighlight } from '@/lib/highlight';
 import { formatLocation, formatQty } from '@/lib/format';
 import { openPrintLabel, consignmentLabelData } from '@/components/print-label';
+import { SendId } from '@/components/SendId';
 import type { EventRow } from '@/types';
 
 const UNASSIGNED = '__unassigned__';
@@ -40,6 +41,7 @@ const COURIERS = ['dhl', 'fedex', 'ups', 'rider', 'hand_delivery', 'client_picku
 
 type Member = {
   tab: string; id: string; ref: string | null; title: string | null; receiver: string | null; status: string | null;
+  send_id?: string | null; // round 11: SS-<n>, unique to this send
   // Round 10 (contracts §6): the coffee and the parcel, so the order reads like the book row.
   outturn?: string | null; grade?: string | null; sample_type_norm?: string | null; qty_grams?: number | null;
   awb?: string | null; courier_norm?: string | null; dispatched_on?: string | null; date_on?: string | null;
@@ -351,6 +353,7 @@ export default function ConsignmentDetailPage() {
               const courier = [m.courier_norm, m.awb].filter(Boolean).join(' · ');
               return (
                 <div key={`${m.tab}-${m.id}`} className="flex items-center gap-3 py-2 text-sm">
+                  <span className="w-20 shrink-0"><SendId value={m.send_id} /></span>
                   <Link to={memberHref(m)} className="w-28 shrink-0 font-medium text-foreground hover:underline">
                     {m.ref || '(no ref)'}
                   </Link>

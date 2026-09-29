@@ -47,7 +47,7 @@ export const DERIVED_STATUS = `
                    SELECT status, dispatched_on, awb FROM forwarding_samples WHERE consignment_id = c.id AND deleted_at IS NULL AND status <> 'cancelled') u) m)`;
 
 export type Member = {
-  tab: Tab; id: string; ref: string | null; title: string | null; receiver: string | null; status: string;
+  tab: Tab; id: string; send_id: string | null; ref: string | null; title: string | null; receiver: string | null; status: string;
   location: string | null; outturn: string | null; grade: string | null; sample_type_norm: string | null;
   qty_grams: number | null; awb: string | null; courier_norm: string | null; dispatched_on: string | null; date_on: string | null;
 };
@@ -55,15 +55,15 @@ export type Member = {
 /** Member samples across the three books, in one unified shape (forwarding: NULL for what it lacks). */
 export async function memberRows(db: Db, consignmentId: string): Promise<Member[]> {
   const { rows } = await db.query(
-    `SELECT 'specialty'::text AS tab, id, ref AS ref, description AS title, receiver_company AS receiver, status::text AS status, location,
+    `SELECT 'specialty'::text AS tab, id, send_id, ref AS ref, description AS title, receiver_company AS receiver, status::text AS status, location,
             outturn, grade, sample_type_norm, qty_grams, awb, courier_norm, dispatched_on, date_on
        FROM specialty_samples  WHERE consignment_id = $1 AND deleted_at IS NULL
      UNION ALL
-     SELECT 'bulk', id, sample_ref, quality, client, status::text, location,
+     SELECT 'bulk', id, send_id, sample_ref, quality, client, status::text, location,
             NULL, NULL, sample_type_norm, qty_grams, awb, courier_norm, dispatched_on, date_on
        FROM bulk_samples       WHERE consignment_id = $1 AND deleted_at IS NULL
      UNION ALL
-     SELECT 'forwarding', id, sample_ref, coffee_quality, receiver_company, status::text, location,
+     SELECT 'forwarding', id, send_id, sample_ref, coffee_quality, receiver_company, status::text, location,
             NULL, NULL, NULL, qty_grams, awb, courier_norm, dispatched_on, date_on
        FROM forwarding_samples WHERE consignment_id = $1 AND deleted_at IS NULL
      ORDER BY tab, ref`,

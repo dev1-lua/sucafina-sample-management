@@ -225,7 +225,7 @@ describe('details-pending / details-mark (the daily chase)', () => {
   const pendingIds = async () => {
     const res = await auth(request(app).get('/notifications/details-pending'));
     expect(res.status).toBe(200);
-    return res.body.items as Array<{ id: string; samples: { id: string }[]; client_name: string; asked_email: string; days_open: number }>;
+    return res.body.items as Array<{ id: string; samples: { id: string; send_id: string | null }[]; client_name: string; asked_email: string; days_open: number }>;
   };
 
   it('is due immediately when nothing was ever delivered', async () => {
@@ -233,6 +233,9 @@ describe('details-pending / details-mark (the daily chase)', () => {
     const item = items.find((i) => i.id === reqId)!;
     expect(item).toBeTruthy();
     expect(item.client_name).toBe('Chase Roasters');
+    // Round 11: the waiting samples carry their send id.
+    expect(item.samples.length).toBeGreaterThan(0);
+    expect(item.samples.every((s) => /^SS-\d+$/.test(String(s.send_id)))).toBe(true);
     expect(item.samples.map((s) => s.id)).toEqual([sampleId]);
     expect(item.asked_email).toBe('tommie@sucafina.com');
   });
@@ -286,6 +289,7 @@ describe('outbox-pending carries the gap for the QC ping', () => {
     const res = await auth(request(app).get('/notifications/outbox-pending'));
     const item = res.body.items.find((i: { sample_id: string; event: string }) => i.sample_id === sampleId && i.event === 'created');
     expect(item).toBeTruthy();
+    expect(item.send_id).toMatch(/^SS-\d+$/);
     expect(item.client_address_missing).toBe(true);
     expect(item.details_requested_from).toBe('Tommie');
     expect(item.details_requested_via).toBe('teams');

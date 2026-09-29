@@ -32,3 +32,6 @@ export function isPssGroup(ref: string | null | undefined): boolean {
 export function optionLetterOf(send: { option_letter?: string | null; ref?: string | null }): string | null {
   return send.option_letter || PSS_OPTION.exec(normalizeRef(send.ref))?.[0]?.slice(-1) || null;
 }
+
+/** Under the drawer's Ref field: editing it re-labels the coffee for EVERY send of it, so say so. */
+export const REF_HINT = 'Names the coffee — shared by every send of it. Change it only if the coffee was mislabelled.';

@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-import { LotRefCell, OrderLinkCell } from './LotRefCell';
+import { ClientLinkCell, LotRefCell, OrderLinkCell } from './LotRefCell';
 
 const wrap = (ui: React.ReactNode) => <MemoryRouter>{ui}</MemoryRouter>;
 
@@ -27,6 +27,31 @@ describe('LotRefCell', () => {
     expect(pill).toHaveAttribute('href', '/bulk?view=coffees&ref=TYPE-113');
     fireEvent.click(pill);
     expect(onRow).not.toHaveBeenCalled();
+  });
+});
+
+// Round 11: the receiver / client cell deep-links to the Clients view, like the ×N pill does to Coffees.
+describe('ClientLinkCell', () => {
+  it('links the name to ?view=clients&client=<name> (encoded), without triggering the row click', () => {
+    const onRow = vi.fn();
+    render(
+      wrap(
+        <div onClick={onRow}>
+          <ClientLinkCell row={{ receiver_company: 'CK Corporation' }} field="receiver_company" basePath="/samples" />
+        </div>,
+      ),
+    );
+    const link = screen.getByRole('link', { name: 'CK Corporation' });
+    expect(link).toHaveAttribute('href', '/samples?view=clients&client=CK%20Corporation');
+    expect(link).toHaveAttribute('title', 'Every send to CK Corporation');
+    fireEvent.click(link);
+    expect(onRow).not.toHaveBeenCalled();
+  });
+
+  it('em-dash when the row has no client', () => {
+    render(wrap(<ClientLinkCell row={{ client: '' }} field="client" basePath="/bulk" />));
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 });
 

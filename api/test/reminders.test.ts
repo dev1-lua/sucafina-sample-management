@@ -88,6 +88,8 @@ describe('reminders', () => {
     expect(got).not.toContain(r1noFresh);
     expect(got).not.toContain(r1noAwb);
     expect(res.body.count).toBe(2);
+    // Round 11: reminder items carry the send id so the nudge can quote "ref (SS-n)".
+    expect(res.body.items.every((i: { send_id: string }) => /^SS-\d+$/.test(i.send_id))).toBe(true);
   });
 
   it('R2 feedback: dispatched/delivered, aged, no feedback recorded', async () => {

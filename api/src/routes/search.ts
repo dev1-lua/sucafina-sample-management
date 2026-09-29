@@ -4,7 +4,7 @@ import { h } from '../errors.js';
 import { AWAITING_COLLECTION_WHERE } from '../lib/detail-requests.js';
 import { makeFilters } from '../lib/list.js';
 import { assertIn, clampInt } from '../lib/validate.js';
-import { normalizeRef } from '../lib/lots.js';
+import { refFilter } from '../lib/lots.js';
 import { consignmentWhere } from '../lib/consignments.js';
 
 export const search = Router();
@@ -21,7 +21,7 @@ search.get('/', h(async (req, res) => {
   if (q) {
     f.params.push(q);
     const i = f.params.length;
-    f.where.push(`(ref ILIKE '%'||$${i}||'%' OR title ILIKE '%'||$${i}||'%' OR receiver ILIKE '%'||$${i}||'%' OR awb ILIKE '%'||$${i}||'%')`);
+    f.where.push(`(ref ILIKE '%'||$${i}||'%' OR send_id ILIKE '%'||$${i}||'%' OR title ILIKE '%'||$${i}||'%' OR receiver ILIKE '%'||$${i}||'%' OR awb ILIKE '%'||$${i}||'%')`);
   }
   if (req.query.tab && TABS.includes(String(req.query.tab))) f.add(`tab = ?`, String(req.query.tab));
   if (req.query.status) {
@@ -57,7 +57,8 @@ search.get('/', h(async (req, res) => {
     if (values.length) f.add(`lower(country) = ANY (?::text[])`, values);
   }
   // Round 10: every send of one coffee (?ref=, exact after normalisation) / of one order (?consignment=).
-  if (req.query.ref) f.add(`normalize_ref(ref) = ?`, normalizeRef(String(req.query.ref)));
+  // Round 11: an SS-<n> value is a send id — exactly one row.
+  if (req.query.ref) refFilter(f, 'ref', String(req.query.ref));
   if (req.query.consignment) consignmentWhere(f, String(req.query.consignment), 'number');
 
   // Paginated like the per-table list endpoints (see lib/list.ts): `page` is 1-based,
@@ -67,7 +68,7 @@ search.get('/', h(async (req, res) => {
   const pageSize = clampInt(req.query.pageSize, 50, 1, 100);
   const whereSql = f.where.length ? `WHERE ${f.where.join(' AND ')}` : '';
   const { rows } = await pool.query(
-    `SELECT tab, id, ref, title, receiver, country, sample_type_norm, qty_grams,
+    `SELECT tab, id, send_id, ref, title, receiver, country, sample_type_norm, qty_grams,
        status, courier_norm, awb, date_on, delivery_on, result_norm, phyto_cert,
        blend, strategy, highlights, result_on,
        location, requested_by, completed_by, stock_grams, dispatched_on, priority,

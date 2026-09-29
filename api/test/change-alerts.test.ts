@@ -87,6 +87,7 @@ describe('deletes → QC alert', () => {
     expect(client.tab).toBe('client');
     expect(client.event).toBe('deleted');
     expect(client.ref).toBe('Doomed Roasters');
+    expect(client.send_id).toBeNull();   // round 11: only sample rows carry a send id; the column is still there
     expect(client.actor).toBe('dashboard');
     const cons = pending.body.items.find((i: { sample_id: string }) => i.sample_id === cn.body.id);
     expect(cons.tab).toBe('consignment');

@@ -75,3 +75,39 @@ describe('get_sample_status — "where is SSKE-104929?" (the contract base, no l
     expect(r).toMatchObject({ id: 'b9' });
   });
 });
+
+describe('get_sample_status — Send ID (round 11)', () => {
+  it('"where is SS-1234?" → the one candidate, straight to its full detail (no receiver, no listing)', async () => {
+    const calls: string[] = [];
+    api.mockImplementation(async (path: string) => {
+      calls.push(path);
+      if (path.startsWith('/samples/resolve')) return { candidates: [{ tab: 'specialty', id: 's1', send_id: 'SS-1234', ref: 'SL-7336', receiver: 'TORCH', status: 'preparing', date_on: '2026-06-04' }] };
+      if (path === '/specialty-samples/s1') return { id: 's1', send_id: 'SS-1234', ref: 'SL-7336', status: 'preparing', events: [] };
+      throw new Error('unexpected ' + path);
+    });
+    const r = await new GetSampleStatusTool().execute({ ref_or_id: 'ss 1234', receiver: 'Sucafina NV' });
+    expect(calls).toEqual(['/samples/resolve?ref=SS-1234', '/specialty-samples/s1']);
+    expect(r).toMatchObject({ id: 's1', send_id: 'SS-1234' });
+  });
+
+  it('a ref with several sends lists each with its send_id and a "SS-n → receiver" line', async () => {
+    wire({ resolve: [
+      { tab: 'specialty', id: 'a', send_id: 'SS-1001', ref: 'SL-7336', receiver: 'TORCH', status: 'preparing', date_on: '2026-06-04', consignment_number: null, courier_norm: null, awb: null },
+      { tab: 'specialty', id: 'b', send_id: 'SS-1002', ref: 'SL-7336', receiver: 'Sucafina NV', status: 'delivered', date_on: '2026-03-10', consignment_number: null, courier_norm: 'dhl', awb: '9' },
+    ] });
+    const r = await new GetSampleStatusTool().execute({ ref_or_id: 'SL-7336' });
+    expect(r.sends.map((s: any) => [s.send_id, s.line])).toEqual([
+      ['SS-1001', 'SS-1001 → TORCH (4 Jun, preparing)'],
+      ['SS-1002', 'SS-1002 → Sucafina NV (10 Mar, delivered)'],
+    ]);
+  });
+
+  it('a PSS group lists send_id per option and puts it on the option line', async () => {
+    wire({ lots: { lot: LOT, sends: GROUP_SENDS.map((s, i) => ({ ...s, send_id: 'SS-' + (10 + i) })) } });
+    const r = await new GetSampleStatusTool().execute({ ref_or_id: 'SSKE-104929' });
+    expect(r.sends.map((s: any) => [s.send_id, s.line])).toEqual([
+      ['SS-11', 'SSKE-104929 · option A · SS-11 → CK Corporation, dispatched 12 Sep (DHL 123)'],
+      ['SS-10', 'SSKE-104929 · option B · SS-10 → CK Corporation, requested 15 Sep'],
+    ]);
+  });
+});

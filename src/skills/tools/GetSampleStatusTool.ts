@@ -10,17 +10,17 @@ const PSS_BASE = /^SSKE-\d+$/;
 
 /** One send of a PSS group as `GET /lots/:ref` lists it (contracts: sends carry option_letter). */
 type GroupSend = {
-  tab: 'specialty' | 'bulk'; id: string; ref: string; option_letter: string | null; receiver: string | null;
+  tab: 'specialty' | 'bulk'; id: string; send_id?: string | null; ref: string; option_letter: string | null; receiver: string | null;
   date_on: string | null; status: string; qty_grams: number | null; courier_norm: string | null; awb: string | null; consignment_number: string | null;
 };
 
 export default class GetSampleStatusTool implements LuaTool {
   name = 'get_sample_status';
   description =
-    'Full detail + event timeline for one sample, resolved by ref/AWB/receiver text across all three tables. A ref names the COFFEE and can have several sends: "where is SL-7336?" with several sends returns them all as `sends` (one line each, open ones first) instead of guessing — pass receiver to pick one and get its full detail. A PSS contract base ("where is SSKE-104929?", no letter) answers with the group: one line per option (A, B, C…) with receiver, status, date and courier/AWB — ask by the lettered ref for one option\'s full detail.';
+    'Full detail + event timeline for one sample, resolved by ref/AWB/receiver text across all three tables. A ref names the COFFEE and can have several sends: "where is SL-7336?" with several sends returns them all as `sends` (one line each, open ones first) instead of guessing — pass receiver to pick one and get its full detail. A PSS contract base ("where is SSKE-104929?", no letter) answers with the group: one line per option (A, B, C…) with receiver, status, date and courier/AWB — ask by the lettered ref for one option\'s full detail. A Send ID ("where is SS-1234?") names ONE send and returns its full detail straight away — no receiver needed; every send line carries its send_id.';
 
   inputSchema = z.object({
-    ref_or_id: z.string().describe('Sample ref like "SL-8000", an AWB, or receiver text to match'),
+    ref_or_id: z.string().describe('Sample ref like "SL-8000", a Send ID like "SS-1234", an AWB, or receiver text to match'),
     receiver: z.string().optional().describe('Receiver / client name to pick one send when the ref has several, e.g. "TORCH".'),
   });
 
@@ -37,7 +37,7 @@ export default class GetSampleStatusTool implements LuaTool {
           ref,
           _note: `${ref} has ${sends.length} sends (${open} open) — list them; ask "which receiver?" only if the person needs one send's detail and more than one is open.`,
           sends: sends.map((s) => ({
-            tab: s.tab, id: s.id, receiver: s.receiver, status: s.status, date_on: s.date_on,
+            tab: s.tab, id: s.id, send_id: s.send_id ?? null, receiver: s.receiver, status: s.status, date_on: s.date_on,
             consignment_number: s.consignment_number, courier: s.courier_norm, awb: s.awb, open: isOpenSend(s),
             line: describeSend(s),
           })),
@@ -55,7 +55,7 @@ export default class GetSampleStatusTool implements LuaTool {
     const res = await apiFetch(`/search?q=${encodeURIComponent(input.ref_or_id)}&pageSize=5`);
     const hits = (res.data ?? []) as Array<{
       tab: 'specialty' | 'bulk' | 'forwarding'; id: string;
-      ref: string | null; title: string | null; receiver: string | null; status: string | null;
+      ref: string | null; send_id?: string | null; title: string | null; receiver: string | null; status: string | null;
     }>;
     if (!hits.length) return { found: false, message: `No sample matching "${input.ref_or_id}"` };
     const top = hits[0];
@@ -65,7 +65,7 @@ export default class GetSampleStatusTool implements LuaTool {
       ...detail,
       _note: `${hits.length} samples matched "${input.ref_or_id}"; showing the most recent. Ask by ref to pick another.`,
       other_matches: hits.slice(1).map((h) => ({
-        ref: h.ref, tab: h.tab, title: h.title, receiver: h.receiver, status: h.status,
+        ref: h.ref, send_id: h.send_id ?? null, tab: h.tab, title: h.title, receiver: h.receiver, status: h.status,
       })),
     };
   }
@@ -97,7 +97,7 @@ export default class GetSampleStatusTool implements LuaTool {
       options,
       _note: `${base} is a PSS contract group with ${options.length} option${options.length === 1 ? '' : 's'} (${sends.length} send${sends.length === 1 ? '' : 's'}${wanted ? ` to "${receiver!.trim()}"` : ''}, ${open} open) — list the lines; ask by the lettered ref (e.g. ${base}${options[0] ?? 'A'}) for one option's full detail.`,
       sends: sends.map((s) => ({
-        tab: s.tab, id: s.id, ref: s.ref, option_letter: s.option_letter, receiver: s.receiver, status: s.status, date_on: s.date_on,
+        tab: s.tab, id: s.id, send_id: s.send_id ?? null, ref: s.ref, option_letter: s.option_letter, receiver: s.receiver, status: s.status, date_on: s.date_on,
         consignment_number: s.consignment_number, courier: s.courier_norm, awb: s.awb, open: isOpenSend(s),
         line: describeOption(base, s),
       })),

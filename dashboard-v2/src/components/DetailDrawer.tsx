@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { IconAlertTriangle, IconPrinter, IconRepeat, IconTrash, IconX } from '@tabler/icons-react';
 
-import { useRecord, usePatchRecord, useDeleteRecord, useLotSends, useTeamRoster, type LotSend } from '@/lib/query';
+import { useRecord, usePatchRecord, useDeleteRecord, useLotSends, useTeamRoster, parseRefConflict, type LotSend } from '@/lib/query';
+import { SendId, sendIdOf } from '@/components/SendId';
 import { cn } from '@/lib/cn';
 import { formatShortDate } from '@/lib/format';
 import { tagColor } from '@/lib/tags';
@@ -58,10 +59,15 @@ function InlineEditField({
   editDef,
   row,
   onCommit,
+  error,
 }: {
   editDef: NonNullable<DetailField['edit']>;
   row: RowData;
   onCommit: (field: string, value: string | number) => void;
+  // The failed edit of THIS field, if any (a fresh object per failure). Re-syncs the input to
+  // the server value: a fast rejection can land in the same render batch as the optimistic
+  // write, so `initialStr` alone never visibly changes and the rejected text would stick.
+  error?: { message: string } | null;
 }) {
   const initial = row[editDef.field];
   // Date columns arrive as full ISO timestamps; a date input needs plain YYYY-MM-DD.
@@ -75,7 +81,7 @@ function InlineEditField({
 
   React.useEffect(() => {
     setValue(initialStr);
-  }, [initialStr]);
+  }, [initialStr, error]);
 
   function commit(next: string) {
     if (next === initialStr) return;
@@ -407,6 +413,18 @@ function LoopInSection({ row, onCommit }: { row: RowData; onCommit: (ids: string
   );
 }
 
+/** What to say under a field whose PATCH failed. A ref conflict (409) carries the server's own
+ * plain-English `message`; anything else gets a generic line — never a silent revert. */
+export function editErrorMessage(err: unknown): string {
+  const conflict = parseRefConflict(err);
+  if (conflict) {
+    if (conflict.message) return conflict.message;
+    const coffee = conflict.lot ? [conflict.lot.outturn, conflict.lot.grade, conflict.lot.quality, conflict.lot.blend].filter(Boolean).join(' ') : null;
+    return `${conflict.ref ?? 'That ref'} already names a different coffee${coffee ? ` (${coffee})` : ''}. Give this row a new ref, or correct the coffee first.`;
+  }
+  return 'Couldn’t save this change. Please try again.';
+}
+
 function DetailsSkeleton() {
   return (
     <div className="flex flex-col gap-4 pt-2">
@@ -427,12 +445,16 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
   const event = useRecordHighlight(id);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [tab, setTab] = React.useState<DrawerTab>('details');
+  // Round 11: a failed inline edit says why, under the field that was edited (the optimistic
+  // value is rolled back by usePatchRecord; without this line the revert looked like nothing happened).
+  const [editError, setEditError] = React.useState<{ field: string; message: string } | null>(null);
 
   // A fresh record (new `id`) should never inherit a stale confirm dialog — or the
-  // Related tab — from whatever was previously open in the drawer.
+  // Related tab, or an edit error — from whatever was previously open in the drawer.
   React.useEffect(() => {
     setConfirmOpen(false);
     setTab('details');
+    setEditError(null);
   }, [id]);
 
   const isLoading = query.isLoading;
@@ -457,7 +479,13 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
     'Record';
 
   function commitEdit(field: string, value: string | number) {
-    patchRecord({ id, body: { [field]: value } });
+    setEditError((prev) => (prev?.field === field ? null : prev));
+    patchRecord(
+      { id, body: { [field]: value } },
+      {
+        onError: (err) => setEditError({ field, message: editErrorMessage(err) }),
+      },
+    );
   }
 
   function confirmDelete() {
@@ -491,7 +519,15 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
               {isLoading ? (
                 <Skeleton className="h-5 w-32" />
               ) : (
-                <SheetTitle className="text-base">{title}</SheetTitle>
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <SheetTitle className="text-base">{title}</SheetTitle>
+                  {/* Round 11: the send's own id, so the title (the ref = the coffee) is never mistaken for it. */}
+                  {sendIdOf(data.send_id) && (
+                    <p className="text-xs text-muted-foreground">
+                      Send ID <SendId value={data.send_id} className="text-foreground" />
+                    </p>
+                  )}
+                </div>
               )}
               {!isLoading && (
                 <div className="flex shrink-0 items-center gap-1">
@@ -564,12 +600,23 @@ export function DetailDrawer({ endpoint, id, open, onClose, fields, entityLabel 
                       </dt>
                       <dd className="text-sm text-foreground">
                         {field.edit ? (
-                          <InlineEditField editDef={field.edit} row={data} onCommit={commitEdit} />
+                          <InlineEditField
+                            editDef={field.edit}
+                            row={data}
+                            onCommit={commitEdit}
+                            error={editError?.field === field.edit.field ? editError : null}
+                          />
                         ) : field.render ? (
                           field.render(data)
                         ) : (
                           displayValue(data[field.key])
                         )}
+                        {field.edit && editError?.field === field.edit.field && (
+                          <p role="alert" className="mt-1 text-xs text-destructive">
+                            {editError.message}
+                          </p>
+                        )}
+                        {field.hint && <p className="mt-1 text-xs text-muted-foreground">{field.hint}</p>}
                       </dd>
                     </div>
                   ))}

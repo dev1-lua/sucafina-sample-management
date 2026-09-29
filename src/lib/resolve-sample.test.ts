@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./api', () => ({ apiFetch: vi.fn() }));
 import { apiFetch } from './api';
-import { resolveSampleByRef, resolveSampleCandidates, describeOption } from './resolve-sample';
+import { resolveSampleByRef, resolveSampleCandidates, describeOption, describeSend } from './resolve-sample';
 
 const api = apiFetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -18,7 +18,7 @@ describe('resolveSampleByRef — one resolver, GET /samples/resolve', () => {
     api.mockResolvedValueOnce({ ref: 'SL-7336', candidates: [send({})] });
     const r = await resolveSampleByRef('sl 7336', { tab: 'specialty', receiver: 'torch' });
     expect(api).toHaveBeenCalledWith('/samples/resolve?ref=SL-7336&tab=specialty&receiver=torch');
-    expect(r).toEqual({ tab: 'specialty', id: 'id-1', ref: 'SL-7336', receiver: 'TORCH' });
+    expect(r).toEqual({ tab: 'specialty', id: 'id-1', send_id: null, ref: 'SL-7336', receiver: 'TORCH' });
   });
 
   it('0 candidates → throws "No sample with ref X"', async () => {
@@ -56,7 +56,7 @@ describe('resolveSampleByRef — one resolver, GET /samples/resolve', () => {
     });
     const r = await resolveSampleByRef('SL-7336');
     expect(r).toEqual({
-      tab: 'specialty', id: 'open', ref: 'SL-7336', receiver: 'TORCH',
+      tab: 'specialty', id: 'open', send_id: null, ref: 'SL-7336', receiver: 'TORCH',
       note: 'picked the open send → TORCH; SL-7336 has 2 older sends',
     });
   });
@@ -107,5 +107,65 @@ describe('describeOption — one PSS option of a contract group, as the status a
       .toBe('SSKE-104929 · option C → ?, preparing ? (WELLS FARGO)');
     expect(describeOption('SSKE-104929', { option_letter: null, receiver: 'Paulig', status: 'delivered', date_on: '2026-09-01', courier_norm: null, awb: null }))
       .toBe('SSKE-104929 · option ? → Paulig, delivered 1 Sep');
+  });
+});
+
+describe('Send ID (SS-1234, round 11) — one row, never "which receiver?"', () => {
+  it('resolves through /samples/resolve?ref=SS-… to the one candidate, carrying send_id', async () => {
+    api.mockResolvedValueOnce({ ref: 'SS-1234', candidates: [send({ id: 'row-9', send_id: 'SS-1234', receiver: 'TORCH', status: 'preparing' })] });
+    const r = await resolveSampleByRef('ss 1234');
+    expect(api).toHaveBeenCalledWith('/samples/resolve?ref=SS-1234');
+    expect(r).toEqual({ tab: 'specialty', id: 'row-9', send_id: 'SS-1234', ref: 'SL-7336', receiver: 'TORCH' });
+  });
+
+  it('a receiver passed alongside a Send ID is dropped from the query (the id already names one send)', async () => {
+    api.mockResolvedValueOnce({ ref: 'SS-1234', candidates: [send({ id: 'row-9', send_id: 'SS-1234' })] });
+    const r = await resolveSampleByRef('SS-1234', { tab: 'specialty', receiver: 'someone else' });
+    expect(api).toHaveBeenCalledWith('/samples/resolve?ref=SS-1234&tab=specialty');
+    expect(r.id).toBe('row-9');
+    expect(r.note).toBeUndefined();
+  });
+
+  it('should the API ever list more than one row for a Send ID, the row carrying it wins — no receiver question', async () => {
+    api.mockResolvedValueOnce({
+      ref: 'SS-1234',
+      candidates: [
+        send({ id: 'other', send_id: 'SS-1233', receiver: 'TORCH', status: 'preparing' }),
+        send({ id: 'mine', send_id: 'SS-1234', receiver: 'Sucafina NV', status: 'dispatched' }),
+      ],
+    });
+    const r = await resolveSampleByRef('SS-1234');
+    expect(r).toMatchObject({ id: 'mine', send_id: 'SS-1234' });
+    expect(r.note).toBeUndefined();
+  });
+
+  it('0 candidates → "No sample with Send ID SS-…"', async () => {
+    api.mockResolvedValueOnce({ ref: 'SS-9999', candidates: [] });
+    await expect(resolveSampleByRef('SS-9999')).rejects.toThrow('No sample with Send ID SS-9999 — check the Send ID with search_samples.');
+  });
+
+  it('the "which receiver?" listing leads each send with its Send ID when the rows carry one', async () => {
+    api.mockResolvedValueOnce({
+      ref: 'SL-7336',
+      candidates: [
+        send({ id: 'a', send_id: 'SS-1001', receiver: 'TORCH', status: 'preparing', date_on: '2026-06-04' }),
+        send({ id: 'b', send_id: 'SS-1002', receiver: 'Sucafina NV', status: 'dispatched', date_on: '2026-06-10' }),
+      ],
+    });
+    await expect(resolveSampleByRef('SL-7336')).rejects.toThrow(
+      'SL-7336 has 2 sends: SS-1001 → TORCH (4 Jun, preparing) · SS-1002 → Sucafina NV (10 Jun, dispatched). Which receiver?',
+    );
+  });
+});
+
+describe('describeSend / describeOption carry the Send ID', () => {
+  it('describeSend: "SS-1234 → TORCH (4 Jun, delivered)"; without a Send ID the old "→ TORCH (…)" line', () => {
+    expect(describeSend(send({ send_id: 'SS-1234' }) as any)).toBe('SS-1234 → TORCH (4 Jun, delivered)');
+    expect(describeSend(send({}) as any)).toBe('→ TORCH (4 Jun, delivered)');
+    expect(describeSend(send({ send_id: null }) as any)).toBe('→ TORCH (4 Jun, delivered)');
+  });
+  it('describeOption: the Send ID sits after the option letter', () => {
+    expect(describeOption('SSKE-104929', { option_letter: 'A', send_id: 'SS-77', receiver: 'CK Corporation', status: 'dispatched', date_on: '2026-09-12', courier_norm: 'dhl', awb: '123' }))
+      .toBe('SSKE-104929 · option A · SS-77 → CK Corporation, dispatched 12 Sep (DHL 123)');
   });
 });

@@ -256,7 +256,9 @@ automatic new-request ping shows the 🔴 — beyond that, never claim to have c
 REFS NAME THE COFFEE — a ref (SL-7336, TYPE-973, SSKE-104929) names the COFFEE, not the parcel:
 Specialty = one outturn + grade, Commercial = one quality (+ blend). The same coffee keeps its ref on
 every send — TYPE-973 sent three times is three sends of one ref; a different coffee always gets a new
-ref. Refs auto-issue in every book — never ask for one.
+ref. Refs auto-issue in every book — never ask for one. Every send ALSO gets its own Send ID (SS-1234,
+returned as \`send_id\`), unique to that row and never shared: quote it on the card, and accept it
+wherever a ref is accepted — it names one send, so it never needs a receiver.
 - A PSS ref's letters (SSKE-104929A / B / C) are OPTIONS of ONE contract group — the desk sees them under
   SSKE-104929 in the Coffees view; say "option", never "container".
 - Once the coffee fields are known (and before the echo line), call resolve_lot ONCE per coffee:
@@ -288,7 +290,7 @@ Always include Sales Trader (they get the status pings), Deliver to (the first l
 file or just given — or "⚠ no address — asking <who>" / "⚠ no address yet") and the resolve_lot \`say\`
 line; add "qty to confirm" when the quantity is still open. Get a quick confirm before calling the
 create tool — then pass every field exactly as echoed, requested_by included. After creating, confirm
-again with the issued ref.`,
+again with the Send ID and the ref: "Logged SS-1234 — SL-7336 (3rd send) → TORCH".`,
   tools: [
     new FindClientTool(),
     new GetClientTool(),

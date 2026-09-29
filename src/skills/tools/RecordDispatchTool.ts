@@ -15,7 +15,7 @@ const byId = z.object({
   id: z.string().describe('Sample row id'),
 });
 const byRef = z.object({
-  ref: z.string().min(1).describe('Sample ref, e.g. "SL-7336" — a ref names the coffee and may have several sends.'),
+  ref: z.string().min(1).describe('Sample ref, e.g. "SL-7336" — a ref names the coffee and may have several sends — or a Send ID, e.g. "SS-1234", which names one send.'),
   receiver: z.string().optional().describe('Receiver / client name to pick the right send when the ref has several.'),
 });
 const item = z.union([byId, byRef]);
@@ -23,7 +23,7 @@ const item = z.union([byId, byRef]);
 export default class RecordDispatchTool implements LuaTool {
   name = 'record_dispatch';
   description =
-    'Mark samples as dispatched with courier + AWB, across specialty, commercial, and forwarding. One AWB can cover several rows (a batch of Type samples, several Forwarding parcels) — pass every item in one call, each as {tab, id} or as {ref, receiver?}. A whole order goes out together: pass consignment "CN-1012" and every live sample in it is dispatched with the same courier + AWB in one go.';
+    'Mark samples as dispatched with courier + AWB, across specialty, commercial, and forwarding. One AWB can cover several rows (a batch of Type samples, several Forwarding parcels) — pass every item in one call, each as {tab, id} or as {ref, receiver?} — the ref may be a Send ID (SS-1234), which names one send and needs no receiver. A whole order goes out together: pass consignment "CN-1012" and every live sample in it is dispatched with the same courier + AWB in one go.';
 
   inputSchema = z
     .object({
@@ -105,6 +105,7 @@ export default class RecordDispatchTool implements LuaTool {
       updated.push({
         tab,
         id: row.id,
+        send_id: row.send_id ?? null,
         ref: row.ref ?? row.sample_ref,
         status: row.status,
         priority: row.priority,

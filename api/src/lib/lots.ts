@@ -33,6 +33,8 @@ export type Lot = {
 export type Send = {
   tab: SendTab;
   id: string;
+  /** Round 11: unique to this row (SS-<n>); the ref is shared by every send of the coffee. */
+  send_id: string | null;
   ref: string;
   /** PSS option letter: the row's column, else the trailing letter of its SSKE ref (legacy rows carry none). */
   option_letter: string | null;
@@ -71,6 +73,19 @@ export function normalizeRef(s: string | null | undefined): string {
  */
 export function lotRefFor(ref: string | null | undefined): string {
   return normalizeRef(ref).replace(/^(SSKE-\d+) ?[A-Z]$/, '$1');
+}
+
+/** Round 11: is this (normalised) value a send id — SS-<n>, unique to one row — rather than a ref? */
+export const isSendId = (value: string): boolean => /^SS-\d+$/.test(value);
+
+/**
+ * The list endpoints' `?ref=` filter: a send id (SS-<n>) picks that one row by `send_id`; anything else is
+ * a ref, matched exactly after normalisation (every send of one coffee). `f` is a makeFilters() bag.
+ */
+export function refFilter(f: { add: (clause: string, value: unknown) => void }, refCol: string, raw: string): void {
+  const value = normalizeRef(raw);
+  if (isSendId(value)) f.add(`send_id = ?`, value);
+  else f.add(`normalize_ref(${refCol}) = ?`, value);
 }
 
 /** Is this (normalised) ref a PSS group — the base or an option of one? Those never conflict on quality text. */
@@ -138,14 +153,25 @@ export function coffeeKeyFor(c: Coffee): string {
 /** A key whose quality part is empty ("|", "|AA") names no coffee: nothing may be matched to it. */
 const namesACoffee = (coffeeKey: string): boolean => !coffeeKey.startsWith('|');
 
-/** Human label for a lot's coffee — used in resolve reasons and conflict messages. */
+/**
+ * Human label for a lot's coffee — resolve reasons and the 409 messages QC reads in the drawer, so it must
+ * read for a non-expert. Specialty: `<description> (outturn <outturn>, grade <grade>)` with missing parts
+ * dropped; the grade is not repeated when the description already carries it as a word ("Nyeri AA" + AA →
+ * "Nyeri AA (outturn 15/5670)", never "Nyeri AA AA"). Without a description the bracket content stands alone
+ * ("outturn 15/5670, grade AB"). Commercial: `<quality>` plus ` (blend <blend>)` when there is one.
+ */
 export function describeCoffee(c: Coffee): string {
   if (c.book === 'specialty') {
-    const head = (c.outturn ?? '').trim() || (c.quality ?? '').trim();
-    return [head, (c.grade ?? '').trim()].filter(Boolean).join(' ') || '(no coffee given)';
+    const description = (c.quality ?? '').trim().replace(/\s+/g, ' ');
+    const outturn = (c.outturn ?? '').trim();
+    const grade = (c.grade ?? '').trim();
+    const gradeInDescription = !!grade && description.toUpperCase().split(' ').includes(grade.toUpperCase());
+    const parts = [outturn ? `outturn ${outturn}` : '', grade && !gradeInDescription ? `grade ${grade}` : ''].filter(Boolean).join(', ');
+    if (description) return parts ? `${description} (${parts})` : description;
+    return parts || '(no coffee given)';
   }
   const blend = (c.blend ?? '').trim();
-  return `${(c.quality ?? '').trim() || '(no quality given)'}${blend ? ` / ${blend}` : ''}`;
+  return `${(c.quality ?? '').trim() || '(no quality given)'}${blend ? ` (blend ${blend})` : ''}`;
 }
 
 // ---- SQL fragments shared by the list endpoints / view readers ---------------------------------------
@@ -182,13 +208,13 @@ export async function findLotByCoffee(db: Db, book: Book, coffeeKey: string): Pr
 }
 
 const SENDS_SQL = `
-  SELECT 'specialty'::text AS tab, t.id, t.ref AS ref, COALESCE(t.option_letter, ref_option_letter(t.ref)) AS option_letter,
+  SELECT 'specialty'::text AS tab, t.id, t.send_id, t.ref AS ref, COALESCE(t.option_letter, ref_option_letter(t.ref)) AS option_letter,
          t.description AS title, t.receiver_company AS receiver,
          t.date_on, t.status::text AS status, t.qty_grams, t.courier_norm, t.awb, t.created_at,
          (SELECT c.number FROM consignments c WHERE c.id = t.consignment_id) AS consignment_number
     FROM specialty_samples t WHERE t.deleted_at IS NULL AND lot_ref(t.ref) = $1
   UNION ALL
-  SELECT 'bulk', t.id, t.sample_ref, COALESCE(t.option_letter, ref_option_letter(t.sample_ref)), t.quality, t.client,
+  SELECT 'bulk', t.id, t.send_id, t.sample_ref, COALESCE(t.option_letter, ref_option_letter(t.sample_ref)), t.quality, t.client,
          t.date_on, t.status::text, t.qty_grams, t.courier_norm, t.awb, t.created_at,
          (SELECT c.number FROM consignments c WHERE c.id = t.consignment_id)
     FROM bulk_samples t WHERE t.deleted_at IS NULL AND lot_ref(t.sample_ref) = $1

@@ -41,13 +41,16 @@ PICK THE RIGHT TOOL:
   to Sucafina NV in March — same ref, two rows). "where is SL-7336?" → get_sample_status lists ALL its
   sends (\`sends\`, one line each: → receiver • date • status • courier/AWB). When a question needs ONE
   send, ask "which receiver?" ONLY when more than one send is still open; otherwise take the open one
-  (the tools say which they picked in \`note\` — repeat it). An order (CN-####) groups the sends of one
-  request to one client — "what's the status of CN-1012?" → get_consignment.
+  (the tools say which they picked in \`note\` — repeat it). Every send also has a Send ID (SS-1234,
+  \`send_id\`) unique to that row: "where is SS-1234?" resolves straight to that one send — never ask
+  "which receiver?" for a Send ID, and quote it on every send line so the person can name one back.
+  An order (CN-####) groups the sends of one request to one client — "what's the status of CN-1012?"
+  → get_consignment.
 - Answer with facts from the records only. If nothing is found, say so plainly — never guess.
 - BIG LISTS: search_samples / get_samples_by_book return the TRUE \`total\` plus a page (100 / 50 rows).
   When \`has_more\` is true, state the total, show the page, and offer to narrow or fetch the next \`page\`
   — never call a partial page "the full list" or imply the shown rows are everything.
-- PRESENT cleanly: a compact line per record (ref • title • receiver • status • courier/AWB), not raw
+- PRESENT cleanly: a compact line per record (send_id • ref • title • receiver • status • courier/AWB), not raw
   field dumps; lead with the count on list answers. Surface only the fields the question is about.
 
 - ADDRESS PENDING: search_samples / find_open_samples / get_sample_status carry address_missing +

@@ -7,6 +7,16 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * An error whose response body is exactly `body` (no {error, details} wrapping) — the PATCH ref edit's
+ * 409 `{ error:'ref_conflict', ref, lot, sends, message }` must look like the create routes' inline one.
+ */
+export class HttpBodyError extends HttpError {
+  constructor(status: number, public body: Record<string, unknown> & { error: string }) {
+    super(status, body.error, body);
+  }
+}
+
 export function parseBody<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> {
   const r = schema.safeParse(body);
   if (!r.success) throw new HttpError(400, 'validation failed', r.error.flatten());
@@ -14,6 +24,7 @@ export function parseBody<T extends z.ZodTypeAny>(schema: T, body: unknown): z.i
 }
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+  if (err instanceof HttpBodyError) return res.status(err.status).json(err.body);
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details ?? null });
   }

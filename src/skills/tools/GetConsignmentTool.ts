@@ -24,6 +24,7 @@ export default class GetConsignmentTool implements LuaTool {
       member_count: row.member_count,
       members: (row.members ?? []).map((m: Record<string, unknown>) => ({
         tab: m.tab,
+        send_id: m.send_id ?? null,
         ref: m.ref,
         title: m.title,
         receiver: m.receiver,

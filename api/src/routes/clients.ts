@@ -158,7 +158,7 @@ clients.get('/:id', h(async (req, res) => {
     ? (await pool.query(`SELECT id, name, role, email FROM traders WHERE id = $1`, [rows[0].account_owner_id])).rows[0] ?? null
     : null;
   const orders = await pool.query(
-    `SELECT tab, id, ref, title, status, courier_norm, awb, date_on, delivery_on, result_norm,
+    `SELECT tab, id, send_id, ref, title, status, courier_norm, awb, date_on, delivery_on, result_norm,
             blend, strategy, highlights, result_on
      FROM all_samples_v WHERE client_id = $1 AND deleted_at IS NULL
      ORDER BY date_on DESC NULLS LAST LIMIT 200`,

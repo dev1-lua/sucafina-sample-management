@@ -1,7 +1,9 @@
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
-import { LotRefCell, OrderLinkCell } from '@/components/LotRefCell';
+import { ClientLinkCell, LotRefCell, OrderLinkCell } from '@/components/LotRefCell';
+import { sendIdColumn } from '@/components/SendId';
 import { formatQty, formatLocation } from '@/lib/format';
+import { REF_HINT } from '@/lib/lots';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
 import {
@@ -41,6 +43,8 @@ export const specialtyConfig: TabConfig = {
   entityLabel: 'Specialty Sample',
   defaultSort: { sort: 'created_at', order: 'desc' },
   columns: [
+    // Round 11: the send's own id leads — unique to the row, unlike the ref.
+    sendIdColumn,
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     // Round 10: the ref names the coffee; a `×N` pill flags a re-send and jumps to the Coffees view.
     { key: 'ref', header: 'Ref', sortKey: 'ref', render: (r) => <LotRefCell row={r} basePath="/samples" /> },
@@ -62,7 +66,8 @@ export const specialtyConfig: TabConfig = {
     { key: 'highlights', header: 'Highlights', sortKey: 'highlights', defaultHidden: true },
     { key: 'bags', header: 'Bags', defaultHidden: true },
     { key: 'description', header: 'Description', sortKey: 'description', defaultHidden: true },
-    { key: 'receiver_company', header: 'Receiver', sortKey: 'receiver_company' },
+    // Round 11: the receiver links to the Clients view with their sends expanded.
+    { key: 'receiver_company', header: 'Receiver', sortKey: 'receiver_company', render: (r) => <ClientLinkCell row={r} field="receiver_company" basePath="/samples" /> },
     addressGapColumn,
     { key: 'awb', header: 'AWB', sortKey: 'awb' },
     // Display source is `courier_norm` — the only courier field the API ever writes
@@ -103,7 +108,8 @@ export const specialtyConfig: TabConfig = {
     { key: 'result_norm', label: 'Result', type: 'enum', options: RESULTS, multi: true },
     { key: 'location', label: 'Location', type: 'enum', options: LOCATIONS, multi: true },
     // Round 10: exact ref / order filters — also the two keys mirrored in the URL for agent deep-links.
-    { key: 'ref', label: 'Ref', type: 'text' },
+    // Round 11: an `SS-<n>` value filters on the send id instead.
+    { key: 'ref', label: 'Ref', type: 'text', placeholder: 'Ref or Send ID' },
     { key: 'consignment', label: 'Order', type: 'text' },
     { key: 'country', label: 'Country', type: 'text' },
     { key: 'shipment_month', label: 'Shipment Month', type: 'text' },
@@ -115,6 +121,9 @@ export const specialtyConfig: TabConfig = {
     addressGapFilter,
   ],
   detailFields: [
+    // Round 11: QC owns the references, so the ref is editable here. The server answers 409 when
+    // the new ref already names a different coffee; the drawer shows that message under the field.
+    { key: 'ref', label: 'Ref', edit: { field: 'ref', type: 'text' }, hint: REF_HINT },
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
     { key: 'awb', label: 'AWB', edit: { field: 'awb', type: 'text' } },
     awaitingCollectionDetailField,

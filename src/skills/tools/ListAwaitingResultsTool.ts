@@ -21,6 +21,7 @@ export default class ListAwaitingResultsTool implements LuaTool {
     const samples = items.slice(0, 25).map((s: any) => ({
       tab: s.tab,
       id: s.id,
+      send_id: s.send_id ?? null,
       ref: s.ref,
       title: s.title,
       receiver: s.receiver,

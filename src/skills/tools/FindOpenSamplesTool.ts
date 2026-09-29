@@ -32,6 +32,7 @@ export default class FindOpenSamplesTool implements LuaTool {
       samples: res.data.map((s: any) => ({
         tab: s.tab,
         id: s.id,
+        send_id: s.send_id ?? null,
         ref: s.ref,
         title: s.title,
         receiver: s.receiver,

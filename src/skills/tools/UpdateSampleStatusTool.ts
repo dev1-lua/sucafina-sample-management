@@ -8,7 +8,7 @@ import { resolveSampleByRef } from '../../lib/resolve-sample';
 export default class UpdateSampleStatusTool implements LuaTool {
   name = 'set_sample_status';
   description =
-    'Mark a sample as being prepared by the lab (status → preparing) — the people in the loop (the Sales Trader, whoever logged it, the client\'s account manager plus anyone added to the sample) are pinged automatically as it progresses. Pass tab + id if you already have them (from search_samples / find_open_samples), or just the ref (e.g. "SL-7007") — a ref names the coffee and may have several sends, so add receiver when the desk said which one. Dispatches stay with record_dispatch; results stay with the results tools. Returns the updated row card fields (+ note when the send had to be picked).';
+    'Mark a sample as being prepared by the lab (status → preparing) — the people in the loop (the Sales Trader, whoever logged it, the client\'s account manager plus anyone added to the sample) are pinged automatically as it progresses. Pass tab + id if you already have them (from search_samples / find_open_samples), or just the ref (e.g. "SL-7007") — a ref names the coffee and may have several sends, so add receiver when the desk said which one — or pass the Send ID (e.g. "SS-1234"), which names one send and needs no receiver. Dispatches stay with record_dispatch; results stay with the results tools. Returns the updated row card fields (+ note when the send had to be picked).';
 
   inputSchema = z.object({
     // Single-valued on purpose: 'dispatched' belongs to record_dispatch (courier/AWB/stock),
@@ -39,6 +39,7 @@ export default class UpdateSampleStatusTool implements LuaTool {
     return {
       tab,
       id: row.id,
+      send_id: row.send_id ?? null,
       ref: row.ref ?? row.sample_ref,
       title: row.description ?? row.quality ?? row.coffee_quality,
       receiver: row.receiver_company ?? row.client,

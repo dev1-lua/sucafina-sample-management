@@ -5,6 +5,7 @@ import { IconPlus } from '@tabler/icons-react';
 import { FilterBar } from '@/components/FilterBar';
 import { RecordTable } from '@/components/RecordTable';
 import { LotsTable } from '@/components/LotsTable';
+import { ClientsTable } from '@/components/ClientsTable';
 import { useColumnVisibility } from '@/components/ColumnMenu';
 import { CreateRecordDialog } from '@/components/CreateRecordDialog';
 import { Button } from '@/components/ui/button';
@@ -16,16 +17,23 @@ import { cn } from '@/lib/cn';
 import type { LotBook } from '@/lib/query';
 import type { FilterDef, FilterState, ListView, TabKey } from '@/types';
 
-const VIEWS: ReadonlyArray<{ key: ListView; label: string }> = [
-  { key: 'sends', label: 'Sends' },
-  { key: 'coffees', label: 'Coffees' },
-  { key: 'orders', label: 'Orders' },
+// Round 11: each view says what a row is, beside the switch — so nobody has to ask
+// "what am I looking at" again (a ref names the COFFEE and is shared by its sends).
+const VIEWS: ReadonlyArray<{ key: ListView; label: string; hint: string }> = [
+  { key: 'sends', label: 'Sends', hint: 'One row per send — every sample requested or sent, each with its own Send ID.' },
+  { key: 'coffees', label: 'Coffees', hint: 'One row per reference. A reference names the coffee, so one coffee sent to several clients sits under one reference.' },
+  { key: 'clients', label: 'Clients', hint: 'One row per client. Expand to see every coffee sent to them.' },
+  { key: 'orders', label: 'Orders', hint: 'One row per order (CN number): the samples of one request to one client.' },
 ];
+const hintFor = (view: ListView) => VIEWS.find((v) => v.key === view)?.hint ?? '';
 // Which lot book a tab is (the Forwarding book has no lots and no view switch).
 const BOOK_OF: Partial<Record<TabKey, LotBook>> = { specialty: 'specialty', bulk: 'commercial' };
-// The Coffees view takes free text (the search box → `q`) and the Ref deep-link chip only.
-const COFFEE_FILTERS: FilterDef[] = [{ key: 'ref', label: 'Ref', type: 'text' }];
-const URL_KEYS = ['ref', 'consignment'] as const;
+// The Coffees view takes free text (the search box → `q`) and the Ref deep-link chip only;
+// the Clients view likewise takes free text and the Client chip — an exact name match
+// (`client=`), which is what the Sends table's client link fills in.
+const COFFEE_FILTERS: FilterDef[] = [{ key: 'ref', label: 'Ref', type: 'text', placeholder: 'Ref or Send ID' }];
+const CLIENT_FILTERS: FilterDef[] = [{ key: 'client', label: 'Client', type: 'text', placeholder: 'Exact client name' }];
+const URL_KEYS = ['ref', 'consignment', 'client'] as const;
 
 function readStoredView(key: string): ListView | null {
   try {
@@ -133,12 +141,21 @@ export default function SampleListView({ tab }: { tab: TabKey }) {
     if (typeof filters.ref === 'string') next.ref = filters.ref;
     return next;
   }, [filters.q, filters.ref]);
+  const clientFilters = useMemo<FilterState>(() => {
+    const next: FilterState = {};
+    if (typeof filters.q === 'string') next.q = filters.q;
+    if (typeof filters.client === 'string') next.client = filters.client;
+    return next;
+  }, [filters.q, filters.client]);
   const onSendClick = useCallback((send: { id: string }) => navigate(`${cfg.path}/${send.id}`), [navigate, cfg.path]);
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {book ? <ViewSwitch value={view} onChange={setView} /> : <span />}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          {book && <ViewSwitch value={view} onChange={setView} />}
+          <span className="text-xs text-muted-foreground">{hintFor(book ? view : 'sends')}</span>
+        </div>
         {cfg.createFields && (
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <IconPlus className="size-3.5" /> New
@@ -168,6 +185,12 @@ export default function SampleListView({ tab }: { tab: TabKey }) {
             initialExpandedRef={typeof filters.ref === 'string' ? filters.ref : null}
             onSendClick={onSendClick}
           />
+        </>
+      )}
+      {book && view === 'clients' && (
+        <>
+          <FilterBar defs={CLIENT_FILTERS} value={clientFilters} onChange={(next) => setFilters((prev) => ({ ...withoutKeys(prev, ['q', 'client']), ...next }))} />
+          <ClientsTable book={book} filters={clientFilters} onSendClick={onSendClick} />
         </>
       )}
       {book && view === 'orders' && <ConsignmentsPage book={book} embedded />}

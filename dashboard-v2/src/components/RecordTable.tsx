@@ -79,6 +79,9 @@ export type RecordTableProps = {
   rowId?: (row: RowData) => string;
   // Footer count wording; defaults to "N record(s)".
   countLabel?: (total: number) => string;
+  // Round 11: called with the page's rows whenever a fetch lands (the Clients view uses it to
+  // expand the first match of a `?client=` deep link, whose group key only the server knows).
+  onRowsLoaded?: (rows: RowData[]) => void;
 };
 
 const columnHelper = createColumnHelper<RowData>();
@@ -102,7 +105,7 @@ function displayValue(value: unknown): React.ReactNode {
   return String(value);
 }
 
-export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true, initialSort = null, expandable, rowId, countLabel }: RecordTableProps) {
+export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisibility, highlightId, sortable = true, initialSort = null, expandable, rowId, countLabel, onRowsLoaded }: RecordTableProps) {
   const [sort, setSort] = React.useState<SortState>(initialSort);
   const [page, setPage] = React.useState(1);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -115,9 +118,16 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
   }, [filtersKey]);
 
   const query = useRecords(endpoint, { sort, filters, page, pageSize: PAGE_SIZE });
-  const rows = query.data?.data ?? [];
+  const loadedRows = query.data?.data;
+  const rows = loadedRows ?? [];
   const total = query.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Keyed on the cached array itself: keepPreviousData hands back the SAME reference while a
+  // refetch is in flight, so this fires once per landed page, never for the placeholder.
+  React.useEffect(() => {
+    if (loadedRows && onRowsLoaded) onRowsLoaded(loadedRows);
+  }, [loadedRows, onRowsLoaded]);
 
   // One-shot row flash when landing from an agent deep-link. Armed only once the
   // target row is actually in the loaded page — otherwise a cold deep-link load
@@ -279,6 +289,7 @@ export function RecordTable({ endpoint, columns, filters, onRowClick, columnVisi
                           : undefined
                       }
                       aria-sort={isActive ? (sort?.order === 'asc' ? 'ascending' : 'descending') : undefined}
+                      title={col.headerTitle}
                     >
                       <span className="inline-flex items-center gap-1">
                         {flexRender(header.column.columnDef.header, header.getContext())}

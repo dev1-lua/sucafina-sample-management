@@ -3,7 +3,7 @@ import request from 'supertest';
 import { app } from '../src/app.js';
 import { pool } from '../src/db.js';
 import { resetDb, reapplyMigrationsFrom, API_KEY } from './helpers.js';
-import { normalizeRef, normalizeQuality, qualityKey, coffeeKeyFor, resolveLot, findLot, findLotByCoffee, claimRef, liveSends, lotRefFor, optionLetterOfRef, groupOptionLetters, registerLot } from '../src/lib/lots.js';
+import { normalizeRef, normalizeQuality, qualityKey, coffeeKeyFor, describeCoffee, resolveLot, findLot, findLotByCoffee, claimRef, liveSends, lotRefFor, optionLetterOfRef, groupOptionLetters, registerLot } from '../src/lib/lots.js';
 import { drawPss } from '../src/lib/contracts.js';
 import { LOT_CONFLICTS_ACTOR, applyLotConflicts, listLotConflicts } from '../src/lib/lot-conflicts.js';
 
@@ -12,6 +12,29 @@ import { LOT_CONFLICTS_ACTOR, applyLotConflicts, listLotConflicts } from '../src
 
 beforeAll(resetDb);
 const auth = (r: request.Test) => r.set('x-api-key', API_KEY).set('x-actor', 'test');
+
+describe('describeCoffee reads for a non-expert', () => {
+  it('specialty: description first, outturn and grade in brackets, missing parts dropped', () => {
+    expect(describeCoffee({ book: 'specialty', quality: 'Nyeri', outturn: '15/5670', grade: 'AA' })).toBe('Nyeri (outturn 15/5670, grade AA)');
+    expect(describeCoffee({ book: 'specialty', quality: 'Nyeri', outturn: '15/5670', grade: null })).toBe('Nyeri (outturn 15/5670)');
+    expect(describeCoffee({ book: 'specialty', quality: 'Nyeri', outturn: null, grade: 'AA' })).toBe('Nyeri (grade AA)');
+    expect(describeCoffee({ book: 'specialty', quality: 'Nyeri', outturn: null, grade: null })).toBe('Nyeri');
+    expect(describeCoffee({ book: 'specialty', quality: null, outturn: '15/5670', grade: 'AB' })).toBe('outturn 15/5670, grade AB');
+    expect(describeCoffee({ book: 'specialty', quality: null, outturn: null, grade: null })).toBe('(no coffee given)');
+  });
+  it('specialty: the grade is not repeated when the description already carries it', () => {
+    expect(describeCoffee({ book: 'specialty', quality: 'Nyeri AA', outturn: '15/5670', grade: 'AA' })).toBe('Nyeri AA (outturn 15/5670)');
+    expect(describeCoffee({ book: 'specialty', quality: 'AB FAQ', outturn: null, grade: 'ab' })).toBe('AB FAQ');
+    expect(describeCoffee({ book: 'specialty', quality: 'C FAQ', outturn: null, grade: 'C' })).toBe('C FAQ');
+    // "AAB" is not "AB": a token match, not a substring.
+    expect(describeCoffee({ book: 'specialty', quality: 'Kiambu AAB', outturn: null, grade: 'AB' })).toBe('Kiambu AAB (grade AB)');
+  });
+  it('commercial: quality, plus the blend in brackets when there is one', () => {
+    expect(describeCoffee({ book: 'commercial', quality: 'AB FAQ', blend: null })).toBe('AB FAQ');
+    expect(describeCoffee({ book: 'commercial', quality: 'AB FAQ', blend: 'Kenya / Uganda' })).toBe('AB FAQ (blend Kenya / Uganda)');
+    expect(describeCoffee({ book: 'commercial', quality: '  ', blend: null })).toBe('(no quality given)');
+  });
+});
 
 describe('normalizeRef', () => {
   it('upper-cases, trims and collapses the prefix/number separator to one dash', () => {
@@ -674,7 +697,8 @@ describe('GET /samples/resolve + list filters', () => {
     expect(r.body.ref).toBe('TYPE-973');
     expect(r.body.candidates).toHaveLength(2);
     expect(r.body.candidates[0]).toMatchObject({ tab: 'bulk', ref: 'TYPE-973', receiver: 'Joh Johanson', status: 'requested', consignment_number: null, awb: null });
-    expect(Object.keys(r.body.candidates[0]).sort()).toEqual(['awb', 'consignment_number', 'courier_norm', 'date_on', 'id', 'receiver', 'ref', 'status', 'tab', 'title'].sort());
+    // Round 11: send_id (unique to the row) + option_letter ride along.
+    expect(Object.keys(r.body.candidates[0]).sort()).toEqual(['awb', 'consignment_number', 'courier_norm', 'date_on', 'id', 'option_letter', 'receiver', 'ref', 'send_id', 'status', 'tab', 'title'].sort());
     const none = await auth(request(app).get('/samples/resolve?ref=TYPE-973&receiver=nestrade'));
     expect(none.body.candidates).toEqual([]);
     const spec = await auth(request(app).get('/samples/resolve?ref=TYPE-973&tab=specialty'));

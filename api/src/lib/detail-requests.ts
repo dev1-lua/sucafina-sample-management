@@ -31,6 +31,8 @@ export const AWAITING_COLLECTION_WHERE = `awb IS NOT NULL AND awb <> '' AND stat
 export type OpenSample = {
   tab: 'specialty' | 'bulk' | 'forwarding';
   id: string;
+  /** Round 11: unique to the row (SS-<n>); the ref names the coffee. */
+  send_id: string | null;
   ref: string | null;
   title: string | null;
   qty_grams: number | null;
@@ -43,7 +45,7 @@ export type OpenSample = {
 /** The client's samples still waiting to go out — the ones a missing address actually blocks. */
 export async function openSamplesFor(db: Db, clientId: string): Promise<OpenSample[]> {
   const { rows } = await db.query(
-    `SELECT tab, id, ref, title, qty_grams, requested_by, logged_by, priority, date_on
+    `SELECT tab, id, send_id, ref, title, qty_grams, requested_by, logged_by, priority, date_on
        FROM all_samples_v
       WHERE client_id = $1 AND deleted_at IS NULL AND status IN ('requested','preparing')
       ORDER BY priority DESC, date_on, ref`,

@@ -12,13 +12,13 @@ const member = z.object({
 export default class AddSamplesToConsignmentTool implements LuaTool {
   name = 'add_samples_to_consignment';
   description =
-    'Add existing samples to an order / consignment — as {tab, id} (from a create or search result) or by ref (a ref names the coffee and may have several sends: pass receiver to pick one; an ambiguous ref comes back in unresolved with the reason).';
+    'Add existing samples to an order / consignment — as {tab, id} (from a create or search result) or by ref (a ref names the coffee and may have several sends: pass receiver to pick one, or give the Send ID SS-1234 which names one send; an ambiguous ref comes back in unresolved with the reason).';
 
   inputSchema = z
     .object({
       consignment: z.string().describe('The consignment number (e.g. "CN-1000") or its id.'),
       samples: z.array(member).optional().describe('Sends to add, as {tab, id}.'),
-      refs: z.array(z.string()).optional().describe('Refs of the samples to add, e.g. ["SL-8000", "TYPE-980"].'),
+      refs: z.array(z.string()).optional().describe('Refs or Send IDs of the samples to add, e.g. ["SL-8000", "TYPE-980", "SS-1234"].'),
       receiver: z.string().optional().describe('Receiver / client name to pick the right send when a ref has several.'),
     })
     .refine((v) => (v.samples?.length ?? 0) + (v.refs?.length ?? 0) > 0, { message: 'Pass samples [{tab, id}] or refs [].' });

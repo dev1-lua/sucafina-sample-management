@@ -88,6 +88,7 @@ export default class CreateForwardingSampleTool implements LuaTool {
       client_url: clientId ? dashboardUrl('clients', clientId, deliverable.client_created ? 'created' : 'updated') : null,
       tab: 'forwarding',
       id: row.id,
+      send_id: row.send_id ?? null,
       date: row.date,
       sample_ref: row.sample_ref,
       origin: row.origin,

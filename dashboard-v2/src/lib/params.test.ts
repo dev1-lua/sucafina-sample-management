@@ -26,6 +26,18 @@ describe('list URL round-trip', () => {
     const read = readListUrl(writeListUrl(new URLSearchParams(''), { ref: 'SL-7336', consignment: 'CN-1012' }, 'coffees'));
     expect(read).toEqual({ filters: { ref: 'SL-7336', consignment: 'CN-1012' }, view: 'coffees' });
   });
+
+  // Round 11: the Clients view and its `client` deep-link key (`/bulk?view=clients&client=Paulig`).
+  it('reads the clients view and the client key; writes them back, encoded, and drops a cleared client', () => {
+    const read = readListUrl(new URLSearchParams('view=clients&client=CK%20Corporation'));
+    expect(read).toEqual({ filters: { client: 'CK Corporation' }, view: 'clients' });
+    const next = writeListUrl(new URLSearchParams('hl=created'), { client: 'CK Corporation', q: 'x' }, 'clients');
+    expect(next.get('view')).toBe('clients');
+    expect(next.get('client')).toBe('CK Corporation');
+    expect(next.toString()).toContain('client=CK+Corporation');
+    expect(next.has('q')).toBe(false);
+    expect(writeListUrl(new URLSearchParams('client=Paulig&view=clients'), {}, 'sends').toString()).toBe('');
+  });
 });
 
 it('serializes sort, pagination, scalar and array filters; drops empties', () => {

@@ -296,7 +296,7 @@ function TextPill({
           aria-label={def.label}
           value={current}
           onChange={(e) => onPatch({ [def.key]: e.target.value })}
-          placeholder={def.label}
+          placeholder={def.placeholder ?? def.label}
           className="h-8"
         />
       </FilterPopover>

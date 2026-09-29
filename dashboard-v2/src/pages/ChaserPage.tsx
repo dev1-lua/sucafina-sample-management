@@ -19,6 +19,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { TAB_LABEL } from '@/components/charts/colors';
+import { SendId, SEND_ID_TITLE } from '@/components/SendId';
 import { useDigest, useRunChaser } from '@/lib/query';
 import { TAB_REGISTRY } from '@/tabs/registry';
 import type { DigestBucket, DigestBucketKey, DigestItem, TabKey } from '@/types';
@@ -66,6 +67,7 @@ function BucketCard({ meta, bucket }: { meta: (typeof BUCKETS)[number]; bucket: 
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead title={SEND_ID_TITLE}>Send ID</TableHead>
                 <TableHead>Ref</TableHead>
                 <TableHead>Tab</TableHead>
                 <TableHead>Quality</TableHead>
@@ -77,6 +79,7 @@ function BucketCard({ meta, bucket }: { meta: (typeof BUCKETS)[number]; bucket: 
             <TableBody>
               {bucket.items.map((item) => (
                 <TableRow key={`${item.tab}:${item.id}`}>
+                  <TableCell><SendId value={item.send_id} /></TableCell>
                   <TableCell><RefCell item={item} /></TableCell>
                   <TableCell><Badge variant="outline">{TAB_LABEL[item.tab] ?? item.tab}</Badge></TableCell>
                   <TableCell>{item.quality ?? '—'}</TableCell>

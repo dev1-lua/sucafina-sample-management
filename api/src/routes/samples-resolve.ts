@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { HttpError, h } from '../errors.js';
-import { normalizeRef } from '../lib/lots.js';
+import { isSendId, normalizeRef } from '../lib/lots.js';
 
 // GET /samples/resolve (round 10, contracts §5): a ref → its live rows, so the agent can ask "which send?"
 // when several share the ref. Mounted at /samples BEFORE the legacy samples router, whose /:id would
@@ -14,7 +14,8 @@ const TABS = ['specialty', 'bulk', 'forwarding'];
 samplesResolve.get('/resolve', h(async (req, res) => {
   const ref = normalizeRef(String(req.query.ref ?? ''));
   if (!ref) throw new HttpError(400, 'ref is required');
-  const where = ['v.deleted_at IS NULL', 'normalize_ref(v.ref) = $1'];
+  // Round 11: a send id (SS-<n>) names ONE row; the ref names the coffee and may match several.
+  const where = ['v.deleted_at IS NULL', isSendId(ref) ? 'v.send_id = $1' : 'normalize_ref(v.ref) = $1'];
   const params: unknown[] = [ref];
   const tab = String(req.query.tab ?? '').trim();
   if (tab) {
@@ -29,7 +30,7 @@ samplesResolve.get('/resolve', h(async (req, res) => {
                  OR EXISTS (SELECT 1 FROM clients c WHERE c.id = v.client_id AND c.name ILIKE '%'||$${params.length}||'%'))`);
   }
   const { rows } = await pool.query(
-    `SELECT v.tab, v.id, v.ref, v.title, v.receiver, v.status::text AS status, v.date_on,
+    `SELECT v.tab, v.id, v.send_id, v.ref, v.option_letter, v.title, v.receiver, v.status::text AS status, v.date_on,
             v.consignment_number, v.awb, v.courier_norm
        FROM all_samples_v v
       WHERE ${where.join(' AND ')}

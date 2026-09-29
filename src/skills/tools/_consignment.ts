@@ -20,7 +20,7 @@ export async function resolveConsignment(ref: string): Promise<{ id: string; num
   return hit ? { id: hit.id, number: hit.number } : null;
 }
 
-export type ResolvedSample = { tab: Tab; id: string; ref: string };
+export type ResolvedSample = { tab: Tab; id: string; send_id?: string | null; ref: string };
 
 /**
  * Resolve a list of sample refs to {tab, id} through the one resolver (a ref names the coffee and may
@@ -33,7 +33,7 @@ export async function resolveSamples(refs: string[], opts: { receiver?: string }
   for (const r of refs) {
     try {
       const hit = await resolveSampleByRef(r, opts);
-      found.push({ tab: hit.tab, id: hit.id, ref: hit.ref });
+      found.push({ tab: hit.tab, id: hit.id, send_id: hit.send_id ?? null, ref: hit.ref });
     } catch (e) {
       missing.push({ ref: r, reason: (e as Error)?.message ?? String(e) });
     }

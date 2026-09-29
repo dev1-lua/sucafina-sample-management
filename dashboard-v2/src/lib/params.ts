@@ -15,16 +15,17 @@ export function buildListParams(q: ListQuery): URLSearchParams {
 
 // --- List URL ⇄ state (round 10) ---------------------------------------------------------
 // Only the keys the agent deep-links on are mirrored in the URL: `ref` and `consignment` (both
-// FilterState keys the book lists accept) plus the Sends · Coffees · Orders `view`. Everything
-// else in FilterState stays local; every other URL param (e.g. `hl`) is left untouched.
-export const LIST_VIEWS: readonly ListView[] = ['sends', 'coffees', 'orders'];
-const URL_FILTER_KEYS = ['ref', 'consignment'] as const;
+// FilterState keys the book lists accept), `client` (round 11: the Clients view's name filter)
+// plus the Sends · Coffees · Orders · Clients `view`. Everything else in FilterState stays
+// local; every other URL param (e.g. `hl`) is left untouched.
+export const LIST_VIEWS: readonly ListView[] = ['sends', 'coffees', 'orders', 'clients'];
+export const URL_FILTER_KEYS = ['ref', 'consignment', 'client'] as const;
 
 export function asListView(value: unknown): ListView | null {
   return typeof value === 'string' && (LIST_VIEWS as readonly string[]).includes(value) ? (value as ListView) : null;
 }
 
-/** `?ref=&consignment=&view=` → the filters to seed FilterState with and the requested view (null = none). */
+/** `?ref=&consignment=&client=&view=` → the filters to seed FilterState with and the requested view (null = none). */
 export function readListUrl(sp: URLSearchParams): { filters: FilterState; view: ListView | null } {
   const filters: FilterState = {};
   for (const key of URL_FILTER_KEYS) {

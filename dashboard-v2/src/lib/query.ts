@@ -79,6 +79,7 @@ export type LotSend = {
   qty_grams: number | null; courier_norm: string | null; awb: string | null;
   title?: string | null; consignment_number?: string | null;
   option_letter?: string | null; // PSS option of this send (SSKE-104929C → "C"), else null
+  send_id?: string | null; // round 11: SS-<n>, unique to this send (the ref names the coffee)
 };
 export type LotDetail = { lot: Lot; sends: LotSend[] };
 
@@ -96,9 +97,42 @@ export function useLotSendsMany(refs: string[]) {
   return useQueries({ queries: refs.map((ref) => lotDetailQuery(ref)) });
 }
 
-/** Sample writes change what the lot views show (sends, roll-ups) — refresh them alongside the book. */
+// --- Client sends (round 11, the Clients view) ------------------------------------------------
+// GET /client-sends?book= lists one row per client (grouped by client_id, else the lower-cased
+// receiver name) with the same status roll-up as /lots; served through useRecords so the view
+// shares RecordTable's paging + keepPreviousData. GET /client-sends/:key?book= is one client
+// with every live send to them, fetched when a row is expanded. `key` is `id:<uuid>` or
+// `name:<lower name>` and is URL-encoded by the caller.
+export const CLIENT_SENDS_ENDPOINT = '/client-sends';
+export type ClientSendsRow = {
+  key: string; client_id: string | null; client_name: string;
+  sends: number; coffees: number; open_sends: number; in_transit: number; delivered_sends: number;
+  awaiting_results: number; approved: number; rejected: number;
+  last_send_on: string | null; last_ref: string | null; status_rollup: string | null;
+};
+export type ClientSend = {
+  tab: string; id: string; send_id: string | null; ref: string | null; option_letter: string | null;
+  title: string | null; qty_grams: number | null; date_on: string | null; status: string | null;
+  courier_norm: string | null; awb: string | null; result_norm: string | null;
+  consignment_number: string | null; lot_sends: number | null;
+};
+export type ClientSendsDetail = { client: { key: string; client_id: string | null; client_name: string }; sends: ClientSend[] };
+
+const clientSendsQuery = (key: string, book: LotBook) => ({
+  queryKey: [CLIENT_SENDS_ENDPOINT, 'detail', book, key] as const,
+  queryFn: () => api<ClientSendsDetail>(`${CLIENT_SENDS_ENDPOINT}/${encodeURIComponent(key)}?book=${book}`),
+});
+
+/** One detail query per expanded client, in `keys` order (the Clients view keeps several open). */
+export function useClientSendsMany(keys: string[], book: LotBook) {
+  return useQueries({ queries: keys.map((key) => clientSendsQuery(key, book)) });
+}
+
+/** Sample writes change what the lot and client views show (sends, roll-ups) — refresh them alongside the book. */
 function invalidateLots(qc: QueryClient, endpoint: string) {
-  if (SAMPLE_ENDPOINTS.includes(endpoint)) qc.invalidateQueries({ queryKey: [LOTS_ENDPOINT] });
+  if (!SAMPLE_ENDPOINTS.includes(endpoint)) return;
+  qc.invalidateQueries({ queryKey: [LOTS_ENDPOINT] });
+  qc.invalidateQueries({ queryKey: [CLIENT_SENDS_ENDPOINT] });
 }
 
 // --- Add a contact / delivery address to an existing client (migration 016) ---------------
@@ -342,6 +376,7 @@ function invalidateConsignment(qc: QueryClient, id: string) {
   qc.invalidateQueries({ queryKey: ['/consignments', 'list'] });
   for (const endpoint of SAMPLE_ENDPOINTS) qc.invalidateQueries({ queryKey: [endpoint] });
   qc.invalidateQueries({ queryKey: [LOTS_ENDPOINT] });
+  qc.invalidateQueries({ queryKey: [CLIENT_SENDS_ENDPOINT] });
 }
 
 // Add/remove member samples on a consignment (the API's membership endpoint takes {tab, ids}).
@@ -396,7 +431,7 @@ export function useDrawPss() {
   });
 }
 
-export type SearchHit = { tab: string; id: string; ref: string | null; title: string | null; receiver: string | null; status: string; awb: string | null };
+export type SearchHit = { tab: string; id: string; send_id?: string | null; ref: string | null; title: string | null; receiver: string | null; status: string; awb: string | null };
 export function useSearch(q: string) {
   return useQuery({
     queryKey: ['/search', q],
@@ -420,20 +455,26 @@ export type LotResolveResult = {
   lot: Lot | null;
   sends: LotSend[];
   reason?: string;
+  // Round 11: the ref PATCH's 409 carries a plain-English `message` ("TYPE-115 is AB FAQ (3 sends).
+  // This row is C FAQ — a different coffee. …") for the drawer to show inline.
+  message?: string;
 };
 export function resolveLot(body: LotResolveRequest): Promise<LotResolveResult> {
   return api<LotResolveResult>(`${LOTS_ENDPOINT}/resolve`, { method: 'POST', body: JSON.stringify(body) });
 }
 
-/** The create routes answer 409 `{ error: 'ref_conflict', ref, lot, sends }` when a typed ref names
- * another coffee (contracts §4); api() folds that into `Error("409: <json>")`. Returns the parsed
- * conflict, or null for any other failure. */
+/** The create routes (and, since round 11, the ref PATCH) answer 409 `{ error: 'ref_conflict', ref,
+ * lot, sends, message? }` when a typed ref names another coffee (contracts §4); api() folds that
+ * into `Error("409: <json>")`. Returns the parsed conflict, or null for any other failure. */
 export function parseRefConflict(err: unknown): LotResolveResult | null {
   if (!(err instanceof Error) || !err.message.startsWith('409:')) return null;
   try {
-    const body = JSON.parse(err.message.slice(4).trim()) as { error?: string; ref?: string; lot?: Lot; sends?: LotSend[] };
+    const body = JSON.parse(err.message.slice(4).trim()) as { error?: string; ref?: string; lot?: Lot; sends?: LotSend[]; message?: string };
     if (body.error !== 'ref_conflict') return null;
-    return { action: 'conflict', ref: body.ref ?? null, lot: body.lot ?? null, sends: body.sends ?? [] };
+    return {
+      action: 'conflict', ref: body.ref ?? null, lot: body.lot ?? null, sends: body.sends ?? [],
+      ...(typeof body.message === 'string' && body.message !== '' ? { message: body.message } : {}),
+    };
   } catch {
     return null;
   }
@@ -454,6 +495,7 @@ export function useCreateConsignment() {
       qc.invalidateQueries({ queryKey: ['/consignments', 'list'] });
       for (const endpoint of SAMPLE_ENDPOINTS) qc.invalidateQueries({ queryKey: [endpoint] });
       qc.invalidateQueries({ queryKey: [LOTS_ENDPOINT] });
+      qc.invalidateQueries({ queryKey: [CLIENT_SENDS_ENDPOINT] });
     },
   });
 }

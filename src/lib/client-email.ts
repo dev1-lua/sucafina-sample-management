@@ -1,11 +1,14 @@
 // Shared pieces for the two client-facing email jobs (dispatch confirmation +
 // 7-day feedback chaser). Plain inline-styled HTML — no external assets, so it
 // renders the same in every mail client.
+import { refWithSendId } from './normalize';
 
 export type DispatchItem = {
   tab: string;
   id: string;
   ref: string | null;
+  /** The row's Send ID (`SS-1234`, round 11) when the API row carries it — quoted after the ref. */
+  send_id?: string | null;
   title: string | null;
   receiver: string | null;
   courier_norm: string | null;
@@ -20,6 +23,7 @@ export type FeedbackItem = {
   tab: string;
   id: string;
   ref: string | null;
+  send_id?: string | null;
   title: string | null;
   delivery_on: string | null;
   client_name: string;
@@ -52,7 +56,7 @@ export function dispatchEmail(items: DispatchItem[]) {
   const refs = items.map((i) => i.ref).filter(Boolean);
   const subject = `Your Sucafina samples are on the way${courier ? ` — ${courier}` : ''}${first.awb ? ` ${first.awb}` : ''}`;
   const rows = items
-    .map((i) => `<li style="margin:2px 0"><strong>${esc(i.ref ?? '(no ref)')}</strong> — ${esc(i.title ?? '')}${qtyText(i.qty_grams)}</li>`)
+    .map((i) => `<li style="margin:2px 0"><strong>${esc(refWithSendId(i.ref, i.send_id))}</strong> — ${esc(i.title ?? '')}${qtyText(i.qty_grams)}</li>`)
     .join('');
   const html = WRAP(
     `<p>Hello ${esc(first.client_name)},</p>
@@ -69,7 +73,7 @@ export function feedbackChaserEmail(items: FeedbackItem[]) {
   const refs = items.map((i) => i.ref).filter(Boolean);
   const subject = `How did the samples cup?${refs.length ? ` — ${refs.slice(0, 3).join(', ')}${refs.length > 3 ? '…' : ''}` : ''}`;
   const rows = items
-    .map((i) => `<li style="margin:2px 0"><strong>${esc(i.ref ?? '(no ref)')}</strong> — ${esc(i.title ?? '')}${i.delivery_on ? ` (delivered ${esc(String(i.delivery_on).slice(0, 10))})` : ''}</li>`)
+    .map((i) => `<li style="margin:2px 0"><strong>${esc(refWithSendId(i.ref, i.send_id))}</strong> — ${esc(i.title ?? '')}${i.delivery_on ? ` (delivered ${esc(String(i.delivery_on).slice(0, 10))})` : ''}</li>`)
     .join('');
   const html = WRAP(
     `<p>Hello ${esc(first.client_name)},</p>

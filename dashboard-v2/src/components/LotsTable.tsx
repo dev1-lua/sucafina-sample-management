@@ -4,6 +4,7 @@ import { IconArrowDown, IconArrowUp } from '@tabler/icons-react';
 import { RecordTable } from '@/components/RecordTable';
 import { CellValue } from '@/components/CellValue';
 import { StatusBadge } from '@/components/StatusBadge';
+import { SendId, SEND_ID_TITLE } from '@/components/SendId';
 import { LOTS_ENDPOINT, useLotSendsMany, type LotBook, type LotSend } from '@/lib/query';
 import { formatQty } from '@/lib/format';
 import { isPssGroup, lotRefFor, optionLetterOf } from '@/lib/lots';
@@ -62,11 +63,11 @@ function columnsFor(book: LotBook): ColumnDef[] {
   ];
 }
 
-// Child rows share one grid so the columns line up under every expanded coffee; a PSS group
-// leads with the option letter.
+// Child rows share one grid so the columns line up under every expanded coffee; the send id
+// leads (round 11), then a PSS group's option letter.
 const CHILD_GRID = 'grid h-8 items-center gap-3 pl-7 pr-2 text-xs';
-const SEND_COLS = 'grid-cols-[100px_minmax(0,1fr)_72px_160px_130px_100px]';
-const PSS_SEND_COLS = 'grid-cols-[56px_100px_minmax(0,1fr)_72px_160px_130px_100px]';
+const SEND_COLS = 'grid-cols-[80px_100px_minmax(0,1fr)_72px_160px_130px_100px]';
+const PSS_SEND_COLS = 'grid-cols-[80px_56px_100px_minmax(0,1fr)_72px_160px_130px_100px]';
 const childGrid = (pss: boolean) => cn(CHILD_GRID, pss ? PSS_SEND_COLS : SEND_COLS);
 
 function sendTime(s: LotSend): number {
@@ -144,6 +145,7 @@ export function LotsTable({ book, filters, initialExpandedRef, onSendClick }: Lo
         const Arrow = dir === 'desc' ? IconArrowDown : IconArrowUp;
         return (
           <div className={cn(childGrid(isPssLot(parent)), 'uppercase tracking-wide text-muted-foreground')}>
+            <span title={SEND_ID_TITLE}>Send ID</span>
             {isPssLot(parent) && <span>Option</span>}
             <button
               type="button"
@@ -168,6 +170,7 @@ export function LotsTable({ book, filters, initialExpandedRef, onSendClick }: Lo
       const courier = [send.courier_norm, send.awb].filter((p) => !!p).join(' · ');
       return (
         <div className={childGrid(isPssLot(parent))}>
+          <SendId value={send.send_id} />
           {isPssLot(parent) && <span className="font-medium text-foreground">{optionLetterOf(send) ?? '—'}</span>}
           <span className="tabular-nums">{send.date_on ? send.date_on.slice(0, 10) : '—'}</span>
           <span className="truncate text-foreground">{send.receiver || '—'}</span>

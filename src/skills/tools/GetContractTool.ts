@@ -55,6 +55,7 @@ export default class GetContractTool implements LuaTool {
         state: ct.state === 'failed' ? 'replacement_rejected' : ct.state,
         samples: (ct.samples ?? []).map((s: any) => ({
           tab: s.tab,
+          send_id: s.send_id ?? null,
           ref: s.ref,
           option: s.option_letter ?? null,
           stage: s.stage ?? null,
@@ -66,7 +67,7 @@ export default class GetContractTool implements LuaTool {
           replaces_sample_id: s.replaces_sample_id,
         })),
       })),
-      unassigned: (c.unassigned ?? []).map((s: any) => ({ tab: s.tab, ref: s.ref, option: s.option_letter ?? null, stage: s.stage ?? null, status: s.status, result: s.result_norm })),
+      unassigned: (c.unassigned ?? []).map((s: any) => ({ tab: s.tab, send_id: s.send_id ?? null, ref: s.ref, option: s.option_letter ?? null, stage: s.stage ?? null, status: s.status, result: s.result_norm })),
       notes: c.notes,
       url: contractsUrl(String(c.id)),
     };

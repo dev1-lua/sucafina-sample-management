@@ -25,6 +25,7 @@ export type TabKey = 'specialty' | 'bulk' | 'forwarding' | 'clients';
 export type DigestItem = {
   tab: string; // 'specialty' | 'bulk' | 'forwarding' — which sample table the row lives in
   id: string | number;
+  send_id?: string | null; // round 11: SS-<n>, unique to this send (older digests omit it)
   ref?: string | null;
   quality?: string | null;
   receiver?: string | null;
@@ -45,11 +46,12 @@ export type FilterState = Record<string, string | string[]>;
 
 // Round 10: how a sample book is looked at. Sends = one row per parcel (the flat table),
 // Coffees = one row per ref with its sends nested, Orders = the consignments of the book.
-export type ListView = 'sends' | 'coffees' | 'orders';
+// Round 11: Clients = one row per client with every send to them nested.
+export type ListView = 'sends' | 'coffees' | 'orders' | 'clients';
 
 export type FilterDef =
   | { key: string; label: string; type: 'enum'; options: string[]; multi?: boolean; searchable?: boolean }
-  | { key: string; label: string; type: 'text' }
+  | { key: string; label: string; type: 'text'; placeholder?: string } // placeholder defaults to the label
   | { key: string; label: string; type: 'bool'; trueValue?: string } // e.g. has_awb=true
   | { key: string; label: string; type: 'date' } // maps to date_from/date_to pair handled by caller
   | { key: string; label: string; type: 'numrange'; minKey: string; maxKey: string };
@@ -64,6 +66,7 @@ export type ListQuery = {
 export type ColumnDef = {
   key: string; // row field to display (source column)
   header: string; // column header label
+  headerTitle?: string; // native tooltip on the header cell (the house tooltip style)
   sortKey?: string; // API sort value; omit => not sortable
   width?: number; // px
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom cell (e.g. StatusBadge)
@@ -79,6 +82,7 @@ export type DetailField = {
   label: string; // field label
   render?: (row: Record<string, unknown>) => React.ReactNode; // custom read-only rendering (e.g. StatusBadge)
   hidden?: (row: Record<string, unknown>) => boolean; // skip the whole row (label included) for this record
+  hint?: string; // one muted line under the value/input, e.g. what editing this field means for the other sends
   // inline edit → PATCH {field: value}. `allowCustom` turns a select into an
   // editable one (EditableSelect): picking "Other…" lets the user type a value
   // outside `options` (requires the backing column to be free text). `number`

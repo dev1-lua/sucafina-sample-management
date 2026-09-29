@@ -2,6 +2,7 @@ import { LuaJob } from 'lua-cli';
 import { apiFetch } from '../lib/api';
 import { autoLoopIns, ccFor, EMAIL_CHANNEL_READY, loadTraders, sendToPerson, type TraderRow } from '../lib/notify';
 import { changeAlertMessage, isChangeAlert, type OutboxItem } from '../lib/change-alerts';
+import { refWithSendId } from '../lib/normalize';
 import { bookListUrl } from '../lib/links';
 
 // Timeline suffix when the QC mailboxes (lib/notify NOTIFY_CC) were CC'd on an event's email — once per
@@ -106,7 +107,7 @@ function describe(i: OutboxItem): string {
   const bits = [i.title, i.receiver ? `→ ${i.receiver}` : null, i.qty_grams ? `${i.qty_grams}g` : null, BOOK[i.tab]]
     .filter(Boolean)
     .join(' • ');
-  return `${i.ref ?? '(no ref)'} — ${bits}`;
+  return `${refWithSendId(i.ref, i.send_id)} — ${bits}`;
 }
 
 /**
@@ -115,32 +116,32 @@ function describe(i: OutboxItem): string {
  */
 export function traderMessage(i: OutboxItem): { text: string; subject: string } {
   const label = describe(i);
-  const ref = i.ref ?? 'your sample';
+  const ref = refWithSendId(i.ref, i.send_id, 'your sample');
   const what = `${ref} (${i.title ?? '?'}) for ${i.client_name ?? i.receiver ?? '?'}`;
   const courier = courierLabel(i.courier_norm);
   // "On its way": the dispatch itself, or an AWB typed after the parcel already left — never "soon" then.
   const onItsWay = `${what} is on its way — ${courier}${i.awb ? ` AWB ${i.awb}` : ', no AWB yet'}.`;
   if (i.event === 'preparing') {
     return {
-      text: `Your sample ${i.ref ?? ''} (${i.title ?? '?'} → ${i.receiver ?? '?'}) is being prepared by the lab.`,
-      subject: `Sample ${i.ref ?? ''}: being prepared`,
+      text: `Your sample ${refWithSendId(i.ref, i.send_id, '')} (${i.title ?? '?'} → ${i.receiver ?? '?'}) is being prepared by the lab.`,
+      subject: `Sample ${refWithSendId(i.ref, i.send_id, '')}: being prepared`,
     };
   }
   if (i.event === 'awb_added') {
     const left = i.status === 'dispatched' || i.status === 'delivered' || i.status === 'results_in';
     return {
       text: left ? onItsWay : `Your sample ${what} has a ${courier} AWB ${i.awb ?? '?'} — it'll be on its way soon.`,
-      subject: `Sample ${i.ref ?? ''}: AWB added`,
+      subject: `Sample ${refWithSendId(i.ref, i.send_id, '')}: AWB added`,
     };
   }
   if (i.event === 'dispatched') {
-    return { text: onItsWay, subject: `Sample ${i.ref ?? ''}: dispatched` };
+    return { text: onItsWay, subject: `Sample ${refWithSendId(i.ref, i.send_id, '')}: dispatched` };
   }
   // Anything not covered above (a new event reaching a version that predates its wording) still gets a
   // truthful line rather than the dispatch text — never claim a sample moved when we don't know that.
   return {
-    text: `${i.ref ?? 'A sample'} was updated: ${i.event}. (${label})`,
-    subject: `Sample ${i.ref ?? ''}: ${i.event}`,
+    text: `${refWithSendId(i.ref, i.send_id, 'A sample')} was updated: ${i.event}. (${label})`,
+    subject: `Sample ${refWithSendId(i.ref, i.send_id, '')}: ${i.event}`,
   };
 }
 
@@ -261,7 +262,7 @@ export function qcMessage(i: OutboxItem, opts: { now?: Date } = {}): { text: str
   const lines = [describe(i), peopleLine(i), clientLine(i, now), typeLine(i), gap].filter(Boolean);
   return {
     text: `${repl}New sample request${urgent}:\n${lines.map((l) => `- ${l}`).join('\n')}`,
-    subject: `${repl}New sample request${urgent ? ' (URGENT)' : ''}: ${i.ref ?? i.title ?? ''}${gap ? ' — address pending' : ''}`,
+    subject: `${repl}New sample request${urgent ? ' (URGENT)' : ''}: ${refWithSendId(i.ref, i.send_id, i.title ?? '')}${gap ? ' — address pending' : ''}`,
   };
 }
 
@@ -400,7 +401,7 @@ export const statusNotifierJob = new LuaJob({
 
     for (const unit of units) {
       const item = unit[0]!;
-      const label = unit.length > 1 ? `${unit.length} rows (${unit.map((i) => i.ref).join(', ')})` : String(item.ref);
+      const label = unit.length > 1 ? `${unit.length} rows (${unit.map((i) => refWithSendId(i.ref, i.send_id, String(i.ref))).join(', ')})` : refWithSendId(item.ref, item.send_id, String(item.ref));
       const markAll = async (via: 'teams' | 'email' | 'skipped', detail: string | null) => {
         for (const i of unit) await mark(i.outbox_id, via, detail);
       };

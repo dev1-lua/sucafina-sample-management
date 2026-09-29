@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the API to the Contabo VPS: apply migrations 011–024 (all idempotent / one-shot guarded), rebuild containers.
+# Deploy the API to the Contabo VPS: apply migrations 011–025 (all idempotent / one-shot guarded), rebuild containers.
 # Assumes sucafina-deploy.tar.gz has already been rsync'd to root@156.67.105.74:~/ and extracted
 # (re-extracts anyway; harmless).
 #
@@ -14,7 +14,7 @@ set -euo pipefail
 cd /opt/sucafina
 tar xzf ~/sucafina-deploy.tar.gz
 DC="docker compose -f docker-compose.prod.yml --env-file .env.prod"
-echo "== backup before migrations (round 10 adds lots + order columns and backfills lots)"
+echo "== backup before migrations (round 11 adds send_id + backfills every row of the three books)"
 mkdir -p /opt/sucafina/backups
 # < /dev/null: exec -T still attaches stdin, and without the redirect pg_dump would swallow the rest of this heredoc script.
 $DC exec -T postgres pg_dump -U sucafina sucafina < /dev/null | gzip > "/opt/sucafina/backups/sucafina-$(date +%Y%m%d-%H%M%S).sql.gz"
@@ -47,6 +47,8 @@ echo "== migration 023 (lots: ref = coffee, lot_conflicts, order columns on cons
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/023_lots_and_orders.sql
 echo "== migration 024 (PSS lots group by contract: lot_ref/ref_option_letter, softer normalize_quality, keys + lot_conflicts rebuilt, view lot_sends by lot_ref)"
 $DC exec -T postgres psql -U sucafina sucafina < api/migrations/024_pss_lots_by_contract.sql
+echo "== migration 025 (send ids: SS counter + triggers, backfill across the three books, view + send_id/option_letter, ref_changed event)"
+$DC exec -T postgres psql -U sucafina sucafina < api/migrations/025_send_id_and_view.sql
 echo "== rebuild"
 $DC up -d --build
 $DC ps

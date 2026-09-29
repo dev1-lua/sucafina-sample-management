@@ -22,6 +22,8 @@ export type Lot = {
 export type LotSend = {
   tab: 'specialty' | 'bulk' | 'forwarding';
   id: string;
+  /** The row's own Send ID (`SS-1234`, round 11) — unique to this send; the ref is shared by all of them. */
+  send_id?: string | null;
   receiver: string | null;
   date_on: string | null;
   status: string | null;

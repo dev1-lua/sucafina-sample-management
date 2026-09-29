@@ -35,19 +35,19 @@ const SORTABLE = ['last_send_on', 'ref', 'sends', 'first_issued_at', 'quality', 
 // the letter in the ref (legacy PSS rows carry none in the column).
 const SENDS_CTE = `
   sends AS (
-    SELECT lot_ref(ref) AS ref, receiver_company AS receiver, status::text AS status, date_on, created_at,
+    SELECT lot_ref(ref) AS ref, send_id, receiver_company AS receiver, status::text AS status, date_on, created_at,
            COALESCE(option_letter, ref_option_letter(ref)) AS option_letter, contract_id
       FROM specialty_samples WHERE deleted_at IS NULL AND COALESCE(btrim(ref), '') <> ''
     UNION ALL
-    SELECT lot_ref(sample_ref), client, status::text, date_on, created_at,
+    SELECT lot_ref(sample_ref), send_id, client, status::text, date_on, created_at,
            COALESCE(option_letter, ref_option_letter(sample_ref)), contract_id
       FROM bulk_samples WHERE deleted_at IS NULL AND COALESCE(btrim(sample_ref), '') <> ''
   )`;
 
 const part = (n: number, label: string) => (n > 0 ? `${n} ${label}` : null);
 
-/** "2 delivered · 1 dispatched · 1 pending" — zero buckets omitted. */
-function statusRollup(r: { delivered_sends: number; dispatched_sends: number; pending_sends: number; cancelled_sends: number }): string {
+/** "2 delivered · 1 dispatched · 1 pending" — zero buckets omitted. Shared with /client-sends (round 11). */
+export function statusRollup(r: { delivered_sends: number; dispatched_sends: number; pending_sends: number; cancelled_sends: number }): string {
   const parts = [
     part(r.delivered_sends, 'delivered'), part(r.dispatched_sends, 'dispatched'),
     part(r.pending_sends, 'pending'), part(r.cancelled_sends, 'cancelled'),
@@ -68,10 +68,11 @@ lots.get('/', h(async (req, res) => {
   if (q) {
     params.push(q);
     const i = params.length;
-    // The parent lot is kept when any of its live sends' receivers matches; a typed option (SSKE-104929A) finds its group.
+    // The parent lot is kept when any of its live sends' receivers matches; a typed option (SSKE-104929A) finds its group;
+    // a Send ID (SS-<n>, round 11) finds the coffee that send belongs to.
     where.push(`(l.ref ILIKE '%'||$${i}||'%' OR l.ref = lot_ref($${i}) OR l.quality ILIKE '%'||$${i}||'%' OR l.outturn ILIKE '%'||$${i}||'%'
                  OR l.grade ILIKE '%'||$${i}||'%' OR l.blend ILIKE '%'||$${i}||'%'
-                 OR EXISTS (SELECT 1 FROM sends sq WHERE sq.ref = l.ref AND sq.receiver ILIKE '%'||$${i}||'%'))`);
+                 OR EXISTS (SELECT 1 FROM sends sq WHERE sq.ref = l.ref AND (sq.receiver ILIKE '%'||$${i}||'%' OR sq.send_id = normalize_ref($${i}))))`);
   }
   const sort = (SORTABLE as readonly string[]).includes(String(req.query.sort)) ? String(req.query.sort) : 'last_send_on';
   const orderQ = String(req.query.order ?? '').toLowerCase();

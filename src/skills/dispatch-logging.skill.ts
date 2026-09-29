@@ -28,7 +28,8 @@ Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking 
   parcels under one waybill) — pass every matching {tab, id} in a single record_dispatch call so
   they share the same courier + AWB. An item can also be given as {ref, receiver?}: a ref names the
   COFFEE and may have several sends, so add the receiver when QC said which one ("SL-7336 to TORCH");
-  if the tool answers "which receiver?", ask that one question.
+  if the tool answers "which receiver?", ask that one question. A Send ID (SS-1234) names ONE send —
+  pass it as the ref and no receiver is needed.
 - A whole ORDER going out together ("CN-1012 went out with DHL 1234"): record_dispatch { consignment:
   "CN-1012", courier, awb } — every live sample in it is marked dispatched with that courier + AWB in
   one call; the tool reports how many rows it updated.
@@ -59,7 +60,7 @@ Use when QC reports a dispatch, e.g. "dispatched samples to Key coffee tracking 
   Sucafina/Kenyacof offices are never flagged. Saving the address closes the open ask automatically.
 - CHANGES: deleting or changing an existing request pings the Quality team automatically — say "QC will be
   told", never that the ping already went out.
-- Confirm with ref(s) + AWB, then show each dispatched row as a row card + open-link, exactly as the
+- Confirm with Send ID(s) + ref(s) + AWB, then show each dispatched row as a row card + open-link, exactly as the
   persona's write-result format describes — one card per row (a shared AWB still gets one card each).`,
   tools: [new FindOpenSamplesTool(), new RecordDispatchTool(), new UpdateSampleStatusTool()],
 });

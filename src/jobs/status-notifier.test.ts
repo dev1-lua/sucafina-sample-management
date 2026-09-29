@@ -221,3 +221,19 @@ describe('status-notifier run — grouped rows go out as ONE message, CC once, s
     expect(marks[0].detail).toBe('Harriet (email), Bernard (email) · QC mailboxes copied');
   });
 });
+
+describe('Send ID (round 11) — notifications quote "ref (SS-n)" when the outbox row carries send_id', () => {
+  it('traderMessage: text and subject carry the Send ID; rows without one read exactly as before', () => {
+    const withId = traderMessage(item({ send_id: 'SS-1234', event: 'dispatched', status: 'dispatched', courier_norm: 'fedex', awb: '7788' }));
+    expect(withId.text).toContain('SL-7461 (SS-1234) (AB FAQ) for');
+    expect(withId.subject).toBe('Sample SL-7461 (SS-1234): dispatched');
+    const without = traderMessage(item({ event: 'dispatched', status: 'dispatched', courier_norm: 'fedex', awb: '7788' }));
+    expect(without.subject).toBe('Sample SL-7461: dispatched');
+    expect(without.text).not.toContain('SS-');
+  });
+  it('qcMessage: the first line and the subject carry the Send ID', () => {
+    const { text, subject } = qcMessage({ ...ORDER[0]!, send_id: 'SS-1234' }, { now: new Date('2026-09-22T06:00:00Z') });
+    expect(text).toContain('- TYPE-980 (SS-1234) — ');
+    expect(subject).toContain('TYPE-980 (SS-1234)');
+  });
+});

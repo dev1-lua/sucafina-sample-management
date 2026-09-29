@@ -11,13 +11,13 @@ type ResultTab = (typeof RESULT_TABS)[number];
 export default class RecordResultTool implements LuaTool {
   name = 'record_result';
   description =
-    'Record the cupping/client outcome for a Specialty or Commercial sample (approved/rejected/pending_feedback + notes). Identify the send by tab + id (from search_samples) or by ref (+ receiver when the coffee has several sends). Forwarding has no result field — do not call this for a forwarding row.';
+    'Record the cupping/client outcome for a Specialty or Commercial sample (approved/rejected/pending_feedback + notes). Identify the send by tab + id (from search_samples) or by ref (+ receiver when the coffee has several sends) or by Send ID (SS-1234, one send, no receiver needed). Forwarding has no result field — do not call this for a forwarding row.';
 
   inputSchema = z
     .object({
       tab: z.enum(RESULT_TABS).optional().describe("'specialty' or 'bulk' (the Commercial book's internal key) — with id."),
       id: z.string().optional().describe('Sample row id (from search_samples / get_sample_status) — with tab.'),
-      ref: z.string().optional().describe('Sample ref, e.g. "SSKE-104929" — alternative to tab + id.'),
+      ref: z.string().optional().describe('Sample ref, e.g. "SSKE-104929", or a Send ID, e.g. "SS-1234" — alternative to tab + id.'),
       receiver: z.string().optional().describe('Receiver / client name to pick the right send when the ref has several.'),
       result: z.enum(['approved', 'rejected', 'pending_feedback']),
       comments: z.string().optional().describe('Tasting notes / verdict text, verbatim, e.g. "83p, citrus driven, clean"'),
@@ -51,6 +51,7 @@ export default class RecordResultTool implements LuaTool {
       recorded: true,
       tab,
       id: row.id,
+      send_id: row.send_id ?? null,
       ref: row.ref ?? row.sample_ref,
       status: row.status,
       result: row.result_norm,

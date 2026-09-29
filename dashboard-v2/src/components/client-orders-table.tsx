@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/cn';
 import { useRecords } from '@/lib/query';
 import { StatusBadge } from '@/components/StatusBadge';
+import { SendId, SEND_ID_TITLE } from '@/components/SendId';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { ClientOrder, ClientOrderTab } from './client-types';
@@ -121,6 +122,7 @@ export function ClientOrdersTable({ orders }: { orders: ClientOrder[] }) {
       <table className="w-full caption-bottom text-sm">
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow className="hover:bg-transparent">
+            <TableHead className="text-xs uppercase tracking-wide text-muted-foreground" title={SEND_ID_TITLE}>Send ID</TableHead>
             <TableHead className="text-xs uppercase tracking-wide text-muted-foreground">Tab</TableHead>
             <TableHead className="text-xs uppercase tracking-wide text-muted-foreground">Ref</TableHead>
             <TableHead className="text-xs uppercase tracking-wide text-muted-foreground">Status</TableHead>
@@ -154,6 +156,7 @@ export function ClientOrdersTable({ orders }: { orders: ClientOrder[] }) {
               className="cursor-pointer"
               onClick={() => navigate(`${TAB_PATH[order.tab]}/${order.id}`)}
             >
+              <TableCell><SendId value={order.send_id} /></TableCell>
               <TableCell>
                 <span
                   className={cn(

@@ -11,7 +11,8 @@ export const resultsCaptureSkill = new LuaSkill({
 Use when someone shares cupping notes or a client verdict, e.g. "PSS3 cupped 83, citrus driven, clean — approved".
 - Call record_result with the ref (+ receiver when the coffee has several sends — a ref names the
   COFFEE, e.g. "SL-7336 to TORCH"), or with tab + id from search_samples when you already have them.
-  If the tool answers "which receiver?", ask that one question.
+  If the tool answers "which receiver?", ask that one question. A Send ID (SS-1234) names one send —
+  pass it as the ref, no receiver needed. Confirm with the Send ID + ref.
 - Forwarding has no results/cupping step — if a Forwarding parcel is named, say so plainly instead
   of trying to log a result for it.
 - Scores/tasting notes go in comments verbatim; result is approved/rejected/pending_feedback.

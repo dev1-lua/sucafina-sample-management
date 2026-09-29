@@ -68,6 +68,7 @@ export default class GetClientTool implements LuaTool {
       orders_capped: orders.length >= 200,
       recent_orders: orders.slice(0, 10).map((o: any) => ({
         tab: o.tab,
+        send_id: o.send_id ?? null,
         ref: o.ref,
         title: o.title,
         status: o.status,

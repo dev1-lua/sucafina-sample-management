@@ -2,8 +2,10 @@ import { Link } from 'react-router-dom';
 
 import { StatusBadge } from '@/components/StatusBadge';
 import { CellValue } from '@/components/CellValue';
-import { LotRefCell, OrderLinkCell } from '@/components/LotRefCell';
+import { ClientLinkCell, LotRefCell, OrderLinkCell } from '@/components/LotRefCell';
+import { sendIdColumn } from '@/components/SendId';
 import { formatQty, formatLocation } from '@/lib/format';
+import { REF_HINT } from '@/lib/lots';
 import { PssDueCell } from './contracts';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
@@ -46,6 +48,8 @@ export const bulkConfig: TabConfig = {
   entityLabel: 'Commercial Sample',
   defaultSort: { sort: 'created_at', order: 'desc' },
   columns: [
+    // Round 11: the send's own id leads — unique to the row, unlike the ref.
+    sendIdColumn,
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     // Round 10: the ref names the coffee; a `×N` pill flags a re-send and jumps to the Coffees view.
     { key: 'sample_ref', header: 'Sample Ref', sortKey: 'sample_ref', render: (r) => <LotRefCell row={r} basePath="/bulk" /> },
@@ -73,7 +77,8 @@ export const bulkConfig: TabConfig = {
       sortKey: 'sample_type_norm',
       render: (r) => <StatusBadge kind="sample_type" value={r.sample_type_norm as string | null} />,
     },
-    { key: 'client', header: 'Client', sortKey: 'client' },
+    // Round 11: the client links to the Clients view with their sends expanded.
+    { key: 'client', header: 'Client', sortKey: 'client', render: (r) => <ClientLinkCell row={r} field="client" basePath="/bulk" /> },
     addressGapColumn,
     { key: 'country', header: 'Country', sortKey: 'country' },
     { key: 'awb', header: 'AWB', sortKey: 'awb' },
@@ -117,7 +122,8 @@ export const bulkConfig: TabConfig = {
     { key: 'result_norm', label: 'Result', type: 'enum', options: RESULTS, multi: true },
     { key: 'location', label: 'Location', type: 'enum', options: LOCATIONS, multi: true },
     // Round 10: exact ref / order filters — also the two keys mirrored in the URL for agent deep-links.
-    { key: 'ref', label: 'Ref', type: 'text' },
+    // Round 11: an `SS-<n>` value filters on the send id instead.
+    { key: 'ref', label: 'Ref', type: 'text', placeholder: 'Ref or Send ID' },
     { key: 'consignment', label: 'Order', type: 'text' },
     { key: 'country', label: 'Country', type: 'text' },
     { key: 'shipment_month', label: 'Shipment Month', type: 'text' },
@@ -133,6 +139,10 @@ export const bulkConfig: TabConfig = {
     addressGapFilter,
   ],
   detailFields: [
+    // Round 11: QC owns the references, so the ref is editable here (POST/PATCH field `sample_ref`).
+    // The server answers 409 when the new ref already names a different coffee; the drawer shows
+    // that message under the field. A lettered SSKE ref also sets the PSS option below.
+    { key: 'sample_ref', label: 'Ref', edit: { field: 'sample_ref', type: 'text' }, hint: REF_HINT },
     { key: 'status', label: 'Status', edit: { field: 'status', type: 'select', options: STATUSES } },
     { key: 'awb', label: 'AWB', edit: { field: 'awb', type: 'text' } },
     awaitingCollectionDetailField,

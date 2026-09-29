@@ -27,9 +27,9 @@ const LOTS = [
 const SENDS = {
   lot: LOTS[0],
   sends: [
-    { tab: 'specialty', id: 'u-3', receiver: 'Sucafina NV', date_on: '2026-06-10', status: 'requested', qty_grams: 300, courier_norm: null, awb: null, title: 'KII AB', consignment_number: 'CN-1012' },
-    { tab: 'specialty', id: 'u-2', receiver: 'Paulig', date_on: '2026-05-20', status: 'delivered', qty_grams: 500, courier_norm: 'dhl', awb: '778', title: 'KII AB', consignment_number: null },
-    { tab: 'specialty', id: 'u-1', receiver: 'Beyers', date_on: '2026-05-02', status: 'delivered', qty_grams: 300, courier_norm: 'dhl', awb: '112', title: 'KII AB', consignment_number: null },
+    { tab: 'specialty', id: 'u-3', send_id: 'SS-1003', receiver: 'Sucafina NV', date_on: '2026-06-10', status: 'requested', qty_grams: 300, courier_norm: null, awb: null, title: 'KII AB', consignment_number: 'CN-1012' },
+    { tab: 'specialty', id: 'u-2', send_id: 'SS-1002', receiver: 'Paulig', date_on: '2026-05-20', status: 'delivered', qty_grams: 500, courier_norm: 'dhl', awb: '778', title: 'KII AB', consignment_number: null },
+    { tab: 'specialty', id: 'u-1', send_id: 'SS-1001', receiver: 'Beyers', date_on: '2026-05-02', status: 'delivered', qty_grams: 300, courier_norm: 'dhl', awb: '112', title: 'KII AB', consignment_number: null },
   ],
 };
 
@@ -79,6 +79,11 @@ it('expanding a coffee fetches GET /lots/:ref and nests its sends newest first; 
   expect(idx('Beyers')).toBeGreaterThan(idx('Paulig'));
   expect(idx('Paulig')).toBeGreaterThan(idx('SL-7336'));
   expect(idx('SL-8001')).toBeGreaterThan(idx('Beyers'));
+  // Round 11: each child row leads with its own send id (monospace, tooltip explains ref vs send id);
+  // the child header carries the same tooltip.
+  expect(screen.getByText('SS-1001')).toHaveClass('font-mono');
+  expect(screen.getByText('SS-1003')).toBeInTheDocument();
+  expect(screen.getByText('Send ID')).toHaveAttribute('title', expect.stringMatching(/Unique to this send/));
   // Courier / AWB, qty, status badge and order ride on the child row.
   expect(screen.getByText('dhl · 778')).toBeInTheDocument();
   expect(screen.getByText('500 g')).toBeInTheDocument();
@@ -129,9 +134,9 @@ const PLAIN_LOT = {
 const PSS_SENDS = {
   lot: PSS_LOT,
   sends: [
-    { tab: 'commercial', id: 'b-2', ref: 'SSKE-104929B', receiver: 'CK Corporation', date_on: '2026-08-20', status: 'requested', qty_grams: 300, courier_norm: null, awb: null, consignment_number: 'CN-2001', option_letter: 'B' },
+    { tab: 'commercial', id: 'b-2', send_id: 'SS-2002', ref: 'SSKE-104929B', receiver: 'CK Corporation', date_on: '2026-08-20', status: 'requested', qty_grams: 300, courier_norm: null, awb: null, consignment_number: 'CN-2001', option_letter: 'B' },
     // A legacy row: option_letter unset, the letter comes from the send's own ref.
-    { tab: 'commercial', id: 'b-1', ref: 'SSKE-104929A', receiver: 'CK Corporation', date_on: '2026-08-05', status: 'delivered', qty_grams: 300, courier_norm: 'dhl', awb: '990', consignment_number: null, option_letter: null },
+    { tab: 'commercial', id: 'b-1', send_id: 'SS-2001', ref: 'SSKE-104929A', receiver: 'CK Corporation', date_on: '2026-08-05', status: 'delivered', qty_grams: 300, courier_norm: 'dhl', awb: '990', consignment_number: null, option_letter: null },
   ],
 };
 
@@ -165,8 +170,9 @@ it('expanding a PSS group shows an Option header and the letters on the children
   const a = rows.findIndex((t) => t.includes('dhl · 990'));
   expect(b).toBeGreaterThan(-1);
   expect(a).toBeGreaterThan(b); // newest first: B (20 Aug) above A (5 Aug)
-  expect(rows[b]!.startsWith('B')).toBe(true);
-  expect(rows[a]!.startsWith('A')).toBe(true);
+  // Round 11: the send id leads every child row; the option letter follows it.
+  expect(rows[b]!.startsWith('SS-2002B')).toBe(true);
+  expect(rows[a]!.startsWith('SS-2001A')).toBe(true);
 });
 
 it('a non-PSS lot renders no Option cell', async () => {

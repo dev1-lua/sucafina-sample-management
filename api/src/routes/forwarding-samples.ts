@@ -9,7 +9,7 @@ import { createdPayload, enqueueOutbox, enqueueStatusEvents } from '../lib/notif
 import { parseId, assertIn } from '../lib/validate.js';
 import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
-import { consignmentNumberColumn, lotSendsColumn, normalizeRef } from '../lib/lots.js';
+import { consignmentNumberColumn, lotSendsColumn, refFilter } from '../lib/lots.js';
 import { assertConsignment, consignmentWhere } from '../lib/consignments.js';
 
 export const forwardingSamples = Router();
@@ -113,10 +113,11 @@ forwardingSamples.get('/', h(async (req, res) => {
   // AWB on file, not yet collected by the courier (lifecycle sketch 2026-09-14).
   if (req.query.awaiting_collection === 'true') f.where.push(AWAITING_COLLECTION_WHERE);
   // Round 10: every row of one ref (?ref=, exact after normalisation) / of one order (?consignment=).
-  if (req.query.ref) f.add(`normalize_ref(sample_ref) = ?`, normalizeRef(String(req.query.ref)));
+  // Round 11: an SS-<n> value is a send id — exactly one row.
+  if (req.query.ref) refFilter(f, 'sample_ref', String(req.query.ref));
   if (req.query.consignment) consignmentWhere(f, String(req.query.consignment));
   const result = await buildList(
-    { table: 'forwarding_samples', extraSelect: `${gapColumns('forwarding_samples')}, ${LOT_COLUMNS}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb','requested_by','logged_by'] },
+    { table: 'forwarding_samples', extraSelect: `${gapColumns('forwarding_samples')}, ${LOT_COLUMNS}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['send_id','sample_ref','coffee_quality','receiver_company','sender','origin','id_number','awb','requested_by','logged_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);

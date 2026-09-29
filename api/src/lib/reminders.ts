@@ -4,20 +4,20 @@ import { pool } from '../db.js';
 // free-form follow-up fields (feedback_received, order_placed), which the reminders key off.
 // Forwarding has no delivery_on column, so it is projected NULL — which also keeps it out of R3.
 const SRC = `(
-  SELECT 'specialty' AS tab, id, ref, description AS title, receiver_company AS receiver, awb,
+  SELECT 'specialty' AS tab, id, send_id, ref, description AS title, receiver_company AS receiver, awb,
          courier_norm, status, created_at, delivery_on, feedback_received, order_placed, deleted_at
     FROM specialty_samples
   UNION ALL
-  SELECT 'bulk', id, sample_ref, quality, client, awb,
+  SELECT 'bulk', id, send_id, sample_ref, quality, client, awb,
          courier_norm, status, created_at, delivery_on, feedback_received, order_placed, deleted_at
     FROM bulk_samples
   UNION ALL
-  SELECT 'forwarding', id, sample_ref, coffee_quality, receiver_company, awb,
+  SELECT 'forwarding', id, send_id, sample_ref, coffee_quality, receiver_company, awb,
          courier_norm, status, created_at, NULL::date, feedback_received, order_placed, deleted_at
     FROM forwarding_samples
 ) s`;
 
-const SELECT = `tab, id, ref, title, receiver, awb, courier_norm, status, created_at, delivery_on`;
+const SELECT = `tab, id, send_id, ref, title, receiver, awb, courier_norm, status, created_at, delivery_on`;
 
 export type ReminderKind = 'courier-awb' | 'feedback' | 'order-placed';
 export const REMINDER_KINDS: ReminderKind[] = ['courier-awb', 'feedback', 'order-placed'];

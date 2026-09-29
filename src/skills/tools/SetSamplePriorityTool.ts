@@ -8,7 +8,7 @@ import { resolveSampleByRef } from '../../lib/resolve-sample';
 export default class SetSamplePriorityTool implements LuaTool {
   name = 'set_sample_priority';
   description =
-    'Flag an existing sample as urgent (or back to normal) — feedback #25. Pass tab + id if you already have them (from search_samples / find_open_samples), or just the ref (e.g. "TYPE-1006") — a ref names the coffee and may have several sends, so add receiver when the desk said which one. Returns the updated row card fields (+ note when the send had to be picked).';
+    'Flag an existing sample as urgent (or back to normal) — feedback #25. Pass tab + id if you already have them (from search_samples / find_open_samples), or just the ref (e.g. "TYPE-1006") — a ref names the coffee and may have several sends, so add receiver when the desk said which one — or pass the Send ID (e.g. "SS-1234"), which names one send and needs no receiver. Returns the updated row card fields (+ note when the send had to be picked).';
 
   inputSchema = z.object({
     priority: z.enum(['urgent', 'normal']).describe('"urgent" to flag, "normal" to clear.'),
@@ -37,6 +37,7 @@ export default class SetSamplePriorityTool implements LuaTool {
     return {
       tab,
       id: row.id,
+      send_id: row.send_id ?? null,
       ref: row.ref ?? row.sample_ref,
       title: row.description ?? row.quality ?? row.coffee_quality,
       receiver: row.receiver_company ?? row.client,

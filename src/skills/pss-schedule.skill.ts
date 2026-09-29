@@ -17,7 +17,8 @@ HOW PSS WORK (Harriet, Sept 2026) — a contract owes N lettered OPTIONS (A, B, 
 The size is client-specific (Nespresso 1 kg, Zoegas 600 g, JDE 300 g, CK 500 g — the tools default from the
 contract or the client's last PSS; never assume 1 kg yourself). The ref is contract-derived: SSKE-<contract
 digits> + the option letter (SSKE-104929A); the Coffees view groups a contract's options under SSKE-<contract
-digits>. Say "option", never "container", when talking about a PSS.
+digits>. Say "option", never "container", when talking about a PSS. Each option row also has its own Send
+ID (SS-1234, \`send_id\`) — quote it on the option line; it names that one send without a receiver.
 Reminders (14 / 7 / 0 days before due, weekly while overdue) go to the Quality team only.
 
 IMPORTING THE SCHEDULE

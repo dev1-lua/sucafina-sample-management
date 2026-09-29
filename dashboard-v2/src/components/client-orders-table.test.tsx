@@ -44,6 +44,27 @@ it('says so when the client has no orders', async () => {
   expect(await screen.findByText('No orders for this client yet.')).toBeInTheDocument();
 });
 
+// Round 11: every row leads with its send id (monospace); the header carries the ref-vs-send-id tooltip.
+it('the per-sample history leads with a Send ID column', () => {
+  render(
+    <MemoryRouter>
+      <ClientOrdersTable
+        orders={[
+          { tab: 'specialty', id: 'u-1', send_id: 'SS-1001', ref: 'SL-7336', title: 'KII AB', status: 'delivered', courier_norm: 'dhl', awb: '778', date_on: '2026-06-10', delivery_on: null, result_norm: 'approved', blend: null, strategy: null, highlights: null, result_on: null },
+          { tab: 'bulk', id: 'u-2', ref: 'TYPE-113', title: 'AB FAQ', status: 'requested', courier_norm: null, awb: null, date_on: '2026-06-01', delivery_on: null, result_norm: null, blend: null, strategy: null, highlights: null, result_on: null },
+        ]}
+      />
+    </MemoryRouter>,
+  );
+  const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+  expect(headers[0]).toBe('Send ID');
+  expect(screen.getByRole('columnheader', { name: 'Send ID' })).toHaveAttribute('title', expect.stringMatching(/Unique to this send/));
+  expect(screen.getByText('SS-1001')).toHaveClass('font-mono');
+  // A legacy row without one shows the em-dash in that cell.
+  const legacy = screen.getByText('TYPE-113').closest('tr')!;
+  expect(legacy.querySelector('td')?.textContent).toBe('—');
+});
+
 it('the per-sample history (now under a "Samples" heading) has a matching empty state', () => {
   render(
     <MemoryRouter>

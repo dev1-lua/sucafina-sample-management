@@ -320,7 +320,7 @@ export async function drawPss(
     replacesSampleId?: string; reason?: string; optionLetter?: string;
     requestedBy?: string | null; loggedBy?: string | null; comments?: string;
   },
-): Promise<{ id: string; sample_ref: string; option_letter: string }> {
+): Promise<{ id: string; sample_ref: string; option_letter: string; send_id: string }> {
   const { rows: cRows } = await client.query(
     `SELECT c.*, cl.name AS resolved_client_name
        FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id
@@ -355,7 +355,7 @@ export async function drawPss(
              to_char(now() AT TIME ZONE 'Africa/Nairobi', 'YYYY-MM-DD'),
              (now() AT TIME ZONE 'Africa/Nairobi')::date,
              'requested')
-     RETURNING id, sample_ref, option_letter`,
+     RETURNING id, sample_ref, option_letter, send_id`,
     [sampleRef, contract.quality, contract.client_name ?? contract.resolved_client_name, contract.client_id,
      contract.destination, contract.shipment_month, contract.contract_number, o.contractId,
      o.containerNo, letter, o.replacesSampleId ?? null, qtyText(qty.grams), qty.grams, comments,
@@ -382,7 +382,7 @@ export async function drawPss(
       actor: o.actor,
     });
   }
-  return { id: String(row.id), sample_ref: String(row.sample_ref), option_letter: String(row.option_letter) };
+  return { id: String(row.id), sample_ref: String(row.sample_ref), option_letter: String(row.option_letter), send_id: String(row.send_id) };
 }
 
 /**
@@ -397,13 +397,13 @@ export async function maybeDrawReplacement(
   row: Record<string, unknown>,
   prev: Record<string, unknown>,
   actor: string,
-): Promise<{ drawn: { id: string; sample_ref: string; option_letter: string } | null }> {
+): Promise<{ drawn: { id: string; sample_ref: string; option_letter: string; send_id: string } | null }> {
   const contractId = row.contract_id ? String(row.contract_id) : null;
   if (!contractId) return { drawn: null };
 
   const flippedToRejected = row.result_norm === 'rejected' && prev.result_norm !== 'rejected';
   const containerNo = row.container_no == null ? null : Number(row.container_no);
-  let drawn: { id: string; sample_ref: string; option_letter: string } | null = null;
+  let drawn: { id: string; sample_ref: string; option_letter: string; send_id: string } | null = null;
 
   if (flippedToRejected && row.sample_type_norm === 'pss' && containerNo != null) {
     // A soft-deleted contract is out of the game: no replacement, no QC ping (the recompute below no-ops).

@@ -37,6 +37,28 @@ export function LotRefCell({ row, basePath }: { row: RowData; basePath: string }
   );
 }
 
+/**
+ * Receiver (specialty) / Client (bulk) cell for the Sends view (round 11). The name links to the
+ * Clients view with that client's row searched and expanded (`<book>?view=clients&client=`) —
+ * the same idea as the ×N pill jumping to Coffees. Stops propagation so it never doubles as the
+ * row's own drawer click.
+ */
+export function ClientLinkCell({ row, field, basePath }: { row: RowData; field: string; basePath: string }) {
+  const name = text(row[field]);
+  if (!name) return <CellValue value={null} />;
+  const title = `Every send to ${name}`;
+  return (
+    <Link
+      to={`${basePath}?view=clients&client=${encodeURIComponent(name)}`}
+      title={title}
+      onClick={(e) => e.stopPropagation()}
+      className="rounded-[2px] text-foreground underline-offset-2 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {name}
+    </Link>
+  );
+}
+
 /** Order column: the consignment number as a link to its page (rows carry `consignment_id`). */
 export function OrderLinkCell({ row }: { row: RowData }) {
   const number = text(row.consignment_number);

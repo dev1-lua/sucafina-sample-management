@@ -60,3 +60,28 @@ describe('record_dispatch — items by ref, or a whole order by CN', () => {
     expect(new RecordDispatchTool().inputSchema.safeParse({ courier: 'dhl' }).success).toBe(false);
   });
 });
+
+describe('record_dispatch — Send ID (round 11)', () => {
+  it('a {ref: "SS-1234"} item resolves to that one send with no receiver, and the row card carries send_id', async () => {
+    api.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith('/samples/resolve')) {
+        return { ref: 'SS-1234', candidates: [{ tab: 'bulk', id: 'row-7', send_id: 'SS-1234', ref: 'TYPE-113', receiver: 'EDMAX', status: 'preparing', date_on: '2026-09-20' }] };
+      }
+      if (path === '/bulk-samples/row-7' && init?.method === 'PATCH') return { id: 'row-7', send_id: 'SS-1234', sample_ref: 'TYPE-113', status: 'dispatched', courier_norm: 'dhl', awb: '1234', client_id: null };
+      throw new Error('unexpected ' + path);
+    });
+    const r: any = await new RecordDispatchTool().execute({ items: [{ ref: 'ss 1234', receiver: 'wrong receiver' }], courier: 'DHL', awb: '1234' });
+    expect(calls()[0]![0]).toBe('/samples/resolve?ref=SS-1234');
+    expect(r.updated).toEqual([expect.objectContaining({ tab: 'bulk', id: 'row-7', send_id: 'SS-1234', ref: 'TYPE-113', status: 'dispatched' })]);
+    expect(r.updated[0].note).toBeUndefined();
+  });
+
+  it('a {tab, id} item still surfaces send_id from the PATCH response (null when the API row has none)', async () => {
+    api.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/forwarding-samples/f1' && init?.method === 'PATCH') return { id: 'f1', sample_ref: 'SSUG-1', status: 'dispatched', client_id: null };
+      throw new Error('unexpected ' + path);
+    });
+    const r: any = await new RecordDispatchTool().execute({ items: [{ tab: 'forwarding', id: 'f1' }], courier: 'dhl', awb: '1' });
+    expect(r.updated[0]).toMatchObject({ id: 'f1', send_id: null });
+  });
+});

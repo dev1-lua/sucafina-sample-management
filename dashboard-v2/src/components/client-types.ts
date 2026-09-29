@@ -20,6 +20,7 @@ export type ClientOrderTab = 'specialty' | 'bulk' | 'forwarding';
 export type ClientOrder = {
   tab: ClientOrderTab;
   id: string;
+  send_id?: string | null; // round 11: SS-<n>, unique to this send
   ref: string | null;
   title: string | null;
   status: string | null;

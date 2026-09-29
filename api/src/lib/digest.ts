@@ -1,6 +1,6 @@
 import { pool } from '../db.js';
 
-const SUMMARY = `tab, id, ref, title AS quality, receiver, awb, date_on, delivery_on`;
+const SUMMARY = `tab, id, send_id, ref, title AS quality, receiver, awb, date_on, delivery_on`;
 const ORDER = `ORDER BY date_on ASC NULLS LAST LIMIT 50`;
 
 export type DigestItem = { tab: string; id: string; [k: string]: unknown };

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
-import { HttpError, parseBody, h } from '../errors.js';
+import { HttpBodyError, HttpError, parseBody, h } from '../errors.js';
 import { actorFrom } from '../auth.js';
 import { issueRef, releaseRefIfLatest } from '../lib/refs.js';
 import { buildList, makeFilters } from '../lib/list.js';
@@ -11,7 +12,7 @@ import { parseId, assertIn } from '../lib/validate.js';
 import { AWAITING_COLLECTION_WHERE, gapColumns } from '../lib/detail-requests.js';
 import { enqueueRequestEdited, enqueueDeleted } from '../lib/change-alerts.js';
 import { maybeDrawReplacement, recomputeContractStatus, resolveContractLink, typedOptionLetter } from '../lib/contracts.js';
-import { attachLot, consignmentNumberColumn, countLotSends, lotSendsColumn, normalizeRef, resolveLot, type Coffee } from '../lib/lots.js';
+import { attachLot, consignmentNumberColumn, countLotSends, describeCoffee, lotSendsColumn, normalizeRef, optionLetterOfRef, refFilter, releaseLotIfOrphaned, resolveLot, type Coffee } from '../lib/lots.js';
 import { assertConsignment, consignmentWhere } from '../lib/consignments.js';
 
 export const bulkSamples = Router();
@@ -80,6 +81,9 @@ const createSchema = z.object({
 });
 
 const patchSchema = z.object({
+  // Round 11 (§2): QC may re-ref a row. Normalised, checked against its lot (a different coffee → 409), the
+  // lots moved with it — see patchBulkSample. The send id (SS-<n>) is NOT here: it never changes.
+  sample_ref: z.string().min(1).nullish(),
   status: z.enum(STATUSES).nullish(),
   courier_norm: z.string().nullish(),
   awb: z.string().nullish(),
@@ -181,10 +185,11 @@ bulkSamples.get('/', h(async (req, res) => {
     f.add(`EXISTS (SELECT 1 FROM contracts c WHERE c.id = bulk_samples.contract_id AND c.deleted_at IS NULL AND c.pss_due_date <= current_date + ?::int)`, Number(raw));
   }
   // Round 10: every send of one coffee (?ref=, exact after normalisation) / of one order (?consignment=).
-  if (req.query.ref) f.add(`normalize_ref(sample_ref) = ?`, normalizeRef(String(req.query.ref)));
+  // Round 11: an SS-<n> value is a send id — exactly one row.
+  if (req.query.ref) refFilter(f, 'sample_ref', String(req.query.ref));
   if (req.query.consignment) consignmentWhere(f, String(req.query.consignment));
   const result = await buildList(
-    { table: 'bulk_samples', extraSelect: `${gapColumns('bulk_samples')}, ${PSS_DUE_SELECT}, ${LOT_COLUMNS}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by','logged_by'] },
+    { table: 'bulk_samples', extraSelect: `${gapColumns('bulk_samples')}, ${PSS_DUE_SELECT}, ${LOT_COLUMNS}`, sortable: SORTABLE, defaultSort: 'date_on', searchColumns: ['send_id','sample_ref','quality','client','country','awb','ico_mark','client_ref','requested_by','logged_by'] },
     req.query, f.where, f.params,
   );
   res.json(result);
@@ -287,6 +292,11 @@ export async function patchBulkSample(id: string, body: BulkPatch, actor: string
   const cur = await pool.query(`SELECT * FROM bulk_samples WHERE id = $1 AND deleted_at IS NULL`, [id]);
   if (!cur.rows[0]) throw new HttpError(404, 'bulk sample not found');
   const prev = cur.rows[0];
+  // Round 11 (§2): the ref names the coffee, so a new ref is checked against its lot with THIS row's coffee
+  // (as the row will read after this PATCH) exactly as the create path does. Same coffee / unused → the row
+  // moves lots; a different coffee → 409 with a plain-English message. Unchanged → not an edit at all.
+  const refEdit = await resolveRefEdit(prev, body);
+  if (!refEdit && body.sample_ref != null) { const { sample_ref: _same, ...rest } = body; body = rest; }
   if (Object.keys(body).length === 0) return prev;
   const nextStatus = body.result_norm ? 'results_in' : body.status ?? null;
 
@@ -294,16 +304,22 @@ export async function patchBulkSample(id: string, body: BulkPatch, actor: string
     body.status === 'dispatched' ? 'dispatched'
     : body.result_norm ? 'result_logged'
     : nextStatus && nextStatus !== prev.status ? 'status_change'
+    : refEdit ? 'ref_changed'
     : 'edited';
   const note =
     eventType === 'dispatched' ? `via ${body.courier_norm ?? prev.courier_norm ?? '?'} AWB ${body.awb ?? prev.awb ?? '—'}`
     : eventType === 'result_logged' ? String(body.result_norm)
     : eventType === 'status_change' ? `${prev.status} → ${nextStatus}`
+    : eventType === 'ref_changed' ? refEdit!.note
     : `fields updated: ${Object.keys(body).join(', ')}`;
 
   const out: { drawn: { id: string; sample_ref: string } | null } = { drawn: null };
   const row = await runWithEvent(
     `UPDATE bulk_samples SET
+       sample_ref = COALESCE($33, sample_ref),
+       -- A ref edit writes the letter explicitly: the one the new ref carries, or NULL when it carries none
+       -- (SSKE-107001B → SL-7307 must not leave a stale B behind). No ref edit → untouched.
+       option_letter = CASE WHEN $33 IS NULL THEN option_letter ELSE $34 END,
        status = COALESCE($2::sample_status_t, status),
        courier_norm = COALESCE($3, courier_norm),
        awb = COALESCE($4, awb),
@@ -352,10 +368,12 @@ export async function patchBulkSample(id: string, body: BulkPatch, actor: string
      body.strategy ?? null, body.highlights ?? null,
      body.requested_by ?? null, body.completed_by ?? null, body.stock_grams ?? null, body.priority ?? null,
      body.logged_by ?? null, body.dispatched_on ?? null, body.notify_trader_ids ?? null,
-     body.contract_id ?? null, body.container_no ?? null],
+     body.contract_id ?? null, body.container_no ?? null,
+     refEdit?.ref ?? null, refEdit?.optionLetter ?? null],
     { entityType: 'bulk', type: eventType, note, actor },
     // Feedback #30: ping the sales trader as the sample progresses (dashboard edits included).
     async (client, row) => {
+      if (refEdit) await applyRefEdit(client, prev, refEdit, eventType, actor);
       await enqueueStatusEvents(client, 'bulk', row, prev, body, nextStatus);
       // Harriet (round 6): QC hears about edits to the request definition by non-QC actors.
       await enqueueRequestEdited(client, 'bulk', prev, row, actor);
@@ -369,7 +387,47 @@ export async function patchBulkSample(id: string, body: BulkPatch, actor: string
   );
   if (!row) throw new HttpError(404, 'bulk sample not found');
   // extraWrites returns void, so the replacement's ref reaches the caller through the closure.
-  return { ...row, replacement_ref: out.drawn?.sample_ref ?? null };
+  return {
+    ...row, replacement_ref: out.drawn?.sample_ref ?? null,
+    lot_sends: await countLotSends(pool, 'bulk_samples', 'sample_ref', String(row.sample_ref ?? '')),
+  };
+}
+
+type RefEdit = { ref: string; optionLetter: string | null; coffee: Coffee; note: string };
+
+/**
+ * Round 11 (§2): what `sample_ref` in a PATCH means for this row. null = no ref edit (absent, or the same ref
+ * after normalisation). Throws the 409 when the ref already names a different coffee — nothing is written.
+ */
+async function resolveRefEdit(prev: Record<string, unknown>, body: BulkPatch): Promise<RefEdit | null> {
+  if (body.sample_ref == null) return null;
+  const ref = normalizeRef(body.sample_ref);
+  if (!ref) throw new HttpError(400, 'sample_ref cannot be blank');
+  const prevRef = normalizeRef(prev.sample_ref as string | null);
+  if (ref === prevRef) return null;
+  const coffee: Coffee = { book: 'commercial', quality: body.quality ?? (prev.quality as string | null), blend: body.blend ?? (prev.blend as string | null) };
+  const r = await resolveLot(pool, { ...coffee, ref });
+  if (r.action === 'conflict' && r.lot) {
+    const n = r.sends.length;
+    throw new HttpBodyError(409, {
+      error: 'ref_conflict', ref, lot: r.lot, sends: r.sends,
+      message: `${ref} is ${describeCoffee(r.lot)} (${n} send${n === 1 ? '' : 's'}). This row is ${describeCoffee(coffee)} — a different coffee. Give it a new ref, or correct the quality/blend first.`,
+    });
+  }
+  return { ref, optionLetter: optionLetterOfRef(ref), coffee, note: `${prevRef || '(no ref)'} → ${ref}` };
+}
+
+/** The lot side of a ref edit, on the UPDATE's transaction: claim the new lot, drop the old one if nothing is left on it. */
+async function applyRefEdit(client: PoolClient, prev: Record<string, unknown>, e: RefEdit, eventType: string, actor: string): Promise<void> {
+  await attachLot(client, { ...e.coffee, ref: e.ref, typed: true, createdBy: actor });
+  await releaseLotIfOrphaned(client, prev.sample_ref as string | null);
+  // A ref edit that rode a status/result PATCH still gets its own audit row.
+  if (eventType !== 'ref_changed') {
+    await client.query(
+      `INSERT INTO events (entity_type, entity_id, type, note, actor) VALUES ('bulk', $1, 'ref_changed', $2, $3)`,
+      [prev.id, e.note, actor],
+    );
+  }
 }
 
 bulkSamples.patch('/:id', h(async (req, res) => {

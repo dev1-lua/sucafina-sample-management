@@ -24,11 +24,21 @@ describe('schema', () => {
     expect(cols).toEqual(expect.arrayContaining(['requested_by', 'completed_by', 'priority', 'logged_by']));
   });
 
-  it('seeds ref counters (SL/TYPE restarted by migration 015, one-shot marker present)', async () => {
+  it('exposes send_id and option_letter as the two trailing columns of all_samples_v (migration 025)', async () => {
+    const { rows } = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'all_samples_v' ORDER BY ordinal_position`
+    );
+    const cols = rows.map((r) => r.column_name);
+    expect(cols).toHaveLength(36);
+    expect(cols.slice(-3)).toEqual(['consignment_number', 'send_id', 'option_letter']);
+  });
+
+  it('seeds ref counters (SL/TYPE restarted by migration 015, one-shot marker present; SS send ids from 025)', async () => {
     const { rows } = await pool.query(`SELECT prefix, next_val FROM ref_counters ORDER BY prefix`);
     expect(rows).toEqual([
       { prefix: 'CN', next_val: 1000 },
       { prefix: 'SL', next_val: 7459 },
+      { prefix: 'SS', next_val: 1000 },
       { prefix: 'SSKE', next_val: 108000 },
       { prefix: 'TYPE', next_val: 108 },
       { prefix: '_restart_2026_08', next_val: 0 },

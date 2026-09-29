@@ -29,14 +29,15 @@ describe('create_bulk_sample — refs name the coffee', () => {
   it('normalises the typed ref, passes consignment_id, surfaces lot_sends / reused_ref', async () => {
     api.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === '/bulk-samples' && init?.method === 'POST') {
-        return { id: 'b9', date: '2026-09-22', sample_ref: 'TYPE-113', quality: 'AB FAQ', client: 'EDMAX', client_id: 'client-1', sample_type_norm: 'type', qty_grams: 300, status: 'requested', lot_sends: 3, reused_ref: true };
+        return { id: 'b9', send_id: 'SS-1234', date: '2026-09-22', sample_ref: 'TYPE-113', quality: 'AB FAQ', client: 'EDMAX', client_id: 'client-1', sample_type_norm: 'type', qty_grams: 300, status: 'requested', lot_sends: 3, reused_ref: true };
       }
       throw new Error(`unexpected ${path}`);
     });
     const r: any = await new CreateBulkSampleTool().execute({ quality: 'AB FAQ', sample_type: 'type', client: 'EDMAX', sample_ref: 'type - 113', consignment_id: 'cn-uuid', client_id: 'client-1' });
     const body = JSON.parse((api.mock.calls.find((c) => c[0] === '/bulk-samples') as any)[1].body);
     expect(body).toMatchObject({ sample_ref: 'TYPE-113', consignment_id: 'cn-uuid' });
-    expect(r).toMatchObject({ tab: 'bulk', id: 'b9', sample_ref: 'TYPE-113', lot_sends: 3, reused_ref: true });
+    // Round 11: the row's own Send ID rides on the result (the ref names the coffee, the Send ID names this send).
+    expect(r).toMatchObject({ tab: 'bulk', id: 'b9', send_id: 'SS-1234', sample_ref: 'TYPE-113', lot_sends: 3, reused_ref: true });
   });
 
   it('409 ref_conflict → { ref_conflict, ref, lot, sends, say } instead of throwing; nothing else is written', async () => {
@@ -60,14 +61,14 @@ describe('create_specialty_sample — refs name the coffee', () => {
   it('normalises the typed ref, passes consignment_id, surfaces lot_sends / reused_ref', async () => {
     api.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === '/specialty-samples' && init?.method === 'POST') {
-        return { id: 's9', ref: 'SL-7336', date: '2026-09-22', description: 'AA', receiver_company: 'TORCH', client_id: 'client-1', sample_type_norm: 'offer', status: 'requested', lot_sends: 3, reused_ref: true };
+        return { id: 's9', send_id: 'SS-1235', ref: 'SL-7336', date: '2026-09-22', description: 'AA', receiver_company: 'TORCH', client_id: 'client-1', sample_type_norm: 'offer', status: 'requested', lot_sends: 3, reused_ref: true };
       }
       throw new Error(`unexpected ${path}`);
     });
     const r: any = await new CreateSpecialtySampleTool().execute({ description: 'AA', sample_type: 'offer', receiver_company: 'TORCH', name: 'Sangalai', country: 'Kenya', ref: 'sl 7336', outturn: '17KN0076', grade: 'AA', consignment_id: 'cn-uuid', client_id: 'client-1' });
     const body = JSON.parse((api.mock.calls.find((c) => c[0] === '/specialty-samples') as any)[1].body);
     expect(body).toMatchObject({ ref: 'SL-7336', consignment_id: 'cn-uuid' });
-    expect(r).toMatchObject({ tab: 'specialty', id: 's9', ref: 'SL-7336', lot_sends: 3, reused_ref: true });
+    expect(r).toMatchObject({ tab: 'specialty', id: 's9', send_id: 'SS-1235', ref: 'SL-7336', lot_sends: 3, reused_ref: true });
   });
 
   it('409 ref_conflict → ref_conflict result with the say line', async () => {

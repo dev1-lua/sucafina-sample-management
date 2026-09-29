@@ -225,6 +225,122 @@ it('In the loop: the account manager comes from the client record when the row o
   expect(spy.mock.calls.some(([input]) => String(input).includes('/clients/cl-1'))).toBe(true);
 });
 
+// --- Round 11: the send id under the title; the ref is QC-editable and a 409 says why inline. ------
+const REF_FIELDS: DetailField[] = [
+  { key: 'ref', label: 'Ref', edit: { field: 'ref', type: 'text' } },
+  { key: 'status', label: 'Status', edit: { field: 'status', type: 'text' } },
+];
+const CONFLICT = {
+  error: 'ref_conflict', ref: 'TYPE-115',
+  lot: { ref: 'TYPE-115', book: 'commercial', coffee_key: 'k', outturn: null, grade: null, quality: 'AB FAQ', blend: null, first_issued_at: '2026-06-01T00:00:00Z' },
+  sends: [],
+  message: 'TYPE-115 is AB FAQ (3 sends). This row is C FAQ — a different coffee. Give it a new ref, or correct the outturn/grade first.',
+};
+
+/** GET serves the row; a PATCH of `ref` answers 409 with the conflict body, any other PATCH sticks. */
+function stubRefPatch(row: Record<string, unknown>, conflict: Record<string, unknown> | null = CONFLICT) {
+  let current = row;
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input);
+    const method = (init as RequestInit | undefined)?.method ?? 'GET';
+    const json = { status: 200, headers: { 'content-type': 'application/json' } };
+    if (url.includes('/traders')) return new Response(JSON.stringify({ data: [], total: 0 }), json);
+    if (method === 'PATCH') {
+      const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
+      if ('ref' in body && conflict) return new Response(JSON.stringify(conflict), { status: 409, headers: json.headers });
+      current = { ...current, ...body };
+    }
+    return new Response(JSON.stringify(current), json);
+  });
+}
+
+it('shows "Send ID SS-<n>" under the title, in monospace, when the row carries one', async () => {
+  stubRefPatch({ ...detail, send_id: 'SS-1042' });
+  render(wrap(<DetailDrawer endpoint="/specialty-samples" id="1" open onClose={() => {}} fields={fields} />));
+  expect(await screen.findByText('REF-001')).toBeInTheDocument();
+  expect(screen.getByText(/^Send ID/)).toBeInTheDocument();
+  expect(screen.getByText('SS-1042')).toHaveClass('font-mono');
+});
+
+it('no Send ID line for a row that predates the column', async () => {
+  stubRefPatch(detail);
+  render(wrap(<DetailDrawer endpoint="/specialty-samples" id="1" open onClose={() => {}} fields={fields} />));
+  expect(await screen.findByText('REF-001')).toBeInTheDocument();
+  expect(screen.queryByText(/^Send ID/)).not.toBeInTheDocument();
+});
+
+it('the ref is an editable detail field: committing a new value PATCHes {ref} and the title follows', async () => {
+  const spy = stubRefPatch(detail, null);
+  render(wrap(<DetailDrawer endpoint="/specialty-samples" id="1" open onClose={() => {}} fields={REF_FIELDS} />));
+  const input = await screen.findByDisplayValue('REF-001');
+  fireEvent.change(input, { target: { value: 'TYPE-116' } });
+  fireEvent.blur(input);
+  await waitFor(() => {
+    const patch = spy.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+    expect(patch).toBeTruthy();
+    expect(String(patch![0])).toMatch(/\/specialty-samples\/1$/);
+    expect(JSON.parse(String((patch![1] as RequestInit).body))).toEqual({ ref: 'TYPE-116' });
+  });
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'TYPE-116' })).toBeInTheDocument());
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('a 409 ref_conflict shows the server message under the Ref field and rolls the value back', async () => {
+  stubRefPatch(detail);
+  render(wrap(<DetailDrawer endpoint="/bulk-samples" id="1" open onClose={() => {}} fields={REF_FIELDS} />));
+  const input = await screen.findByDisplayValue('REF-001');
+  fireEvent.change(input, { target: { value: 'TYPE-115' } });
+  fireEvent.blur(input);
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('TYPE-115 is AB FAQ (3 sends). This row is C FAQ — a different coffee.');
+  // The message sits in the Ref field's row, not somewhere generic.
+  expect(alert.closest('dd')?.querySelector('input')).toHaveDisplayValue('REF-001');
+  // Editing again clears the stale message.
+  fireEvent.change(screen.getByDisplayValue('REF-001'), { target: { value: 'TYPE-117' } });
+  await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument()); // the second 409
+  expect(screen.getAllByRole('alert')).toHaveLength(1);
+});
+
+it('a 409 without a message still explains the clash; any other failure gets a generic line', async () => {
+  stubRefPatch(detail, { error: 'ref_conflict', ref: 'TYPE-115', lot: { ref: 'TYPE-115', quality: 'AB FAQ', blend: 'Blend' }, sends: [] });
+  const { unmount } = render(wrap(<DetailDrawer endpoint="/bulk-samples" id="1" open onClose={() => {}} fields={REF_FIELDS} />));
+  const input = await screen.findByDisplayValue('REF-001');
+  fireEvent.change(input, { target: { value: 'TYPE-115' } });
+  fireEvent.blur(input);
+  expect(await screen.findByRole('alert')).toHaveTextContent('TYPE-115 already names a different coffee (AB FAQ Blend).');
+  unmount();
+  vi.restoreAllMocks();
+
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const method = (init as RequestInit | undefined)?.method ?? 'GET';
+    if (String(input).includes('/traders')) return new Response(JSON.stringify({ data: [], total: 0 }), { status: 200 });
+    if (method === 'PATCH') return new Response('boom', { status: 500 });
+    return new Response(JSON.stringify(detail), { status: 200, headers: { 'content-type': 'application/json' } });
+  });
+  render(wrap(<DetailDrawer endpoint="/specialty-samples" id="1" open onClose={() => {}} fields={REF_FIELDS} />));
+  const status = await screen.findByDisplayValue('requested');
+  fireEvent.change(status, { target: { value: 'dispatched' } });
+  fireEvent.blur(status);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save this change. Please try again.');
+});
+
+it('a field hint renders muted under the value or input, and only for fields that carry one', async () => {
+  stubFetch();
+  const HINT = 'Names the coffee — shared by every send of it. Change it only if the coffee was mislabelled.';
+  const fieldsWithHint: DetailField[] = [
+    { key: 'ref', label: 'Ref', edit: { field: 'ref', type: 'text' }, hint: HINT },
+    { key: 'status', label: 'Status', edit: { field: 'status', type: 'text' } },
+  ];
+  render(wrap(<DetailDrawer endpoint="/specialty-samples" id="1" open onClose={() => {}} fields={fieldsWithHint} />));
+  const input = await screen.findByDisplayValue('REF-001');
+  const hint = screen.getByText(HINT);
+  expect(hint).toHaveClass('text-xs', 'text-muted-foreground');
+  expect(hint).not.toHaveAttribute('role', 'alert');
+  // Under the Ref input, inside the same definition cell — not the Status one.
+  expect(input.closest('dd')).toContainElement(hint);
+  expect(screen.getByDisplayValue('requested').closest('dd')).not.toContainElement(hint);
+});
+
 it('In the loop: no account-manager line when neither the row nor a client carries one', async () => {
   stubRound10({ ...RESEND, notify_trader_ids: [] });
   render(wrap(<DetailDrawer endpoint="/forwarding-samples" id="u-2" open onClose={() => {}} fields={fields} />));

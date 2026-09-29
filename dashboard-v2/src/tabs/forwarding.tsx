@@ -1,4 +1,5 @@
 import { CellValue } from '@/components/CellValue';
+import { sendIdColumn } from '@/components/SendId';
 import { formatQty, formatLocation } from '@/lib/format';
 import type { TabConfig } from './registry';
 import { followupColumns, followupDetailFields } from './followup-fields';
@@ -29,6 +30,8 @@ export const forwardingConfig: TabConfig = {
   defaultSort: { sort: 'created_at', order: 'desc' },
   // Only 11 columns total — no curation needed, all ship visible by default.
   columns: [
+    // Round 11: the send's own id leads — unique to the row.
+    sendIdColumn,
     { key: 'date', header: 'Date', sortKey: 'date_on' },
     { key: 'sender', header: 'Sender', sortKey: 'sender' },
     { key: 'origin', header: 'Origin', sortKey: 'origin' },

@@ -14,13 +14,15 @@ A consignment is an ORDER: the samples of one request to one client, shipping ou
 desk-issued number (CN-####), the client, the Sales Trader and who logged it, and a lab location
 (Westlands / Thika). Use when the team says things like "group these into a consignment", "put SL-8000
 and SL-8001 together for Thika", "which samples are in CN-1004?", "what's the status of CN-1012?".
+Members carry a Send ID (SS-1234, \`send_id\`) — quote it on each member line.
 
 - Create one with create_consignment — pass samples [{tab, id}] (from create / search results) or refs
   [], plus client_id and requested_by / logged_by when known. The number is auto-generated — never
   invent one; report the one that comes back. (The intake skill does this itself for a multi-coffee
   request — see its ORDERS block.)
 - Add more samples later with add_samples_to_consignment ({tab, id} or refs). A ref names the COFFEE
-  and can have several sends: pass receiver to pick one. Anything that doesn't resolve comes back in
+  and can have several sends: pass receiver to pick one — or give the Send ID (SS-1234) in refs, which
+  names one send outright. Anything that doesn't resolve comes back in
   \`unresolved_refs\` with the reason in \`unresolved\` — tell the user which and why (e.g. "SL-7336 has 2
   sends — which receiver?"), don't silently drop it.
 - Assign / change the lab with set_consignment_location; mark it dispatched/closed via the same tool's status.

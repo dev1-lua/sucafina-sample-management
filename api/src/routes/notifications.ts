@@ -38,7 +38,7 @@ const CONTACT_EMAIL = `
 // past 'dispatched' between job runs.
 notifications.get('/dispatch-pending', h(async (_req, res) => {
   const arm = (tab: string, table: string, ref: string, title: string, receiver: string) => `
-    SELECT '${tab}'::text AS tab, t.id, t.${ref} AS ref, t.${title} AS title,
+    SELECT '${tab}'::text AS tab, t.id, t.${ref} AS ref, t.send_id, t.${title} AS title,
            t.${receiver} AS receiver, t.courier_norm, t.awb, t.qty_grams, t.dispatched_on,
            c.name AS client_name, ct.email
       FROM ${table} t${CONTACT_EMAIL}
@@ -62,7 +62,7 @@ notifications.get('/dispatch-pending', h(async (_req, res) => {
 // Forwarding is excluded: it has no delivery/feedback lifecycle.
 notifications.get('/feedback-due', h(async (_req, res) => {
   const arm = (tab: string, table: string, ref: string, title: string) => `
-    SELECT '${tab}'::text AS tab, t.id, t.${ref} AS ref, t.${title} AS title,
+    SELECT '${tab}'::text AS tab, t.id, t.${ref} AS ref, t.send_id, t.${title} AS title,
            t.delivery_on, c.name AS client_name, ct.email
       FROM ${table} t${CONTACT_EMAIL}
      WHERE t.deleted_at IS NULL
@@ -126,7 +126,7 @@ const ROUND10_NULLS = `
 const entityArm = (tab: string, table: string, ref: string) => `
     SELECT o.id AS outbox_id, o.tab, o.sample_id, o.event, o.recipient, o.attempts,
            o.dedupe_key, o.payload, o.actor,
-           e.${ref} AS ref, NULL::text AS title, NULL::text AS receiver,
+           e.${ref} AS ref, NULL::text AS send_id, NULL::text AS title, NULL::text AS receiver,
            NULL::text AS status, NULL::text AS courier_norm, NULL::text AS awb, NULL::int AS qty_grams, NULL::text AS priority,
            NULL::text AS requested_by, NULL::text AS logged_by, ${tab === 'client' ? 'e.name' : 'NULL::text'} AS client_name, o.created_at,
            false AS client_address_missing, NULL::text AS details_requested_from, NULL::timestamptz AS details_requested_at,
@@ -141,7 +141,7 @@ const entityArm = (tab: string, table: string, ref: string) => `
 const contractArm = `
     SELECT o.id AS outbox_id, o.tab, o.sample_id, o.event, o.recipient, o.attempts,
            o.dedupe_key, o.payload, o.actor,
-           e.contract_number AS ref, e.quality AS title, e.destination AS receiver,
+           e.contract_number AS ref, NULL::text AS send_id, e.quality AS title, e.destination AS receiver,
            e.status AS status, NULL::text AS courier_norm, NULL::text AS awb, NULL::int AS qty_grams, NULL::text AS priority,
            NULL::text AS requested_by, NULL::text AS logged_by, c.name AS client_name, o.created_at,
            false AS client_address_missing, NULL::text AS details_requested_from, NULL::timestamptz AS details_requested_at,
@@ -163,7 +163,7 @@ notifications.get('/outbox-pending', h(async (_req, res) => {
   const arm = (tab: string, table: string, ref: string, title: string, receiver: string, o: { country: string; sampleType: string }) => `
     SELECT o.id AS outbox_id, o.tab, o.sample_id, o.event, o.recipient, o.attempts,
            o.dedupe_key, o.payload, o.actor,
-           t.${ref} AS ref, t.${title} AS title, t.${receiver} AS receiver,
+           t.${ref} AS ref, t.send_id, t.${title} AS title, t.${receiver} AS receiver,
            t.status::text AS status, t.courier_norm, t.awb, t.qty_grams, t.priority,
            t.requested_by, t.logged_by, c.name AS client_name, o.created_at,
            -- Log-first (migration 016): QC's new-request ping must say the address is pending and who was asked.

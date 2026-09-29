@@ -33,6 +33,7 @@ describe('GET /notifications/dispatch-pending', () => {
     expect(item).toBeTruthy();
     expect(item.email).toBe('qc@emailed.example');
     expect(item.client_name).toBe('Emailed Coffee Co');
+    expect(item.send_id).toBe(s.body.send_id);   // round 11: the email quotes "ref (SS-n)"
     expect(item.awb).toBe('555000111');
   });
 
@@ -94,6 +95,7 @@ describe('GET /notifications/feedback-due', () => {
     expect(ids).not.toContain(day6);
     expect(ids).toContain(day7);
     expect(ids).not.toContain(day31);
+    expect(due.body.items.find((i: { id: string }) => i.id === day7).send_id).toMatch(/^SS-\d+$/);   // round 11
   });
 
   it('excludes rows with a verdict, recorded feedback, or a previous chase', async () => {
@@ -356,6 +358,7 @@ describe('outbox-pending round-10 fields', () => {
     expect(s.status).toBe(201);
     const item = await itemFor(s.body.id);
     expect(item).toMatchObject({
+      send_id: s.body.send_id,   // round 11: every ping quotes the send id
       client_email: 'ann@fresh.example', client_contact: 'Ann', client_phone: '+32 1', country: 'Belgium',
       sample_type_norm: 'type', consignment_id: order.body.id, consignment_number: order.body.number, lot_sends: 1,
       client_name: 'Fresh Roasters',

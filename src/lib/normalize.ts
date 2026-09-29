@@ -211,6 +211,20 @@ export function lotRefFor(raw?: string | null): string | undefined {
   return ref?.replace(/^(SSKE-\d+) ?[A-Z]$/, '$1');
 }
 
+/**
+ * A Send ID (round 11): `SS-<n>`, minted per row and unique to that send — NOT a ref (a ref names the coffee
+ * and is shared by every send of it). `isSendId("ss 1234")` is true: normalizeRef spells it `SS-1234`, and
+ * lotRefFor leaves it alone (only lettered SSKE refs collapse to a group).
+ */
+export const SEND_ID_RE = /^SS-\d+$/;
+export const isSendId = (raw?: string | null): boolean => SEND_ID_RE.test(normalizeRef(raw) ?? '');
+
+/** "SL-7336 (SS-1234)" for a notification line — the ref alone when the row carries no Send ID, the Send ID alone when it has no ref, `fallback` when it has neither. */
+export function refWithSendId(ref: string | null | undefined, sendId: string | null | undefined, fallback = '(no ref)'): string {
+  if (!ref) return sendId || fallback;
+  return sendId ? `${ref} (${sendId})` : ref;
+}
+
 // ---- AWB (data-dictionary §9 rule 1) -------------------------------------
 
 /** Store as text, digits only — strips everything non-digit, keeps as string to preserve leading zeros. */
